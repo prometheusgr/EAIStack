@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eaistack-backend"
+version = "0.1.0"
+description = "Enterprise AI Stack - FastAPI Backend"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    "pydantic==2.5.0",
+    "pydantic-settings==2.1.0",
+    "sqlalchemy==2.0.23",
+    "psycopg2-binary==2.9.9",
+    "alembic==1.13.0",
+    "langgraph==0.0.40",
+    "langchain==0.1.0",
+    "langchain-community==0.0.13",
+    "pgvector==0.2.4",
+    "minio==7.2.0",
+    "httpx==0.25.0",
+    "python-multipart==0.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.3",
+    "pytest-cov==4.1.0",
+    "pytest-asyncio==0.21.1",
+    "pytest-mock==3.12.0",
+    "testcontainers[postgres]==3.7.1",
+    "black==23.12.0",
+    "ruff==0.1.8",
+    "mypy==1.7.1",
+]
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "--cov=app --cov-report=term-missing --strict-markers"
+markers = [
+    "unit: Unit tests (fast, mocked LLM)",
+    "integration: Integration tests (real llama-server, slow)",
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+omit = [
+    "app/main.py",
+    "*/migrations/*",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # line-too-long handled by black
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
