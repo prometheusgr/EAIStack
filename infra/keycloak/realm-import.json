@@ -1,0 +1,63 @@
+{
+  "realm": "eaistack",
+  "enabled": true,
+  "displayName": "EAIStack Realm",
+  "displayNameHtml": "<b>Enterprise AI Stack</b>",
+  "clients": [
+    {
+      "clientId": "eaistack-api",
+      "name": "EAIStack API Server",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eaistack-api-secret",
+      "access": {
+        "view": true,
+        "configure": true,
+        "manage": true
+      }
+    },
+    {
+      "clientId": "eaistack-web",
+      "name": "EAIStack Web Frontend",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:3000/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "access": {
+        "view": true,
+        "configure": true,
+        "manage": true
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "testuser@eaistack.local",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpassword",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

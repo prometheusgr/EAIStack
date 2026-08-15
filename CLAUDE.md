@@ -16,7 +16,7 @@
 
 See `/CLAUDE.md` (this file) and `/.claude/plans/indexed-tinkering-babbage.md` for the full architecture and phasing.
 
-**Current phase**: Phase 0 — Testing & CI scaffolding.
+**Current phase**: Phase 1 — Local dev loop & authentication.
 
 ## Development Standards
 

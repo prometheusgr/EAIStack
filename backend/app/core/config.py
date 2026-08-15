@@ -26,10 +26,11 @@ class Settings(BaseSettings):
     llm_url: str = "http://localhost:8000"
     llm_model: str = "llama-2"
 
-    # Keycloak
+    # Keycloak (OIDC)
     keycloak_url: str = "http://localhost:8080"
     keycloak_realm: str = "eaistack"
     keycloak_client_id: str = "eaistack-api"
+    keycloak_client_secret: str = "eaistack-api-secret"
 
     # Session lifecycle
     session_cleanup_on_logout: bool = True

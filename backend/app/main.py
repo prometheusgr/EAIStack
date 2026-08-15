@@ -1,9 +1,10 @@
 """FastAPI application entry point."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core.auth import get_current_user
 
 app = FastAPI(
     title="EAIStack Backend",
@@ -22,9 +23,16 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint (public)."""
     return {"status": "ok"}
 
 
-# TODO: Add auth middleware, API routes
-# Placeholder for Phase 1 development
+@app.get("/auth/me")
+async def get_user_info(user: dict = Depends(get_current_user)):
+    """Get authenticated user info."""
+    return {
+        "user_id": user["user_id"],
+        "username": user["username"],
+        "email": user["email"],
+        "name": user["name"],
+    }
