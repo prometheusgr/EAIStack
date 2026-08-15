@@ -15,18 +15,18 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [keycloak, setKeycloak] = useState<Keycloak.KeycloakInstance | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
   const [user, setUser] = useState(null)
 
   useEffect(() => {
-    const kc = new Keycloak({
-      url: 'http://localhost:8080',
-      realm: 'eaistack',
-      clientId: 'eaistack-web',
-    })
-
-    kc.init({ onLoad: 'check-sso', redirectUri: 'http://localhost:3000' })
-      .then((authenticated) => {
+    const initKeycloak = async () => {
+      const kc = new Keycloak({
+        url: 'http://localhost:8080',
+        realm: 'eaistack',
+        clientId: 'eaistack-web',
+      })
+      try {
+        const authenticated = await kc.init({ checkLoginIframe: false })
         setKeycloak(kc)
         setIsAuthenticated(authenticated)
         if (authenticated) {
@@ -36,24 +36,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             name: kc.tokenParsed?.name,
           })
         }
-      })
-      .catch(() => {
+      } catch (err) {
+        console.error('Keycloak init failed:', err)
         setKeycloak(kc)
-      })
-      .finally(() => {
-        setIsLoading(false)
-      })
+      }
+    }
+    initKeycloak()
   }, [])
 
-  const login = () => {
+  const login = async () => {
     if (keycloak) {
-      keycloak.login()
+      try {
+        keycloak.login()
+      } catch (err) {
+        console.error('Login failed:', err)
+      }
     }
   }
 
   const logout = () => {
     if (keycloak) {
-      keycloak.logout()
+      keycloak.logout({ redirectUri: `${window.location.origin}/` })
     }
   }
 

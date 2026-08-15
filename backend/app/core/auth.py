@@ -3,7 +3,7 @@
 import httpx
 from typing import Optional
 from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
+from fastapi.security import HTTPBearer
 
 from app.core.config import settings
 
@@ -19,7 +19,7 @@ async def get_keycloak_public_key() -> dict:
         return response.json()
 
 
-async def verify_token(credentials: HTTPAuthCredentials = Depends(security)) -> dict:
+async def verify_token(credentials = Depends(security)) -> dict:
     """Verify JWT token from Keycloak."""
     token = credentials.credentials
 

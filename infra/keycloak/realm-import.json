@@ -30,8 +30,8 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "http://localhost:3000/*",
-        "http://localhost:3000/callback"
+        "http://localhost:3000",
+        "http://localhost:3000/"
       ],
       "webOrigins": [
         "http://localhost:3000"
