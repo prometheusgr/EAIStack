@@ -228,6 +228,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   const logout = () => {
+    console.log('[Auth] Logout called, keycloak:', keycloak ? 'exists' : 'null')
+
     // Clear tokens from localStorage
     localStorage.removeItem('access_token')
     localStorage.removeItem('token_type')
@@ -240,9 +242,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     console.log('[Auth] Logged out, tokens cleared')
 
-    // Redirect to Keycloak logout endpoint
+    // Redirect to Keycloak logout endpoint to clear server-side session
     if (keycloak) {
+      console.log('[Auth] Calling keycloak.logout() with redirectUri:', `${window.location.origin}/`)
       keycloak.logout({ redirectUri: `${window.location.origin}/` })
+    } else {
+      console.warn('[Auth] Keycloak instance not available for logout')
     }
   }
 
