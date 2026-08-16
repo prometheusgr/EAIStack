@@ -91,14 +91,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     initKeycloak()
   }, [])
 
-  const login = async () => {
-    if (keycloak) {
-      try {
-        keycloak.login()
-      } catch (err) {
-        console.error('Login failed:', err)
-      }
-    }
+  const login = () => {
+    // Navigate directly to Keycloak instead of using keycloak.login()
+    // This avoids redirect URI mismatch issues with the JS client
+    const keycloakLoginUrl = new URL('http://localhost:8080/realms/eaistack/protocol/openid-connect/auth')
+    keycloakLoginUrl.searchParams.set('client_id', 'eaistack-web')
+    keycloakLoginUrl.searchParams.set('redirect_uri', window.location.origin + '/')
+    keycloakLoginUrl.searchParams.set('response_type', 'code')
+    keycloakLoginUrl.searchParams.set('response_mode', 'query')
+    keycloakLoginUrl.searchParams.set('scope', 'openid profile email')
+    keycloakLoginUrl.searchParams.set('state', 'eaistack-' + Date.now())
+
+    console.log('[Auth] Redirecting to Keycloak login:', keycloakLoginUrl.href)
+    window.location.href = keycloakLoginUrl.href
   }
 
   const logout = () => {
