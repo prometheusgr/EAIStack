@@ -27,6 +27,8 @@
     "@vitejs/plugin-react": "^4.1.1",
     "eslint": "^8.51.0",
     "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "jsdom": "^29.1.1",
     "react-refresh": "^0.18.0",
     "typescript": "^5.2.2",
     "vite": "^5.0.0",

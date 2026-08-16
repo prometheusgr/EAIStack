@@ -5,6 +5,8 @@ from typing import Any, List, Optional
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models import LLM
 
+from app.core.config import settings
+
 
 class FakeChatModel(LLM):
     """Fake LLM for unit testing. Returns canned responses."""
@@ -30,12 +32,22 @@ class FakeChatModel(LLM):
 
 def get_llm_client():
     """
-    Factory function to get the LLM client.
+    Factory returning the appropriate LLM client based on config.
 
-    In production, returns a real client pointing to llama-server.
-    In tests, this is replaced by mock_llm fixture.
+    Returns:
+        Either FakeChatModel for testing, or ChatOpenAI for real inference.
     """
+    if settings.llm_provider == "fake":
+        return FakeChatModel()
+    elif settings.llm_provider in ("llama-cpp", "openai-compatible"):
+        from langchain_openai import ChatOpenAI
 
-    # TODO: Return ChatOpenAI client pointing to llama-server in production
-    # For now, return a placeholder
-    return FakeChatModel()
+        return ChatOpenAI(
+            base_url=settings.llm_url,
+            api_key=settings.llm_api_key or "not-needed",
+            model=settings.llm_model,
+            temperature=0.7,
+            timeout=settings.llm_timeout,
+        )
+    else:
+        raise ValueError(f"Unknown llm_provider: {settings.llm_provider}")

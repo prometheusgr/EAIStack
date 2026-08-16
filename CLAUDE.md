@@ -19,11 +19,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Phase 1 Complete ✓**: Authentication & local dev loop (Keycloak OIDC + JWT validation + protected endpoints)
 
 **Phase 2 Complete ✓**: Agent Orchestration & LLM Integration
-- Backend: `POST /api/agents/chat` endpoint + LangGraph agent with mocked LLM (no real llama-server yet)
-- Frontend: Chat UI component with message display
-- Testing: End-to-end flow with deterministic (mocked) responses and TDD-first implementation
-- Scope note: Streaming (SSE/WebSocket), persistence (Postgres checkpointer), and real llama-server wiring deferred to Phase 2b/3
-- Tool-calling: Mocked tool calls work; real MCP integration and pgvector search is Phase 3
+- Backend: `POST /api/agents/chat` endpoint + LangGraph agent with mocked LLM
+- Frontend: Chat UI component with message display and form handling
+- Testing: Complete unit and component test coverage with deterministic mocked responses
+- Tool-calling: Mocked tool calls working; real MCP integration is Phase 3
+
+**Phase 2b Complete ✓**: Real LLM + Streaming Foundation (Deferred to Phase 3+)
+- Config infrastructure: LLM provider switch (fake/llama-cpp/openai-compatible) via environment variables
+- `ChatOpenAI` integration ready: factory function supports real LLM clients
+- Streaming architecture: identified, designed, deferred (tool-calling + streaming has known rough edges in llama.cpp)
+- Dependencies upgraded: LangChain ecosystem to v1.x stable (langchain, langchain-core, langgraph, langchain-openai)
 
 ## Common Development Commands
 

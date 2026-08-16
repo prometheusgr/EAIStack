@@ -18,6 +18,7 @@ async def chat(request: ChatRequest, user: dict = Depends(get_current_user)) -> 
     """Chat with the agent.
 
     Requires authentication via Keycloak bearer token.
+    Streaming is deferred to a future phase.
     """
     thread_id = request.thread_id or str(uuid.uuid4())
 

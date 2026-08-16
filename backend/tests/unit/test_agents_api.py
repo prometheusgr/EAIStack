@@ -3,16 +3,9 @@
 import uuid
 
 import pytest
-from starlette.testclient import TestClient
 
 from app.core.auth import get_current_user
 from app.main import app
-
-
-@pytest.fixture
-def client():
-    """Provide a test client for the app."""
-    return TestClient(app)
 
 
 @pytest.mark.unit

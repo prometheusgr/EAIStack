@@ -22,9 +22,13 @@ class Settings(BaseSettings):
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "documents"
 
-    # LLM (llama-server)
-    llm_url: str = "http://localhost:8000"
+    # LLM Provider
+    llm_provider: str = "fake"  # "fake" | "llama-cpp" | "openai-compatible"
+    llm_url: str = "http://localhost:8000/v1"
     llm_model: str = "llama-2"
+    llm_api_key: str | None = None
+    enable_streaming: bool = True
+    llm_timeout: int = 120
 
     # Keycloak (OIDC)
     keycloak_url: str = "http://localhost:8080"

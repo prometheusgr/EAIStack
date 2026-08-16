@@ -68,3 +68,14 @@ def mock_llm():
     from app.core.llm_client import FakeChatModel
 
     return FakeChatModel()
+
+
+@pytest.fixture
+def client():
+    """Provide a test client for the app."""
+    from starlette.testclient import TestClient
+
+    from app.main import app
+
+    # TestClient now takes the app as a positional argument, not keyword
+    return TestClient(app)

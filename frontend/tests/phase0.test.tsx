@@ -1,6 +1,23 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import App from '../src/App'
+
+vi.mock('../src/context/AuthContext', () => ({
+  useAuth: () => ({
+    keycloak: {
+      token: 'fake-token-123',
+    },
+    isAuthenticated: true,
+    isLoading: false,
+    login: () => {},
+    logout: () => {},
+    user: {
+      name: 'Test User',
+      username: 'testuser',
+    },
+  }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}))
 
 describe('App Component', () => {
   it('should render the App title', () => {

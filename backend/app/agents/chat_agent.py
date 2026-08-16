@@ -19,7 +19,9 @@ class ChatState(TypedDict):
 def call_agent(state: ChatState) -> ChatState:
     """Call the LLM with the user's message."""
     llm = get_llm_client()
-    response = llm.invoke(state["user_message"])
+    result = llm.invoke(state["user_message"])
+    # Extract text: handle both FakeChatModel (str) and ChatOpenAI (AIMessage)
+    response = result if isinstance(result, str) else result.content
     return {**state, "response": response}
 
 

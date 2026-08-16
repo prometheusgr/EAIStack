@@ -110,7 +110,7 @@ describe("ChatWindow", () => {
     await waitFor(() => {
       expect(mockSendChat).toHaveBeenCalledWith(
         "Test",
-        expect.any(String),
+        undefined,
         "fake-token-123"
       );
     });

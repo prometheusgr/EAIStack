@@ -17,30 +17,28 @@ export function ChatWindow() {
       return;
     }
 
+    const userMessage = inputValue;
+    const currentThreadId = threadId || undefined;
+
     try {
       setError(null);
       setIsLoading(true);
-
-      const userMessage = inputValue;
       setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
       setInputValue("");
 
       const response = await sendChatMessage(
         userMessage,
-        threadId || undefined,
+        currentThreadId,
         keycloak.token
       );
 
       setThreadId(response.threadId);
-
       setMessages((prev) => [...prev, { role: "agent", text: response.response }]);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to send message";
       setError(errorMessage);
-      setMessages((prev) =>
-        prev.slice(0, -1)
-      );
+      setMessages((prev) => prev.slice(0, -1)); // Remove added user message on error
     } finally {
       setIsLoading(false);
     }
