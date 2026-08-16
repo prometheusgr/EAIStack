@@ -5,7 +5,7 @@ import { ChatMessage } from "../types/chat";
 import "./ChatWindow.css";
 
 export function ChatWindow() {
-  const { keycloak } = useAuth();
+  const { token } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -17,12 +17,8 @@ export function ChatWindow() {
       return;
     }
 
-    // Try to get token from keycloak.token, fall back to localStorage
-    const token = keycloak?.token || localStorage.getItem('access_token');
-
     if (!token) {
       setError("No auth token available. Please log in.");
-      console.error('[Chat] No token available:', { token, keycloak });
       return;
     }
 
@@ -35,7 +31,6 @@ export function ChatWindow() {
       setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
       setInputValue("");
 
-      console.log('[Chat] Sending message with token:', token.substring(0, 20) + '...');
       const response = await sendChatMessage(
         userMessage,
         currentThreadId,
@@ -48,8 +43,7 @@ export function ChatWindow() {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to send message";
       setError(errorMessage);
-      console.error('[Chat] Error sending message:', { error: err, errorMessage });
-      setMessages((prev) => prev.slice(0, -1)); // Remove added user message on error
+      setMessages((prev) => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
     }

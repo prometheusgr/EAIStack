@@ -5,9 +5,7 @@ import * as agentsClient from "../src/api/agentsClient";
 
 vi.mock("../src/context/AuthContext", () => ({
   useAuth: () => ({
-    keycloak: {
-      token: "fake-token-123",
-    },
+    token: "fake-token-123",
     isAuthenticated: true,
     user: {
       name: "Test User",
