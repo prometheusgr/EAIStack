@@ -1,40 +1,33 @@
-import { chromium, FullConfig } from '@playwright/test'
+async function globalSetup() {
+  console.log('[global-setup] Starting E2E tests...')
+  console.log('[global-setup] Make sure docker-compose up is running with services ready')
+  console.log('[global-setup] Required: Keycloak (http://localhost:8080), Backend (http://localhost:8001)')
 
-async function globalSetup(config: FullConfig) {
-  console.log('[global-setup] Checking service health before E2E tests...')
-
-  const baseURL = config.use.baseURL || 'http://localhost:3000'
-
-  // Check frontend
-  try {
-    const response = await fetch(`${baseURL}/`, { timeout: 5000 })
-    console.log(`[global-setup] ✓ Frontend available (${response.status})`)
-  } catch (err) {
-    console.error(
-      '[global-setup] ✗ Frontend not available. Make sure docker-compose is running or npm run dev is started'
-    )
-    throw err
+  // Check Keycloak (most critical for auth tests)
+  let keycloakReady = false
+  for (let i = 0; i < 30; i++) {
+    try {
+      const response = await fetch('http://localhost:8080/realms/eaistack', { timeout: 2000 })
+      if (response.ok) {
+        console.log('[global-setup] ✓ Keycloak available')
+        keycloakReady = true
+        break
+      }
+    } catch (err) {
+      if (i < 29) {
+        process.stdout.write('.')
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+    }
   }
 
-  // Check backend
-  try {
-    const response = await fetch('http://localhost:8001/health', { timeout: 5000 })
-    console.log(`[global-setup] ✓ Backend available (${response.status})`)
-  } catch (err) {
-    console.error('[global-setup] ✗ Backend not available at http://localhost:8001')
-    // Don't fail - backend might not be running, but frontend might be
+  if (!keycloakReady) {
+    console.error('\n[global-setup] ✗ Keycloak not ready after 30 seconds')
+    console.error('[global-setup] Make sure docker-compose is running: docker-compose up')
+    throw new Error('Keycloak must be running for E2E tests')
   }
 
-  // Check Keycloak
-  try {
-    const response = await fetch('http://localhost:8080/realms/eaistack', { timeout: 5000 })
-    console.log(`[global-setup] ✓ Keycloak available (${response.status})`)
-  } catch (err) {
-    console.error('[global-setup] ✗ Keycloak not available at http://localhost:8080')
-    throw new Error('Keycloak must be running for E2E tests. Run: docker-compose up')
-  }
-
-  console.log('[global-setup] All checks passed, starting tests...')
+  console.log('\n[global-setup] Ready to start tests!')
 }
 
 export default globalSetup
