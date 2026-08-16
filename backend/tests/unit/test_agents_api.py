@@ -1,11 +1,10 @@
 """Tests for the agents API endpoint."""
 
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.core.auth import get_current_user, verify_token
+from app.core.auth import get_current_user
 from app.main import app
 
 
@@ -203,3 +202,29 @@ def test_chat_endpoint_with_valid_auth(client, mock_keycloak_token):
     assert isinstance(data["response"], str)
     assert "thread_id" in data
     assert isinstance(data["thread_id"], str)
+
+
+@pytest.mark.unit
+def test_chat_endpoint_token_validation_error_returns_401(client):
+    """POST /api/agents/chat with invalid token should return 401.
+
+    This test simulates what happens when Keycloak can't validate the token.
+    For real deployments, this means the token is malformed, expired, or
+    signed by a different Keycloak instance.
+    """
+    from fastapi import HTTPException
+
+    def override_get_current_user():
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    response = client.post(
+        "/api/agents/chat",
+        json={"message": "What is 2+2?"},
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 401

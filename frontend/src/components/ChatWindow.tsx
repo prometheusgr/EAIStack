@@ -13,7 +13,13 @@ export function ChatWindow() {
   const [threadId, setThreadId] = useState<string>("");
 
   const handleSend = async () => {
-    if (!inputValue.trim() || !keycloak?.token) {
+    if (!inputValue.trim()) {
+      return;
+    }
+
+    if (!keycloak?.token) {
+      setError("No auth token available. Please log in.");
+      console.error('[Chat] No token available:', { token: keycloak?.token, keycloak });
       return;
     }
 
@@ -26,6 +32,7 @@ export function ChatWindow() {
       setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
       setInputValue("");
 
+      console.log('[Chat] Sending message with token:', keycloak.token.substring(0, 20) + '...');
       const response = await sendChatMessage(
         userMessage,
         currentThreadId,
@@ -38,6 +45,7 @@ export function ChatWindow() {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to send message";
       setError(errorMessage);
+      console.error('[Chat] Error sending message:', { error: err, errorMessage });
       setMessages((prev) => prev.slice(0, -1)); // Remove added user message on error
     } finally {
       setIsLoading(false);

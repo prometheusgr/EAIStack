@@ -35,11 +35,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             email: kc.tokenParsed?.email,
             name: kc.tokenParsed?.name,
           })
+          console.log('[Auth] Initialized with user:', kc.tokenParsed?.preferred_username)
         }
       } catch (err) {
-        console.error('Keycloak init failed:', err)
+        console.error('[Auth] Keycloak init failed:', err)
         setKeycloak(kc)
       }
+      setIsLoading(false)
     }
     initKeycloak()
   }, [])
