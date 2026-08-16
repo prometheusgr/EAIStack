@@ -7,6 +7,9 @@ RUN npm install
 
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x docker-entrypoint.sh
+
 EXPOSE 3000
 
-CMD ["vite", "--host", "0.0.0.0"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
