@@ -8,6 +8,9 @@
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest",
     "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
     "preview": "vite preview"
   },
   "dependencies": {
