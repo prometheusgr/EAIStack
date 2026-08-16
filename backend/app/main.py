@@ -39,3 +39,15 @@ async def get_user_info(user: dict = Depends(get_current_user)):
         "email": user["email"],
         "name": user["name"],
     }
+
+
+@app.get("/debug/token")
+async def debug_token(user: dict = Depends(get_current_user)):
+    """Debug endpoint - shows full token payload."""
+    return {
+        "message": "Token validation successful",
+        "user": user,
+        "keycloak_url": settings.keycloak_url,
+        "keycloak_realm": settings.keycloak_realm,
+        "keycloak_client_id": settings.keycloak_client_id,
+    }
