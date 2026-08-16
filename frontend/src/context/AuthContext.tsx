@@ -61,7 +61,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         const authenticated = await kc.init({
           checkLoginIframe: false,
-          onLoad: 'check-sso',
+          onLoad: 'none', // Do NOT auto-redirect - just check localStorage for token
           pkceMethod: 'S256',
         })
 
