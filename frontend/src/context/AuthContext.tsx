@@ -167,19 +167,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Initialize Keycloak without triggering any redirects or session checks
         // DO NOT specify onLoad - when omitted, Keycloak just checks for existing token
         // without any automatic redirects or SSO checks
-        const authenticated = await kc.init({
+        const kcAuthenticated = await kc.init({
           checkLoginIframe: false, // Disable iframe-based session check (can cause redirects)
           // Note: onLoad is intentionally omitted. Valid values are 'login-required' or 'check-sso',
           // but both can cause redirects. Omitting onLoad means just check localStorage.
           pkceMethod: 'S256',
         })
 
-        console.log('[Auth] Init complete, authenticated:', authenticated)
+        console.log('[Auth] Init complete, keycloak says authenticated:', kcAuthenticated)
+
+        // CRITICAL: Use localStorage as source of truth, not Keycloak session cookie
+        // Reason: Keycloak checks session cookie (SSO) even if we cleared localStorage.
+        // We want our app's auth state to be independent of Keycloak session.
+        const tokenFromStorage = localStorage.getItem('access_token')
+        const appAuthenticated = !!tokenFromStorage || (kcAuthenticated && kc.token)
+
+        console.log('[Auth] App authentication state:', { tokenStored: !!tokenFromStorage, kcToken: !!kc.token, appAuthenticated })
 
         setKeycloak(kc)
-        setIsAuthenticated(authenticated)
+        setIsAuthenticated(appAuthenticated)
 
-        if (authenticated && kc.tokenParsed) {
+        if (appAuthenticated && kc.tokenParsed) {
           setUser({
             username: kc.tokenParsed.preferred_username,
             email: kc.tokenParsed.email,
@@ -187,6 +195,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           })
           console.log('[Auth] User logged in:', kc.tokenParsed.preferred_username)
           setError(null)
+        } else if (!appAuthenticated) {
+          setUser(null)
+          console.log('[Auth] Not authenticated (no stored token)')
         }
       } catch (err) {
         console.error('[Auth] Keycloak init failed:', err)
