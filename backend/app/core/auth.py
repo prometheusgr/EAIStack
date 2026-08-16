@@ -54,7 +54,8 @@ async def verify_token(credentials=Depends(security)) -> dict:
             token,
             key,
             algorithms=["RS256"],
-            audience=settings.keycloak_client_id,
+            audience=[settings.keycloak_client_id, "eaistack-web"],
+            options={"verify_aud": True},
         )
 
         return payload

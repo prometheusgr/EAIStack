@@ -55,3 +55,34 @@ async def test_extract_user_from_payload_success():
     assert user["username"] == "testuser"
     assert user["email"] == "test@example.com"
     assert user["name"] == "Test User"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_verify_token_accepts_web_client_audience():
+    """Token with eaistack-web audience should be accepted.
+
+    The frontend uses eaistack-web client, but backend validates tokens.
+    The token audience must match one of the configured audiences.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    fake_credentials = AsyncMock()
+    fake_credentials.credentials = "header.payload.signature"
+
+    mock_key = AsyncMock()
+    mock_jwks = {"keys": [{"kid": "test-key-id"}]}
+
+    with patch("app.core.auth.jwt") as mock_jwt:
+        mock_jwt.get_unverified_header.return_value = {"kid": "test-key-id"}
+        mock_jwt.algorithms.RSAAlgorithm.from_jwk.return_value = mock_key
+        # Token with eaistack-web audience should not raise
+        mock_jwt.decode.return_value = {
+            "sub": "user-123",
+            "preferred_username": "testuser",
+            "aud": "eaistack-web",
+        }
+
+        with patch("app.core.auth.get_keycloak_public_key", return_value=mock_jwks):
+            result = await verify_token(fake_credentials)
+            assert result["sub"] == "user-123"
