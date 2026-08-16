@@ -1,4 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -22,7 +27,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  globalSetup: require.resolve('./tests/e2e/global-setup.ts'),
+  globalSetup: path.resolve(__dirname, './tests/e2e/global-setup.ts'),
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:3000',
