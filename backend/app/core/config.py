@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     keycloak_url: str = "http://localhost:8080"
     keycloak_realm: str = "eaistack"
     keycloak_client_id: str = "eaistack-api"
+    keycloak_web_client_id: str = "eaistack-web"
     keycloak_client_secret: str = "eaistack-api-secret"
 
     # Session lifecycle

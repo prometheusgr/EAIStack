@@ -1,0 +1,143 @@
+
+> eaistack-frontend@0.1.0 test:e2e
+> playwright test tests/e2e/logout-fix.spec.ts
+
+[global-setup] Starting E2E tests...
+[global-setup] Make sure docker-compose up is running with services ready
+[global-setup] Required: Keycloak (http://localhost:8080), Backend (http://localhost:8001)
+[global-setup] ✓ Keycloak available
+
+[global-setup] Ready to start tests!
+
+Running 1 test using 1 worker
+
+
+
+(node:27332) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[1/1] [chromium] › tests\e2e\logout-fix.spec.ts:4:3 › Logout Fix - Verify Session Clearing › logout actually logs out - can login again
+[chromium] › tests\e2e\logout-fix.spec.ts:4:3 › Logout Fix - Verify Session Clearing › logout actually logs out - can login again
+[test] === FIRST LOGIN ===
+
+[test] ✓ At login screen
+
+[test] Clicked login button
+
+[test] ✓ At Keycloak
+
+[test] ✓ Filled credentials
+
+[test] ✓ Clicked submit
+
+[test] ✓ FIRST LOGIN SUCCESSFUL
+
+[test] Storage before logout: {
+  access_token: 'eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJvRklITHNtcEV2SlVPSUlVSlRSSDlKSlhSTUk5TTViSnp5XzdXZWFDRmV3In0.eyJleHAiOjE3ODY4NTM5NTQsImlhdCI6MTc4Njg1MzY1NCwiYXV0aF90aW1lIjoxNzg2ODUzNjU0LCJqdGkiOiIzNDVlNjQwMi03Y2M5LTQyNDgtYjVlMi0xZjlkOThlMWQwZDIiLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvcmVhbG1zL2VhaXN0YWNrIiwic3ViIjoiMDRlZTU2OTItMmY2My00MGUwLWFhNGItZGM1N2U3MmM2OGEyIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoiZWFpc3RhY2std2ViIiwic2Vzc2lvbl9zdGF0ZSI6Ijk2ZTFmMThmLWUzZjMtNGQxMC1hYzAwLTczOThlOGRjMmUwMCIsImFjciI6IjEiLCJhbGxvd2VkLW9yaWdpbnMiOlsiaHR0cDovL2xvY2FsaG9zdDozMDAwLyIsImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCJdLCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGVtYWlsIiwic2lkIjoiOTZlMWYxOGYtZTNmMy00ZDEwLWFjMDAtNzM5OGU4ZGMyZTAwIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5hbWUiOiJUZXN0IFVzZXIiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJ0ZXN0dXNlciIsImdpdmVuX25hbWUiOiJUZXN0IiwiZmFtaWx5X25hbWUiOiJVc2VyIiwiZW1haWwiOiJ0ZXN0dXNlckBlYWlzdGFjay5sb2NhbCJ9.VFWLXyPodhSq8Ga-bKwaGVLJYtuVehasVVioovSGDxH-T4INzKOX7SP0qi02O6krPdYYFdQbKSKN1VrOIi7XGjyCPGVA8ewVnEPrXLXkrqieiYTruh37oawFpqHESr_icpuL0icc5D1RY27DXccrpMimPUlnei4JeRE_CeV7yLdllVrHbbovyxyvPbdxugJKwMsN-dDFjw9TOhm6GcxOaBteBwhnL1jbunSfB5RJ9JDscnvwe9NOQcC0EOlY0Cbjny_Gb423Z8zCh9CgJ7lERj04T1G6inSn978ZobZ50wO538jkBXP3pIEmKKpUbNt4QooHdAjz0NtyfolV0GKTsA',
+  all_keys: [ 'token_type', 'refresh_token', 'access_token' ]
+}
+
+[test] === FIRST LOGOUT ===
+
+[test] Clicked logout
+
+[test] Current URL: http://localhost:3000/
+
+[test] ✓ Redirected back to app, URL: http://localhost:3000/
+
+[test] Storage after logout: { access_token: null, all_keys: [] }
+
+[test] ✓ Token cleared from storage
+
+[test] Logout button visible after logout? false
+
+[test] ✓ Login button visible after logout
+
+[test] === SECOND LOGIN ===
+
+[test] Page content before second login: 
+    EAIStackEnterprise AI Stack - Please log inLogin
+    
+  
+
+
+
+[test] Access token in storage before second login attempt? false
+
+[test] Login button visible? true
+
+[test] Login button count: 1
+
+[browser] [Auth] Redirecting to Keycloak login: http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2F&response_type=code&response_mode=query&scope=openid+profile+email&state=eaistack-1786853659195
+
+[test] Clicked login button again
+
+[browser] [Auth] Keycloak URL: http://localhost:8080/
+
+[browser] [Auth] Init: Checking for code in URL... ?state=eaistack-1786853659195&session_state=96e1f18f-e3f3-4d10-ac00-7398e8dc2e00&code=2a29dec5-6185-4efa-99a9-5d6017f6382d.96e1f18f-e3f3-4d10-ac00-7398e8dc2e00.af9e7fb1-6a5c-427a-83b6-f8c8a2828474
+
+[browser] [Auth] Init: code= present error= null state= eaistack-1786853659195
+
+[browser] [Auth] Authorization code detected, exchanging for token...
+
+[browser] [Auth] Keycloak URL: http://localhost:8080/
+
+[browser] [Auth] Init: Checking for code in URL... ?state=eaistack-1786853659195&session_state=96e1f18f-e3f3-4d10-ac00-7398e8dc2e00&code=2a29dec5-6185-4efa-99a9-5d6017f6382d.96e1f18f-e3f3-4d10-ac00-7398e8dc2e00.af9e7fb1-6a5c-427a-83b6-f8c8a2828474
+
+[browser] [Auth] Init: code= present error= null state= eaistack-1786853659195
+
+[browser] [Auth] Authorization code detected, exchanging for token...
+
+[browser] [Auth] Token received: success
+
+[browser] [Auth] Token payload: testuser
+
+[browser] [Auth] Auth state updated, user: testuser
+
+[browser] [Auth] Token exchanged successfully
+
+[browser] [Auth] Token received: success
+
+[browser] [Auth] Token payload: testuser
+
+[browser] [Auth] Auth state updated, user: testuser
+
+[browser] [Auth] Token exchanged successfully
+
+[test] Current URL after click: http://localhost:3000/
+
+[test] Page content after login click: 
+    EAIStackWelcome, Test UserLogoutPhase 2: Agent ChatSend
+    
+  
+
+
+
+
+
+[test] ✗ PROBLEM: Did not reach Keycloak after logout+login
+[test] Current URL: http://localhost:3000/
+  1) [chromium] › tests\e2e\logout-fix.spec.ts:4:3 › Logout Fix - Verify Session Clearing › logout actually logs out - can login again 
+
+    TimeoutError: page.waitForURL: Timeout 10000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+      130 |     // Should reach Keycloak again
+      131 |     try {
+    > 132 |       await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+          |                  ^
+      133 |       console.log('[test] ✓ Reached Keycloak login form')
+      134 |     } catch (e) {
+      135 |       console.error('[test] ✗ PROBLEM: Did not reach Keycloak after logout+login')
+        at C:\Users\Beat\source\EAIStack\frontend\tests\e2e\logout-fix.spec.ts:132:18
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\logout-fix-Logout-Fix---Ve-4ec43--logs-out---can-login-again-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\logout-fix-Logout-Fix---Ve-4ec43--logs-out---can-login-again-chromium\error-context.md
+
+
+  1 failed
+    [chromium] › tests\e2e\logout-fix.spec.ts:4:3 › Logout Fix - Verify Session Clearing › logout actually logs out - can login again 

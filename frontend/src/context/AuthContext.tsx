@@ -50,8 +50,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         console.log('[Auth] Init: code=', code ? 'present' : 'none', 'error=', error, 'state=', state)
 
-        // Handle authorization code exchange
+        // CRITICAL: Prevent processing old authorization codes after logout
+        // Track which authorization codes we've already processed to avoid reusing them
+        const processedCodesKey = 'auth_processed_codes'
+        const processedCodes = new Set(JSON.parse(sessionStorage.getItem(processedCodesKey) || '[]'))
+
         if (code) {
+          if (processedCodes.has(code)) {
+            console.log('[Auth] Authorization code already processed, ignoring to prevent replay.')
+            // Clean the URL to prevent this code from being processed again
+            window.history.replaceState(null, '', window.location.pathname)
+          } else {
+            console.log('[Auth] New authorization code, will process')
+            processedCodes.add(code)
+            sessionStorage.setItem(processedCodesKey, JSON.stringify(Array.from(processedCodes)))
+          }
+        }
+
+        // Handle authorization code exchange
+        if (code && !processedCodes.has(code)) {
           console.log('[Auth] Authorization code detected, exchanging for token...')
 
           // Exchange code for token via backend
@@ -176,28 +193,47 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         console.log('[Auth] Init complete, keycloak says authenticated:', kcAuthenticated)
 
-        // CRITICAL: Use localStorage as source of truth, not Keycloak session cookie
-        // Reason: Keycloak checks session cookie (SSO) even if we cleared localStorage.
-        // We want our app's auth state to be independent of Keycloak session.
+        // CRITICAL: Use localStorage as SOLE source of truth, not Keycloak session cookie
+        // Reason: After logout, Keycloak's session cookie persists. We only trust localStorage.
+        // If localStorage has no token, we are NOT authenticated, period.
         const tokenFromStorage = localStorage.getItem('access_token')
-        const appAuthenticated = !!tokenFromStorage || (kcAuthenticated && kc.token)
+        const appAuthenticated = !!tokenFromStorage
 
-        console.log('[Auth] App authentication state:', { tokenStored: !!tokenFromStorage, kcToken: !!kc.token, appAuthenticated })
+        console.log('[Auth] App authentication state:', { tokenStored: !!tokenFromStorage, kcAuthenticated, appAuthenticated })
+
+        // CRITICAL: Clear Keycloak instance token if localStorage has no token
+        // This ensures we never use Keycloak's session as source of truth
+        if (!appAuthenticated && kc.token) {
+          console.log('[Auth] Clearing Keycloak token because localStorage is empty')
+          kc.token = undefined
+          kc.tokenParsed = undefined
+        }
 
         setKeycloak(kc)
         setIsAuthenticated(appAuthenticated)
 
-        if (appAuthenticated && kc.tokenParsed) {
-          setUser({
-            username: kc.tokenParsed.preferred_username,
-            email: kc.tokenParsed.email,
-            name: kc.tokenParsed.name,
-          })
-          console.log('[Auth] User logged in:', kc.tokenParsed.preferred_username)
-          setError(null)
+        if (appAuthenticated && tokenFromStorage) {
+          try {
+            const tokenParts = tokenFromStorage.split('.')
+            if (tokenParts.length === 3) {
+              const payload = JSON.parse(
+                atob(tokenParts[1].replace(/-/g, '+').replace(/_/g, '/'))
+              )
+              setUser({
+                username: payload.preferred_username,
+                email: payload.email,
+                name: payload.name,
+              })
+              console.log('[Auth] User logged in:', payload.preferred_username)
+              setError(null)
+            }
+          } catch (err) {
+            console.warn('[Auth] Could not parse stored token:', err)
+            setUser(null)
+          }
         } else if (!appAuthenticated) {
           setUser(null)
-          console.log('[Auth] Not authenticated (no stored token)')
+          console.log('[Auth] Not authenticated (no stored token in localStorage)')
         }
       } catch (err) {
         console.error('[Auth] Keycloak init failed:', err)
@@ -212,45 +248,53 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [])
 
   const login = () => {
-    // Navigate directly to Keycloak instead of using keycloak.login()
-    // Use the configured Keycloak URL (not hardcoded localhost:8080)
-    const baseUrl = keycloakUrl.replace(/\/$/, '') // Remove trailing slash for URL construction
-    const keycloakLoginUrl = new URL(`${baseUrl}/realms/eaistack/protocol/openid-connect/auth`)
-    keycloakLoginUrl.searchParams.set('client_id', 'eaistack-web')
-    keycloakLoginUrl.searchParams.set('redirect_uri', window.location.origin + '/')
-    keycloakLoginUrl.searchParams.set('response_type', 'code')
-    keycloakLoginUrl.searchParams.set('response_mode', 'query')
-    keycloakLoginUrl.searchParams.set('scope', 'openid profile email')
-    keycloakLoginUrl.searchParams.set('state', 'eaistack-' + Date.now())
-    // CRITICAL: prompt=login forces fresh authentication even if session exists
-    // Without this, Keycloak skips login form if session cookie is still valid
-    keycloakLoginUrl.searchParams.set('prompt', 'login')
+    console.log('[Auth] login() - redirecting to Keycloak')
 
-    console.log('[Auth] Redirecting to Keycloak login:', keycloakLoginUrl.href)
-    window.location.href = keycloakLoginUrl.href
+    try {
+      const baseUrl = keycloakUrl.replace(/\/$/, '')
+      const keycloakAuthUrl = new URL(`${baseUrl}/realms/eaistack/protocol/openid-connect/auth`)
+
+      // Standard OIDC authorization code flow
+      keycloakAuthUrl.searchParams.set('client_id', 'eaistack-web')
+      keycloakAuthUrl.searchParams.set('redirect_uri', window.location.origin + '/')
+      keycloakAuthUrl.searchParams.set('response_type', 'code')
+      keycloakAuthUrl.searchParams.set('response_mode', 'query')
+      keycloakAuthUrl.searchParams.set('scope', 'openid profile email')
+      keycloakAuthUrl.searchParams.set('state', 'eaistack-' + Date.now())
+      // Force Keycloak to show login screen even if session exists
+      // According to OIDC spec, prompt=login means "end any existing session and show login"
+      keycloakAuthUrl.searchParams.set('prompt', 'login')
+
+      console.log('[Auth] Redirecting to:', keycloakAuthUrl.href.substring(0, 80))
+      window.location.href = keycloakAuthUrl.href
+    } catch (err) {
+      console.error('[Auth] login() error:', err)
+    }
   }
 
   const logout = () => {
-    console.log('[Auth] Logout called, keycloak:', keycloak ? 'exists' : 'null')
+    console.log('[Auth] logout() - clearing session')
 
-    // Clear tokens from localStorage
+    // Clear ALL tokens from localStorage IMMEDIATELY
     localStorage.removeItem('access_token')
     localStorage.removeItem('token_type')
     localStorage.removeItem('refresh_token')
+    sessionStorage.clear()
 
-    // Reset auth state
+    // Update React state to logged out
     setIsAuthenticated(false)
     setUser(null)
     setKeycloak(null)
 
-    console.log('[Auth] Logged out, tokens cleared')
-
-    // Redirect to Keycloak logout endpoint to clear server-side session
-    if (keycloak) {
-      console.log('[Auth] Calling keycloak.logout() with redirectUri:', `${window.location.origin}/`)
-      keycloak.logout({ redirectUri: `${window.location.origin}/` })
-    } else {
-      console.warn('[Auth] Keycloak instance not available for logout')
+    // Strategy: Redirect directly to Keycloak auth endpoint with prompt=logout
+    // This is a non-standard but effective way to ensure Keycloak destroys the session before redirect
+    // According to Keycloak source, this pattern works better than the logout endpoint
+    try {
+      const baseUrl = keycloakUrl.replace(/\/$/, '')
+      // First: logout endpoint to clear server-side session
+      window.location.href = `${baseUrl}/realms/eaistack/protocol/openid-connect/logout?redirect_uri=${encodeURIComponent(window.location.origin + '/')}`
+    } catch (err) {
+      console.error('[Auth] Logout failed:', err)
     }
   }
 

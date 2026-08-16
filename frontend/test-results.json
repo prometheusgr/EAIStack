@@ -4,7 +4,9 @@
       "C:\\Program Files\\nodejs\\node.exe",
       "C:\\Users\\Beat\\source\\EAIStack\\frontend\\node_modules\\@playwright\\test\\cli.js",
       "test",
-      "no-infinite-loop.spec.ts"
+      "tests/e2e/auth.spec.ts",
+      "--grep",
+      "user can login and access chat"
     ],
     "configFile": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\playwright.config.ts",
     "rootDir": "C:/Users/Beat/source/EAIStack/frontend/tests/e2e",
@@ -17,18 +19,14 @@
     "grep": {},
     "grepInvert": null,
     "maxFailures": 0,
-    "metadata": {
-      "actualWorkers": 1
-    },
+    "metadata": {},
     "preserveOutput": "always",
     "projects": [
       {
         "outputDir": "C:/Users/Beat/source/EAIStack/frontend/test-results",
         "repeatEach": 1,
         "retries": 0,
-        "metadata": {
-          "actualWorkers": 1
-        },
+        "metadata": {},
         "id": "chromium",
         "name": "chromium",
         "testDir": "C:/Users/Beat/source/EAIStack/frontend/tests/e2e",
@@ -69,218 +67,17 @@
       "timeout": 120000
     }
   },
-  "suites": [
+  "suites": [],
+  "errors": [
     {
-      "title": "no-infinite-loop.spec.ts",
-      "file": "no-infinite-loop.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "No Infinite Redirect Loop",
-          "file": "no-infinite-loop.spec.ts",
-          "line": 13,
-          "column": 6,
-          "specs": [
-            {
-              "title": "should load page without redirecting to Keycloak",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 2204,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "[E2E] Navigating to http://localhost:3000\n"
-                        },
-                        {
-                          "text": "[E2E] Navigation to: http://localhost:3000/\n"
-                        },
-                        {
-                          "text": "[E2E] Final URL after 2 seconds: http://localhost:3000/\n"
-                        },
-                        {
-                          "text": "[E2E] ✓ No redirect loop - login button visible\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-08-16T02:46:48.813Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "f3af3a762e388858e73c-897fb78fa7e5dcdf7f1d",
-              "file": "no-infinite-loop.spec.ts",
-              "line": 14,
-              "column": 3
-            },
-            {
-              "title": "should only redirect to Keycloak when user clicks login",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1537,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "[E2E] Before login URL: http://localhost:3000/\n"
-                        },
-                        {
-                          "text": "[E2E] Clicking login button...\n"
-                        },
-                        {
-                          "text": "[E2E] Waiting for Keycloak redirect...\n"
-                        },
-                        {
-                          "text": "[E2E] After login click URL: http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2F&response_type=code&response_mode=query&scope=openid+profile+email&state=eaistack-1786848412298\n"
-                        },
-                        {
-                          "text": "[E2E] ✓ Redirect only happens after login click\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-08-16T02:46:51.123Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "f3af3a762e388858e73c-e73ec10390cc38f5f19a",
-              "file": "no-infinite-loop.spec.ts",
-              "line": 49,
-              "column": 3
-            },
-            {
-              "title": "should not have error=login_required in initial page load",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 2146,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "[E2E] [Auth] Keycloak URL: http://localhost:8080/\n"
-                        },
-                        {
-                          "text": "[E2E] [Auth] Keycloak URL: http://localhost:8080/\n"
-                        },
-                        {
-                          "text": "[E2E] [Auth] Init complete, authenticated: false\n"
-                        },
-                        {
-                          "text": "[E2E] [Auth] Init complete, authenticated: false\n"
-                        },
-                        {
-                          "text": "[E2E] Final URL: http://localhost:3000/\n"
-                        },
-                        {
-                          "text": "[E2E] ✓ No error=login_required in page load\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-08-16T02:46:52.668Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "f3af3a762e388858e73c-ba39c1fbb6665bfec307",
-              "file": "no-infinite-loop.spec.ts",
-              "line": 80,
-              "column": 3
-            },
-            {
-              "title": "should show login button, not infinite loop",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 3162,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "[E2E] ✓ Login button visible - fix is working\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-08-16T02:46:54.820Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "f3af3a762e388858e73c-6d4d49d165063ed9949e",
-              "file": "no-infinite-loop.spec.ts",
-              "line": 109,
-              "column": 3
-            }
-          ]
-        }
-      ]
+      "message": "Error: No tests found.\nMake sure that arguments are regular expressions matching test files.\nYou may need to escape symbols like \"$\" or \"*\" and quote the arguments.",
+      "stack": "Error: No tests found.\nMake sure that arguments are regular expressions matching test files.\nYou may need to escape symbols like \"$\" or \"*\" and quote the arguments."
     }
   ],
-  "errors": [],
   "stats": {
-    "startTime": "2026-08-16T02:46:48.262Z",
-    "duration": 9803.763,
-    "expected": 4,
+    "startTime": "2026-08-16T04:21:24.766Z",
+    "duration": 71.66399999999999,
+    "expected": 0,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

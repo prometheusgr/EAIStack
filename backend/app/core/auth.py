@@ -1,44 +1,59 @@
 """Authentication and authorization middleware."""
 
-
+import logging
+import time
 import httpx
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 security = HTTPBearer()
+
+_jwks_cache: dict | None = None
+_jwks_cache_expiry: float = 0.0
+_JWKS_CACHE_TTL: int = 600  # 10 minutes
 
 
 async def get_keycloak_public_key() -> dict:
-    """Fetch Keycloak realm's public key."""
+    """Fetch Keycloak realm's public key with TTL caching."""
+    global _jwks_cache, _jwks_cache_expiry
+
+    current_time = time.monotonic()
+
+    if _jwks_cache is not None and current_time < _jwks_cache_expiry:
+        logger.debug("Using cached JWKS")
+        return _jwks_cache
+
     jwks_url = (
         f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
     )
     async with httpx.AsyncClient() as client:
         response = await client.get(jwks_url)
         response.raise_for_status()
-        return response.json()
+        jwks = response.json()
+
+    _jwks_cache = jwks
+    _jwks_cache_expiry = current_time + _JWKS_CACHE_TTL
+    logger.debug("Cached JWKS, expires in %ds", _JWKS_CACHE_TTL)
+    return jwks
 
 
 async def verify_token(credentials=Depends(security)) -> dict:
     """Verify JWT token from Keycloak."""
-    import logging
-    logger = logging.getLogger(__name__)
-
     token = credentials.credentials
-    logger.debug(f"Verifying token, first 20 chars: {token[:20]}...")
+    logger.debug("Verifying token, first 20 chars: %s...", token[:20])
 
     try:
-        import jwt
-
-        logger.debug(f"Fetching Keycloak public key from {settings.keycloak_url}")
+        logger.debug("Fetching Keycloak public key from %s", settings.keycloak_url)
         jwks = await get_keycloak_public_key()
-        logger.debug(f"Got {len(jwks.get('keys', []))} keys from Keycloak")
+        logger.debug("Got %d keys from Keycloak", len(jwks.get("keys", [])))
 
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
-        logger.debug(f"Token kid: {kid}")
+        logger.debug("Token kid: %s", kid)
 
         if not kid:
             raise HTTPException(
@@ -49,40 +64,61 @@ async def verify_token(credentials=Depends(security)) -> dict:
         key = None
         for k in jwks.get("keys", []):
             if k.get("kid") == kid:
-                key = jwt.algorithms.RSAAlgorithm.from_jwk(k)
+                key = jwt.PyJWK(k)
                 break
 
         if not key:
-            logger.error(f"Key not found for kid: {kid}")
+            logger.debug("Key not found in cache, refreshing...")
+            global _jwks_cache, _jwks_cache_expiry
+            _jwks_cache = None
+            _jwks_cache_expiry = 0.0
+            jwks = await get_keycloak_public_key()
+            for k in jwks.get("keys", []):
+                if k.get("kid") == kid:
+                    key = jwt.PyJWK(k)
+                    break
+
+        if not key:
+            logger.error("Key not found for kid: %s", kid)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Key not found",
             )
 
-        logger.debug(f"Decoding token with audience: {[settings.keycloak_client_id, 'eaistack-web']}")
+        valid_audiences = [settings.keycloak_client_id, settings.keycloak_web_client_id]
+        logger.debug("Decoding token with audiences: %s", valid_audiences)
+
         try:
             payload = jwt.decode(
                 token,
                 key,
                 algorithms=["RS256"],
-                audience=[settings.keycloak_client_id, "eaistack-web"],
+                audience=valid_audiences,
                 options={"verify_aud": True},
             )
-        except jwt.InvalidAudienceError as aud_error:
-            logger.warning(f"Audience validation failed: {aud_error}, trying without aud validation")
-            # Fallback: decode without audience validation to see what's in the token
+        except jwt.InvalidAudienceError:
             payload = jwt.decode(
                 token,
                 key,
                 algorithms=["RS256"],
                 options={"verify_aud": False},
             )
-            logger.warning(f"Token audience: {payload.get('aud')}, valid audiences: {[settings.keycloak_client_id, 'eaistack-web']}")
-            raise jwt.InvalidAudienceError(f"Token audience '{payload.get('aud')}' not in {[settings.keycloak_client_id, 'eaistack-web']}")
+            logger.warning(
+                "Token audience: %s, valid audiences: %s",
+                payload.get("aud"),
+                valid_audiences,
+            )
+            raise
 
-        logger.info(f"Token verified for user: {payload.get('preferred_username')}, audience: {payload.get('aud')}")
+        logger.info(
+            "Token verified for user: %s, audience: %s",
+            payload.get("preferred_username"),
+            payload.get("aud"),
+        )
         return payload
 
+    except HTTPException:
+        raise
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -99,12 +135,11 @@ async def verify_token(credentials=Depends(security)) -> dict:
             detail=f"Invalid token: {str(e)}",
         )
     except Exception as e:
-        import logging
-        logging.error(f"Token verification error: {type(e).__name__}: {str(e)}")
+        logger.error("Unexpected token verification error: %s: %s", type(e).__name__, e)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token verification failed: {str(e)}",
-        )
+            detail="Token verification failed",
+        ) from e
 
 
 async def extract_user_from_payload(payload: dict) -> dict:

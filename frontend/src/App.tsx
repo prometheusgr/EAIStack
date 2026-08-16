@@ -14,7 +14,16 @@ function AppContent() {
       <div className="App">
         <h1>EAIStack</h1>
         <p>Enterprise AI Stack - Please log in</p>
-        <button onClick={login}>Login</button>
+        <button
+          data-testid="login-button"
+          onClick={() => {
+            console.log('[App] === NOT AUTHENTICATED - Login button clicked ===')
+            console.log('[App] isAuthenticated:', isAuthenticated)
+            console.log('[App] user:', user)
+            console.log('[App] calling login()...')
+            login()
+            console.log('[App] login() returned')
+          }}>Login</button>
       </div>
     )
   }

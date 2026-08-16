@@ -61,7 +61,7 @@ async def exchange_code_for_token(request: TokenExchangeRequest):
                 data={
                     "grant_type": "authorization_code",
                     "code": request.code,
-                    "client_id": "eaistack-web",  # Public client
+                    "client_id": settings.keycloak_web_client_id,
                     "redirect_uri": request.redirect_uri,
                 },
                 timeout=10.0,

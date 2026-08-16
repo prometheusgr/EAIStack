@@ -1,163 +1,529 @@
 import { test, expect } from '@playwright/test'
 
-test.describe('Authentication Flow', () => {
-  test('user can login and access chat', async ({ page }) => {
-    // Navigate directly to Keycloak login (bypass JavaScript client for E2E)
-    // This tests the real login form, not the JS client redirect
+test.describe('Authentication Flow - Login Paths', () => {
+  test('fresh start shows login button, not loading', async ({ page }) => {
+    // Verify initial state is login, not loading spinner
+    console.log('[test] Navigate to fresh app')
+    await page.goto('/')
 
-    const keycloakLoginUrl = 'http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?' +
-      'client_id=eaistack-web&' +
-      'redirect_uri=http://localhost:3000&' +
-      'response_type=code&' +
-      'response_mode=query&' +
-      'scope=openid'
+    // Should not show loading
+    const loadingMsg = page.locator('text=Loading...')
+    await expect(loadingMsg).not.toBeVisible({ timeout: 2000 })
+    console.log('[test] No loading spinner')
 
-    console.log('[test] Navigating to Keycloak login...')
-    await page.goto(keycloakLoginUrl)
+    // Should show login button
+    const loginBtn = page.locator('button:has-text("Login")')
+    await expect(loginBtn).toBeVisible({ timeout: 5000 })
+    console.log('[test] Login button visible on fresh start')
 
-    // 2. Wait for login form
+    // Should show EAIStack heading
+    const heading = page.locator('h1:has-text("EAIStack")')
+    await expect(heading).toBeVisible()
+    console.log('[test] App heading visible')
+  })
+
+  test('clicking login button redirects to Keycloak', async ({ page }) => {
+    // Verify login flow starts correctly
+    console.log('[test] Navigate to app')
+    await page.goto('/')
+
+    console.log('[test] Click login button')
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    // Should redirect to Keycloak login form
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    console.log('[test] Redirected to Keycloak')
+
+    // Keycloak form should be visible
     const usernameInput = page.locator('input[name="username"]')
     await expect(usernameInput).toBeVisible({ timeout: 10000 })
     console.log('[test] Keycloak login form visible')
-
-    // 3. Fill username
-    await usernameInput.fill('testuser')
-    console.log('[test] Filled username')
-
-    // 4. Fill password
-    const passwordInput = page.locator('input[name="password"]')
-    await passwordInput.fill('testpassword')
-    console.log('[test] Filled password')
-
-    // 5. Submit login form
-    const submitBtn = page.locator('button[type="submit"]')
-    await submitBtn.click()
-    console.log('[test] Submitted login form')
-
-    // 6. Should redirect back to app with auth code
-    await page.waitForURL(/localhost:3000/, { timeout: 15000 })
-    console.log('[test] Redirected back to app')
-
-    // 7. Wait a moment for React to process auth
-    await page.waitForTimeout(2000)
-
-    // 8. Should see welcome message (if auth succeeded)
-    const welcomeMsg = page.locator('text=Welcome')
-    await expect(welcomeMsg).toBeVisible({ timeout: 10000 })
-    console.log('[test] Welcome message visible - login successful!')
-
-    // 9. Chat input should be enabled
-    const chatInput = page.locator('input[placeholder="Type your message..."]')
-    await expect(chatInput).toBeEnabled({ timeout: 5000 })
-    console.log('[test] Chat input enabled')
-
-    // 10. Should see logout button
-    const logoutBtn = page.locator('button:has-text("Logout")')
-    await expect(logoutBtn).toBeVisible()
-    console.log('[test] Logout button visible')
   })
 
-  test('user can send message after login', async ({ page }) => {
-    // 1. Login first
+  test('successful login with correct credentials', async ({ page }) => {
+    // Full login flow with valid credentials
+    console.log('[test] Start fresh login flow')
+    await page.goto('/')
+
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    // Wait for Keycloak login form
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    const usernameInput = page.locator('input[name="username"]')
+    await expect(usernameInput).toBeVisible({ timeout: 10000 })
+    console.log('[test] Keycloak form visible')
+
+    // Submit login with correct credentials
+    await usernameInput.fill('testuser')
+    await page.locator('input[name="password"]').fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+    console.log('[test] Submitted login form')
+
+    // Should redirect back to app
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    console.log('[test] Redirected back to app')
+
+    // Wait for React to process auth
+    await page.waitForTimeout(1000)
+
+    // Should see welcome message
+    const welcomeMsg = page.locator('text=Welcome')
+    await expect(welcomeMsg).toBeVisible({ timeout: 10000 })
+    console.log('[test] Welcome message visible')
+
+    // Should show username/name in greeting
+    const greeting = page.locator('.header span:first-child')
+    await expect(greeting).toContainText(/Welcome/)
+    console.log('[test] User greeting displayed')
+
+    // Logout button should be visible
+    const logoutBtn = page.locator('button:has-text("Logout")')
+    await expect(logoutBtn).toBeVisible()
+    console.log('[test] Logout button visible - login successful!')
+  })
+
+  test('login with wrong password shows error', async ({ page }) => {
+    // Invalid credentials should fail at Keycloak
+    console.log('[test] Start login with wrong password')
+    await page.goto('/')
+
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    // Wait for Keycloak
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    console.log('[test] At Keycloak login form')
+
+    // Submit with wrong password
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('wrongpassword')
+    await page.locator('button[type="submit"]').click()
+    console.log('[test] Submitted wrong password')
+
+    // Should see Keycloak error message
+    const errorMsg = page.locator('text=/Invalid user|invalid credentials|error/i')
+    await expect(errorMsg).toBeVisible({ timeout: 5000 })
+    console.log('[test] Keycloak error message displayed')
+
+    // Should still be on Keycloak form (not redirected)
+    expect(page.url()).toContain('keycloak')
+    console.log('[test] Still on Keycloak form, not redirected')
+  })
+
+  test('login with nonexistent user shows error', async ({ page }) => {
+    // Nonexistent user should fail at Keycloak
+    console.log('[test] Start login with nonexistent user')
+    await page.goto('/')
+
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    console.log('[test] At Keycloak login form')
+
+    // Submit with nonexistent user
+    await page.locator('input[name="username"]').fill('nonexistentuser12345')
+    await page.locator('input[name="password"]').fill('anypassword')
+    await page.locator('button[type="submit"]').click()
+    console.log('[test] Submitted nonexistent user')
+
+    // Should see error
+    const errorMsg = page.locator('text=/Invalid user|invalid credentials|error/i')
+    await expect(errorMsg).toBeVisible({ timeout: 5000 })
+    console.log('[test] Error shown for nonexistent user')
+  })
+
+  test('login form allows multiple attempts', async ({ page }) => {
+    // User can retry login after failed attempt
+    console.log('[test] Start login, fail, then succeed')
+    await page.goto('/')
+
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    console.log('[test] At Keycloak login form')
+
+    // First attempt: wrong password
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('wrongpassword')
+    await page.locator('button[type="submit"]').click()
+    console.log('[test] First attempt: wrong password')
+
+    // Wait for error
+    await page.locator('text=/Invalid user|invalid credentials|error/i').waitFor({ timeout: 5000 })
+    console.log('[test] Error shown')
+
+    // Second attempt: correct credentials
+    // Clear fields and retry
+    const usernameInput = page.locator('input[name="username"]')
+    const passwordInput = page.locator('input[name="password"]')
+
+    // Fill again (form should still be visible)
+    await usernameInput.clear()
+    await passwordInput.clear()
+    await usernameInput.fill('testuser')
+    await passwordInput.fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+    console.log('[test] Second attempt: correct password')
+
+    // Should succeed this time
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    const welcomeMsg = page.locator('text=Welcome')
+    await expect(welcomeMsg).toBeVisible({ timeout: 10000 })
+    console.log('[test] Login succeeded on retry')
+  })
+
+  test('direct navigation to app redirects to Keycloak if not logged in', async ({ page }) => {
+    // When not authenticated, app shows login button (not redirect)
+    console.log('[test] Direct navigation while not logged in')
+    await page.goto('/')
+
+    // Should show login UI, not redirect to Keycloak
+    const loginBtn = page.locator('button:has-text("Login")')
+    await expect(loginBtn).toBeVisible({ timeout: 5000 })
+    console.log('[test] Shows login button, no automatic redirect')
+
+    // Should not be at Keycloak
+    expect(page.url()).toContain('localhost:3000')
+  })
+})
+
+test.describe('Authentication Flow - Logout Paths', () => {
+  test('logout from logged-in state returns to login screen', async ({ page }) => {
+    // Full logout flow
+    console.log('[test] Login first')
     await page.goto('/')
     const loginBtn = page.locator('button:has-text("Login")')
     await loginBtn.click()
 
-    // Wait for Keycloak and login
+    // Keycloak login
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+    console.log('[test] Logged in')
+
+    // Wait for authenticated state
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    const welcomeMsg = page.locator('text=Welcome')
+    await expect(welcomeMsg).toBeVisible({ timeout: 10000 })
+    console.log('[test] At authenticated app')
+
+    // Verify token is in storage
+    const tokenBefore = await page.evaluate(() => localStorage.getItem('access_token'))
+    expect(tokenBefore).toBeTruthy()
+    console.log('[test] Token confirmed in storage before logout')
+
+    // Click logout
+    const logoutBtn = page.locator('button:has-text("Logout")')
+    await logoutBtn.click()
+    console.log('[test] Clicked logout button')
+
+    // Wait longer for Keycloak logout to process
+    await page.waitForTimeout(2000)
+
+    // Should redirect through Keycloak logout or back to app
+    try {
+      await page.waitForURL(/keycloak|logout|8080/, { timeout: 10000 })
+      console.log('[test] Went through Keycloak logout URL')
+    } catch {
+      console.log('[test] No Keycloak redirect detected, may have redirected directly')
+    }
+
+    // Wait for redirect back to app (may take a moment)
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    console.log('[test] Back at app')
+
+    // Wait for auth state to update
+    await page.waitForTimeout(1000)
+
+    // Verify token was cleared
+    const tokenAfter = await page.evaluate(() => localStorage.getItem('access_token'))
+    expect(tokenAfter).toBeNull()
+    console.log('[test] Token confirmed cleared from storage')
+
+    // Should see login button (not loading, not welcome)
+    const newLoginBtn = page.locator('button:has-text("Login")')
+    await expect(newLoginBtn).toBeVisible({ timeout: 10000 })
+    console.log('[test] Login button visible - logout successful!')
+
+    // Verify welcome message is gone
+    const welcomeAfter = page.locator('text=Welcome')
+    await expect(welcomeAfter).not.toBeVisible({ timeout: 2000 })
+    console.log('[test] Welcome message gone')
+  })
+
+  test('localStorage is cleared after logout', async ({ page }) => {
+    // Verify tokens are cleaned up
+    console.log('[test] Login')
+    await page.goto('/')
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    // Keycloak login
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
     await page.locator('button[type="submit"]').click()
 
-    // Wait for redirect back to app
-    await page.waitForURL('http://localhost:3000/', { timeout: 10000 })
-    console.log('[test] Logged in successfully')
+    // Wait for authenticated state
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    await expect(page.locator('text=Welcome')).toBeVisible({ timeout: 10000 })
+    console.log('[test] Logged in, checking localStorage')
 
-    // 2. Wait for chat input to be ready
+    // Verify token was stored
+    const hasToken = await page.evaluate(() => localStorage.getItem('access_token') !== null)
+    expect(hasToken).toBe(true)
+    console.log('[test] Access token stored in localStorage')
+
+    // Logout
+    await page.locator('button:has-text("Logout")').click()
+    console.log('[test] Logging out')
+
+    // Wait for logout to complete
+    await page.waitForURL(/keycloak|logout|8080/, { timeout: 15000 })
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+
+    // Verify token was cleared
+    const noToken = await page.evaluate(() => localStorage.getItem('access_token') === null)
+    expect(noToken).toBe(true)
+    console.log('[test] Access token cleared from localStorage')
+
+    // Verify app is in unauthenticated state
+    const loginBtnAfter = page.locator('button:has-text("Login")')
+    await expect(loginBtnAfter).toBeVisible({ timeout: 5000 })
+    console.log('[test] App in unauthenticated state')
+  })
+
+  test('logout prevents access to protected chat', async ({ page }) => {
+    // After logout, chat should not be accessible
+    console.log('[test] Login')
+    await page.goto('/')
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    // Keycloak login
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+
+    // Wait for authenticated state
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
     const chatInput = page.locator('input[placeholder="Type your message..."]')
-    await expect(chatInput).toBeEnabled({ timeout: 5000 })
-    console.log('[test] Chat input ready')
+    await expect(chatInput).toBeVisible({ timeout: 10000 })
+    console.log('[test] Chat visible when logged in')
 
-    // 3. Type message
+    // Logout
+    await page.locator('button:has-text("Logout")').click()
+    console.log('[test] Logging out')
+
+    // Wait for logout
+    await page.waitForURL(/keycloak|logout|8080/, { timeout: 15000 })
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+
+    // Chat should not be visible anymore
+    await expect(chatInput).not.toBeVisible({ timeout: 2000 })
+    console.log('[test] Chat hidden after logout')
+
+    // Verify back at login screen
+    const newLoginBtn = page.locator('button:has-text("Login")')
+    await expect(newLoginBtn).toBeVisible()
+    console.log('[test] Login screen visible after logout')
+  })
+
+  test('logout clears all auth tokens', async ({ page }) => {
+    // Verify all token types are cleared (access, refresh, token_type)
+    console.log('[test] Login')
+    await page.goto('/')
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    // Keycloak login
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+
+    // Wait for authenticated state
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    await expect(page.locator('text=Welcome')).toBeVisible({ timeout: 10000 })
+    console.log('[test] Logged in')
+
+    // Check all tokens stored
+    const tokens = await page.evaluate(() => ({
+      access: localStorage.getItem('access_token'),
+      refresh: localStorage.getItem('refresh_token'),
+      type: localStorage.getItem('token_type'),
+    }))
+    expect(tokens.access).toBeTruthy()
+    console.log('[test] All tokens present before logout')
+
+    // Logout
+    await page.locator('button:has-text("Logout")').click()
+    console.log('[test] Logging out')
+
+    // Wait for logout
+    await page.waitForURL(/keycloak|logout|8080/, { timeout: 15000 })
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+
+    // Verify all tokens cleared
+    const clearedTokens = await page.evaluate(() => ({
+      access: localStorage.getItem('access_token'),
+      refresh: localStorage.getItem('refresh_token'),
+      type: localStorage.getItem('token_type'),
+    }))
+    expect(clearedTokens.access).toBeNull()
+    expect(clearedTokens.refresh).toBeNull()
+    console.log('[test] All tokens cleared after logout')
+  })
+
+  test('can login again after logout', async ({ page }) => {
+    // Verify logout is complete enough to login again
+    console.log('[test] First login')
+    await page.goto('/')
+    let loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    // First login
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    await expect(page.locator('text=Welcome')).toBeVisible({ timeout: 10000 })
+    console.log('[test] First login successful')
+
+    // Logout
+    await page.locator('button:has-text("Logout")').click()
+    await page.waitForURL(/keycloak|logout|8080/, { timeout: 15000 })
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    console.log('[test] Logged out')
+
+    // Second login
+    loginBtn = page.locator('button:has-text("Login")')
+    await expect(loginBtn).toBeVisible()
+    await loginBtn.click()
+    console.log('[test] Starting second login')
+
+    // Should reach Keycloak again
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+
+    // Should succeed again
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    await expect(page.locator('text=Welcome')).toBeVisible({ timeout: 10000 })
+    console.log('[test] Second login successful')
+  })
+})
+
+test.describe('Authentication Flow - Chat Integration', () => {
+  test('chat is only accessible when logged in', async ({ page }) => {
+    // Chat input should be hidden before login
+    console.log('[test] Fresh app - chat should be hidden')
+    await page.goto('/')
+
+    const chatInput = page.locator('input[placeholder="Type your message..."]')
+    await expect(chatInput).not.toBeVisible()
+    console.log('[test] Chat hidden before login')
+
+    // Login
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+
+    // Chat should be visible after login
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    await expect(chatInput).toBeVisible({ timeout: 10000 })
+    console.log('[test] Chat visible after login')
+
+    // Logout
+    await page.locator('button:has-text("Logout")').click()
+    await page.waitForURL(/keycloak|logout|8080/, { timeout: 15000 })
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+
+    // Chat should be hidden again
+    await expect(chatInput).not.toBeVisible({ timeout: 2000 })
+    console.log('[test] Chat hidden after logout')
+  })
+
+  test('user can send message after successful login', async ({ page }) => {
+    // Complete flow: login -> send message -> verify response
+    console.log('[test] Start login')
+    await page.goto('/')
+    const loginBtn = page.locator('button:has-text("Login")')
+    await loginBtn.click()
+
+    // Keycloak login
+    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
+    await page.locator('input[name="username"]').fill('testuser')
+    await page.locator('input[name="password"]').fill('testpassword')
+    await page.locator('button[type="submit"]').click()
+
+    // Wait for authenticated state
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    const chatInput = page.locator('input[placeholder="Type your message..."]')
+    await expect(chatInput).toBeVisible({ timeout: 10000 })
+    console.log('[test] Logged in, chat ready')
+
+    // Send message
     const testMessage = 'What is 2+2?'
     await chatInput.fill(testMessage)
     console.log(`[test] Typed message: ${testMessage}`)
 
-    // 4. Send message
     const sendBtn = page.locator('button:has-text("Send")')
     await sendBtn.click()
-    console.log('[test] Clicked send button')
+    console.log('[test] Clicked send')
 
-    // 5. Wait for response to appear
-    // The agent should respond within a few seconds
+    // Wait for agent response
     const response = page.locator('.message-agent')
     await expect(response).toBeVisible({ timeout: 10000 })
-    console.log('[test] Received agent response')
-
-    // 6. Verify message content
     const messageText = await response.textContent()
     expect(messageText).toBeTruthy()
-    expect(messageText).toContain('4') // Should contain answer to 2+2
-    console.log(`[test] Response content: ${messageText}`)
+    expect(messageText).toContain('4')
+    console.log(`[test] Agent responded: ${messageText}`)
   })
 
-  test('user is logged out after logout', async ({ page }) => {
-    // 1. Login first
+  test('login persists across page refresh', async ({ page }) => {
+    // Token should be retrieved from localStorage after page refresh
+    console.log('[test] Login')
     await page.goto('/')
     const loginBtn = page.locator('button:has-text("Login")')
     await loginBtn.click()
 
+    // Keycloak login
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
     await page.locator('button[type="submit"]').click()
 
-    await page.waitForURL('http://localhost:3000/', { timeout: 10000 })
+    // Wait for authenticated state
+    await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
+    await expect(page.locator('text=Welcome')).toBeVisible({ timeout: 10000 })
     console.log('[test] Logged in')
 
-    // 2. Click logout
-    const logoutBtn = page.locator('button:has-text("Logout")')
-    await logoutBtn.click()
-    console.log('[test] Clicked logout')
+    // Refresh page
+    console.log('[test] Refreshing page')
+    await page.reload()
 
-    // 3. Should redirect to Keycloak logout endpoint
-    await page.waitForURL(/keycloak|logout|8080/, { timeout: 10000 })
-    console.log('[test] Logout in progress')
+    // Should still be logged in
+    const welcomeMsg = page.locator('text=Welcome')
+    await expect(welcomeMsg).toBeVisible({ timeout: 10000 })
+    console.log('[test] Still logged in after refresh')
 
-    // 4. Should eventually be back at login screen
-    await page.waitForURL('http://localhost:3000/', { timeout: 10000 })
-
-    // 5. Should see login button again
-    const newLoginBtn = page.locator('button:has-text("Login")')
-    await expect(newLoginBtn).toBeVisible({ timeout: 5000 })
-    console.log('[test] Back at login screen')
-
-    // 6. Chat input should not be visible
+    // Chat should be accessible
     const chatInput = page.locator('input[placeholder="Type your message..."]')
-    await expect(chatInput).not.toBeVisible()
-    console.log('[test] Chat input not visible')
-  })
-
-  test('login with wrong password fails', async ({ page }) => {
-    // 1. Navigate and click login
-    await page.goto('/')
-    const loginBtn = page.locator('button:has-text("Login")')
-    await loginBtn.click()
-
-    // 2. Wait for Keycloak
-    await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
-
-    // 3. Fill with wrong password
-    await page.locator('input[name="username"]').fill('testuser')
-    await page.locator('input[name="password"]').fill('wrongpassword')
-    console.log('[test] Filled wrong password')
-
-    // 4. Submit
-    await page.locator('button[type="submit"]').click()
-
-    // 5. Should see error message
-    const errorMsg = page.locator('text=/Invalid user|invalid credentials|error/i')
-    await expect(errorMsg).toBeVisible({ timeout: 5000 })
-    console.log('[test] Error message appeared for wrong password')
+    await expect(chatInput).toBeVisible()
+    console.log('[test] Chat still accessible')
   })
 })
