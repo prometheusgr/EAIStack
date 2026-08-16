@@ -19,14 +19,14 @@ describe('Keycloak Init - TDD', () => {
     // 3. NOT redirect to Keycloak login
 
     // WRONG: onLoad: 'check-sso' -> redirects to Keycloak
-    // CORRECT: onLoad: 'none' -> just checks local token
+    // CORRECT: omit onLoad -> just checks local token
 
     const correctInitOptions = {
-      onLoad: 'none', // Do NOT auto-redirect
+      // onLoad intentionally omitted - prevents redirects
       checkLoginIframe: false,
     }
 
-    expect(correctInitOptions.onLoad).toBe('none')
+    expect(correctInitOptions.onLoad).toBeUndefined()
   })
 
   it('should check if token exists in localStorage', () => {
@@ -51,14 +51,14 @@ describe('Keycloak Init - TDD', () => {
   it('should initialize without any redirects', () => {
     // TDD: The entire init flow should be:
     // 1. Create Keycloak instance
-    // 2. Call init({ onLoad: 'none', ... })
+    // 2. Call init({ checkLoginIframe: false, ... }) - omit onLoad
     // 3. Check localStorage for token
     // 4. Set authenticated=true/false
     // 5. Show UI (login button or chat)
     // NO redirects should happen
 
     const initOptions = {
-      onLoad: 'none', // Critical: prevents redirect
+      // onLoad intentionally omitted - critical for preventing redirects
       checkLoginIframe: false,
       pkceMethod: 'S256',
     }

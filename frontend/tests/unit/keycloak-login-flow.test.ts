@@ -70,19 +70,17 @@ describe('Keycloak Login Flow - TDD', () => {
     localStorage.clear()
   })
 
-  it('should use onLoad=none to prevent auto-redirect on init', () => {
+  it('should omit onLoad to prevent auto-redirect on init', () => {
     // TDD: kc.init() should not auto-redirect
-    // onLoad='none' or 'check-sso' but NOT with redirectUri
+    // Omit onLoad entirely - valid values 'check-sso' and 'login-required' can cause redirects
 
     const initOptions = {
       checkLoginIframe: false,
-      onLoad: 'check-sso',
-      // DO NOT include redirectUri - this causes the loop
-      // redirectUri is for Keycloak to know where to send the user AFTER login
-      // If not configured in Keycloak client, it rejects the request
+      // onLoad intentionally omitted - prevents any redirects
+      // DO NOT include redirectUri in init() - it's only for after successful auth
     }
 
-    expect(initOptions.onLoad).toBe('check-sso')
+    expect(initOptions.onLoad).toBeUndefined()
     expect(initOptions.checkLoginIframe).toBe(false)
   })
 

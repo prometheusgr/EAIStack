@@ -18,50 +18,52 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true)
   const [user, setUser] = useState(null)
   const [error, setError] = useState<string | null>(null)
+  const [keycloakUrl, setKeycloakUrl] = useState<string>('http://localhost:8080/')
 
   useEffect(() => {
     const initKeycloak = async () => {
       // Determine Keycloak URL based on environment
-      // In Docker: Browser sees http://localhost:8080 (published port)
-      // In local dev: http://localhost:8080
-      let keycloakUrl = 'http://localhost:8080/'
+      let url = 'http://localhost:8080/'
       if (import.meta.env.VITE_KEYCLOAK_URL) {
-        keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL
-        // Ensure trailing slash for Keycloak client
-        if (!keycloakUrl.endsWith('/')) {
-          keycloakUrl += '/'
+        url = import.meta.env.VITE_KEYCLOAK_URL
+        if (!url.endsWith('/')) {
+          url += '/'
         }
       }
+      setKeycloakUrl(url)
 
-      console.log('[Auth] Configured Keycloak URL:', keycloakUrl)
+      console.log('[Auth] Keycloak URL:', url)
 
       const kc = new Keycloak({
-        url: keycloakUrl,
+        url: url,
         realm: 'eaistack',
         clientId: 'eaistack-web',
       })
 
-      console.log('[Auth] Keycloak instance URL:', kc.authServerUrl)
-
-      console.log('[Auth] Keycloak config:', {
-        url: kc.authServerUrl,
-        realm: kc.realm,
-        clientId: kc.clientId,
-      })
       try {
-        // Check for redirect loop (error=login_required in hash)
-        if (window.location.hash.includes('error=login_required')) {
-          console.warn('[Auth] Detected login_required error - possible session issue')
-          setError('Login failed. Please try again.')
-          setKeycloak(kc)
-          setIsAuthenticated(false)
-          setIsLoading(false)
-          return
+        // CRITICAL FIX: Replace browser location search to prevent init() from re-processing
+        // Keycloak redirect parameters. If Keycloak redirected with ?error=login_required,
+        // we need to remove that from the URL before calling init(), otherwise init() might
+        // re-process the same error and trigger the loop again.
+        const urlParams = new URLSearchParams(window.location.search)
+        const code = urlParams.get('code')
+        const error = urlParams.get('error')
+        const state = urlParams.get('state')
+
+        // If we have a redirect error or code in the URL, remove it before init
+        if (error || code) {
+          console.log('[Auth] Detected redirect parameter:', error ? `error=${error}` : `code=${code}`)
+          // Replace history to clean URL without triggering re-init
+          window.history.replaceState(null, '', window.location.pathname)
         }
 
+        // Initialize Keycloak without triggering any redirects or session checks
+        // DO NOT specify onLoad - when omitted, Keycloak just checks for existing token
+        // without any automatic redirects or SSO checks
         const authenticated = await kc.init({
-          checkLoginIframe: false,
-          onLoad: 'none', // Do NOT auto-redirect - just check localStorage for token
+          checkLoginIframe: false, // Disable iframe-based session check (can cause redirects)
+          // Note: onLoad is intentionally omitted. Valid values are 'login-required' or 'check-sso',
+          // but both can cause redirects. Omitting onLoad means just check localStorage.
           pkceMethod: 'S256',
         })
 
@@ -93,8 +95,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = () => {
     // Navigate directly to Keycloak instead of using keycloak.login()
-    // This avoids redirect URI mismatch issues with the JS client
-    const keycloakLoginUrl = new URL('http://localhost:8080/realms/eaistack/protocol/openid-connect/auth')
+    // Use the configured Keycloak URL (not hardcoded localhost:8080)
+    const baseUrl = keycloakUrl.replace(/\/$/, '') // Remove trailing slash for URL construction
+    const keycloakLoginUrl = new URL(`${baseUrl}/realms/eaistack/protocol/openid-connect/auth`)
     keycloakLoginUrl.searchParams.set('client_id', 'eaistack-web')
     keycloakLoginUrl.searchParams.set('redirect_uri', window.location.origin + '/')
     keycloakLoginUrl.searchParams.set('response_type', 'code')
