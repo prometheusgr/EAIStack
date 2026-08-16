@@ -79,3 +79,24 @@ def client():
 
     # TestClient now takes the app as a positional argument, not keyword
     return TestClient(app)
+
+
+@pytest.fixture
+def mock_keycloak_token():
+    """Provide a mock Keycloak JWT token structure.
+
+    This fixture returns a valid JWT payload that would be issued by Keycloak
+    after a successful login. It's used to test token validation without
+    requiring a live Keycloak instance.
+    """
+    return {
+        "sub": "f1943c60-cb5a-4887-9331-73ba51b6bd89",
+        "preferred_username": "testuser",
+        "email": "testuser@eaistack.local",
+        "name": "Test User",
+        "email_verified": True,
+        "iss": "http://localhost:8080/realms/eaistack",
+        "aud": "eaistack-web",
+        "iat": 1629312000,
+        "exp": 1629398400,
+    }

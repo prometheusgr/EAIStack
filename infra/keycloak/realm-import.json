@@ -55,9 +55,11 @@
         {
           "type": "password",
           "value": "testpassword",
-          "temporary": false
+          "temporary": false,
+          "userLabel": "password"
         }
-      ]
+      ],
+      "requiredActions": []
     }
   ]
 }

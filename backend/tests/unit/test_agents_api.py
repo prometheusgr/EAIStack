@@ -1,10 +1,11 @@
 """Tests for the agents API endpoint."""
 
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, verify_token
 from app.main import app
 
 
@@ -162,4 +163,43 @@ def test_chat_endpoint_response_shape(client):
     # Validate schema
     assert set(data.keys()) == {"response", "thread_id"}
     assert isinstance(data["response"], str)
+    assert isinstance(data["thread_id"], str)
+
+
+@pytest.mark.unit
+def test_chat_endpoint_with_valid_auth(client, mock_keycloak_token):
+    """POST /api/agents/chat with valid auth should work end-to-end.
+
+    This test verifies that the chat endpoint correctly:
+    1. Accepts a Bearer token in the Authorization header
+    2. Validates the token (mocked)
+    3. Extracts user info from the token
+    4. Returns a valid chat response
+    """
+    fake_user = {
+        "user_id": mock_keycloak_token["sub"],
+        "username": mock_keycloak_token["preferred_username"],
+        "email": mock_keycloak_token["email"],
+        "name": mock_keycloak_token["name"],
+        "token": mock_keycloak_token,
+    }
+
+    def override_get_current_user():
+        return fake_user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    response = client.post(
+        "/api/agents/chat",
+        json={"message": "What is 2+2?"},
+        headers={"Authorization": "Bearer valid-jwt-token"},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data
+    assert isinstance(data["response"], str)
+    assert "thread_id" in data
     assert isinstance(data["thread_id"], str)

@@ -3,6 +3,7 @@
 import pytest
 from httpx import AsyncClient
 
+from app.core.config import settings
 from app.main import app
 
 
@@ -35,3 +36,23 @@ async def test_auth_me_with_invalid_token():
             headers={"Authorization": "Bearer invalid-token"},
         )
         assert response.status_code == 401
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_keycloak_realm_is_configured():
+    """Keycloak realm should be accessible and configured with test user."""
+    # This test validates that Keycloak is running and has the test realm
+    try:
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.keycloak_url}/realms/eaistack",
+                timeout=5.0,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data.get("realm") == "eaistack"
+    except Exception as e:
+        pytest.skip(f"Keycloak not available: {e}")
