@@ -42,10 +42,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       try {
         // Check for authorization code from Keycloak redirect
+        console.log('[Auth] Init: Checking for code in URL...', window.location.search)
         const urlParams = new URLSearchParams(window.location.search)
         const code = urlParams.get('code')
         const error = urlParams.get('error')
         const state = urlParams.get('state')
+
+        console.log('[Auth] Init: code=', code ? 'present' : 'none', 'error=', error, 'state=', state)
 
         // Handle authorization code exchange
         if (code) {
@@ -92,6 +95,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                       email: payload.email,
                       name: payload.name,
                     })
+                    console.log('[Auth] Auth state updated, user:', payload.preferred_username)
                   }
                 } catch (parseErr) {
                   console.warn('[Auth] Could not parse token:', parseErr)
@@ -101,10 +105,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               // Clean URL to prevent re-processing
               window.history.replaceState(null, '', window.location.pathname)
 
-              // Redirect to chat page
-              console.log('[Auth] Token exchanged successfully, redirecting to chat...')
-              window.location.href = '/chat'
-              return // Exit here, let the redirect happen
+              console.log('[Auth] Token exchanged successfully')
+              // Don't redirect - just return and let React re-render with updated auth state
+              setIsLoading(false)
+              return
             } else {
               console.error('[Auth] Token exchange failed:', tokenResponse.status)
               setError('Login failed. Please try again.')
@@ -124,6 +128,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setError(error === 'login_required' ? 'Login required' : error)
           // Clean URL to prevent re-processing
           window.history.replaceState(null, '', window.location.pathname)
+        }
+
+        // Check if we already have a stored token from previous login
+        const storedToken = localStorage.getItem('access_token')
+        if (storedToken) {
+          console.log('[Auth] Found stored token, using it')
+          try {
+            const tokenParts = storedToken.split('.')
+            if (tokenParts.length === 3) {
+              const payload = JSON.parse(
+                atob(tokenParts[1].replace(/-/g, '+').replace(/_/g, '/'))
+              )
+              setKeycloak(kc)
+              setIsAuthenticated(true)
+              setUser({
+                username: payload.preferred_username,
+                email: payload.email,
+                name: payload.name,
+              })
+              console.log('[Auth] Restored user from stored token:', payload.preferred_username)
+              setIsLoading(false)
+              return
+            }
+          } catch (parseErr) {
+            console.warn('[Auth] Could not parse stored token:', parseErr)
+            // Fall through to normal init
+          }
         }
 
         // Initialize Keycloak without triggering any redirects or session checks
