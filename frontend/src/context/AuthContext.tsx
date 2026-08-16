@@ -222,6 +222,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     keycloakLoginUrl.searchParams.set('response_mode', 'query')
     keycloakLoginUrl.searchParams.set('scope', 'openid profile email')
     keycloakLoginUrl.searchParams.set('state', 'eaistack-' + Date.now())
+    // CRITICAL: prompt=login forces fresh authentication even if session exists
+    // Without this, Keycloak skips login form if session cookie is still valid
+    keycloakLoginUrl.searchParams.set('prompt', 'login')
 
     console.log('[Auth] Redirecting to Keycloak login:', keycloakLoginUrl.href)
     window.location.href = keycloakLoginUrl.href
