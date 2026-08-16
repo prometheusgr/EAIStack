@@ -3,6 +3,7 @@
   "enabled": true,
   "displayName": "EAIStack Realm",
   "displayNameHtml": "<b>Enterprise AI Stack</b>",
+  "sslRequired": "none",
   "clients": [
     {
       "clientId": "eaistack-api",
@@ -31,10 +32,12 @@
       "directAccessGrantsEnabled": false,
       "redirectUris": [
         "http://localhost:3000",
-        "http://localhost:3000/"
+        "http://localhost:3000/",
+        "http://localhost:3000/*"
       ],
       "webOrigins": [
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "http://localhost:3000/"
       ],
       "access": {
         "view": true,

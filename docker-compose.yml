@@ -43,7 +43,9 @@ services:
       KC_DB_PASSWORD: postgres
       KC_HOSTNAME: localhost
       KC_HOSTNAME_PORT: 8080
+      KC_SCHEME: http
       KC_PROXY: edge
+      KC_HOSTNAME_STRICT_HTTPS: false
     ports:
       - "8080:8080"
     depends_on:
