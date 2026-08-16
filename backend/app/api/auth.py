@@ -13,10 +13,12 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 class TokenExchangeRequest(BaseModel):
-    """OAuth2 authorization code exchange request."""
+    """OAuth2 token request - authorization code or refresh token grant."""
 
-    code: str
-    redirect_uri: str
+    code: str | None = None
+    redirect_uri: str | None = None
+    grant_type: str = "authorization_code"
+    refresh_token: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -29,82 +31,101 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/token", response_model=TokenResponse)
-async def exchange_code_for_token(request: TokenExchangeRequest):
+async def exchange_token(request: TokenExchangeRequest):
     """
-    Exchange authorization code for access token.
+    OAuth2 token endpoint - supports authorization code and refresh token grants.
 
-    This endpoint implements the OAuth2 authorization code exchange flow.
-    Frontend gets a code from Keycloak, sends it here, and receives an access token.
-
-    Flow:
+    Authorization code flow:
     1. Frontend redirects to Keycloak login
     2. User logs in to Keycloak
     3. Keycloak redirects back with ?code=...
     4. Frontend sends code to this endpoint
     5. This endpoint exchanges code with Keycloak server-to-server
     6. Returns access token to frontend
-    7. Frontend stores token and uses it for API calls
+
+    Refresh token flow:
+    1. Frontend has a stored refresh_token
+    2. Frontend sends refresh_token to this endpoint
+    3. This endpoint exchanges it with Keycloak server-to-server
+    4. Returns new access token to frontend
     """
     try:
-        logger.info(f"[Auth] Exchanging code for token")
-        logger.debug(f"[Auth] Code: {request.code[:20] if request.code else 'none'}...")
-
-        # Exchange code with Keycloak server
         token_endpoint = (
             f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/token"
         )
-        logger.debug(f"[Auth] Token endpoint: {token_endpoint}")
+
+        if request.grant_type == "authorization_code":
+            if not request.code or not request.redirect_uri:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="code and redirect_uri required for authorization_code grant",
+                )
+            logger.info("Exchanging authorization code for token")
+            token_data = {
+                "grant_type": "authorization_code",
+                "code": request.code,
+                "client_id": settings.keycloak_web_client_id,
+                "redirect_uri": request.redirect_uri,
+            }
+        elif request.grant_type == "refresh_token":
+            if not request.refresh_token:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="refresh_token required for refresh_token grant",
+                )
+            logger.info("Refreshing access token")
+            token_data = {
+                "grant_type": "refresh_token",
+                "refresh_token": request.refresh_token,
+                "client_id": settings.keycloak_web_client_id,
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported grant_type: {request.grant_type}",
+            )
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                token_endpoint,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": request.code,
-                    "client_id": settings.keycloak_web_client_id,
-                    "redirect_uri": request.redirect_uri,
-                },
-                timeout=10.0,
-            )
+            response = await client.post(token_endpoint, data=token_data, timeout=10.0)
 
             if response.status_code != 200:
                 error_detail = response.text
-                logger.error(f"[Auth] Keycloak returned {response.status_code}: {error_detail}")
+                logger.error("Keycloak returned %d: %s", response.status_code, error_detail)
                 try:
                     error_data = response.json()
                     error_detail = error_data.get(
                         "error_description",
-                        error_data.get("error", error_detail)
+                        error_data.get("error", error_detail),
                     )
                 except Exception:
                     pass
 
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Code exchange failed: {error_detail}",
+                    detail="Token request failed",
                 )
 
-            token_data = response.json()
-            logger.info("[Auth] Token exchange successful")
+            token_response = response.json()
+            logger.info("Token request successful")
 
             return TokenResponse(
-                access_token=token_data.get("access_token"),
-                token_type=token_data.get("token_type", "Bearer"),
-                refresh_token=token_data.get("refresh_token"),
-                expires_in=token_data.get("expires_in"),
+                access_token=token_response.get("access_token"),
+                token_type=token_response.get("token_type", "Bearer"),
+                refresh_token=token_response.get("refresh_token"),
+                expires_in=token_response.get("expires_in"),
             )
 
     except httpx.RequestError as e:
-        logger.error(f"[Auth] Keycloak unreachable: {str(e)}")
+        logger.error("Keycloak unreachable: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Keycloak unavailable: {str(e)}",
+            detail="Keycloak unavailable",
         ) from e
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[Auth] Unexpected error: {type(e).__name__}: {str(e)}")
+        logger.error("Unexpected error: %s: %s", type(e).__name__, str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Token exchange error: {str(e)}",
+            detail="Token request failed",
         ) from e

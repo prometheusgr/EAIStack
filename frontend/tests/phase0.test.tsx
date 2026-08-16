@@ -9,6 +9,7 @@ vi.mock('../src/context/AuthContext', () => ({
     isLoading: false,
     login: () => {},
     logout: () => {},
+    refreshAccessToken: async () => false,
     user: {
       name: 'Test User',
       username: 'testuser',

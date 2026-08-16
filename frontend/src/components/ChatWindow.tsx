@@ -5,7 +5,7 @@ import { ChatMessage } from "../types/chat";
 import "./ChatWindow.css";
 
 export function ChatWindow() {
-  const { token } = useAuth();
+  const { token, refreshAccessToken } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -34,7 +34,8 @@ export function ChatWindow() {
       const response = await sendChatMessage(
         userMessage,
         currentThreadId,
-        token
+        token,
+        refreshAccessToken
       );
 
       setThreadId(response.threadId);

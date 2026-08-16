@@ -12,6 +12,7 @@ interface AuthContextType {
   isLoading: boolean
   login: () => void
   logout: () => void
+  refreshAccessToken: () => Promise<boolean>
   user: AuthUser | null
 }
 
@@ -135,6 +136,71 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }
 
+  const refreshAccessToken = async (): Promise<boolean> => {
+    const refreshToken = localStorage.getItem('refresh_token')
+    if (!refreshToken) {
+      return false
+    }
+
+    try {
+      const response = await fetch('/api/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+        }),
+      })
+
+      if (!response.ok) {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        localStorage.removeItem('token_type')
+        setIsAuthenticated(false)
+        setUser(null)
+        setToken(null)
+        return false
+      }
+
+      const tokenData = await response.json()
+      if (tokenData.access_token) {
+        localStorage.setItem('access_token', tokenData.access_token)
+        localStorage.setItem('token_type', tokenData.token_type || 'Bearer')
+        if (tokenData.refresh_token) {
+          localStorage.setItem('refresh_token', tokenData.refresh_token)
+        }
+
+        try {
+          const payload = decodeJwt(tokenData.access_token)
+          setToken(tokenData.access_token)
+          setUser({
+            username: payload.preferred_username,
+            email: payload.email,
+            name: payload.name,
+          })
+          return true
+        } catch {
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
+          localStorage.removeItem('token_type')
+          setIsAuthenticated(false)
+          setUser(null)
+          setToken(null)
+          return false
+        }
+      }
+      return false
+    } catch {
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('refresh_token')
+      localStorage.removeItem('token_type')
+      setIsAuthenticated(false)
+      setUser(null)
+      setToken(null)
+      return false
+    }
+  }
+
   const logout = () => {
     localStorage.removeItem('access_token')
     localStorage.removeItem('token_type')
@@ -153,7 +219,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   return (
-    <AuthContext.Provider value={{ token, isAuthenticated, isLoading, login, logout, user }}>
+    <AuthContext.Provider value={{ token, isAuthenticated, isLoading, login, logout, refreshAccessToken, user }}>
       {children}
     </AuthContext.Provider>
   )

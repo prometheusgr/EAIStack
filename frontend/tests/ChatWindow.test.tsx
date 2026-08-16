@@ -10,6 +10,7 @@ vi.mock("../src/context/AuthContext", () => ({
     user: {
       name: "Test User",
     },
+    refreshAccessToken: async () => false,
   }),
 }));
 
@@ -109,7 +110,8 @@ describe("ChatWindow", () => {
       expect(mockSendChat).toHaveBeenCalledWith(
         "Test",
         undefined,
-        "fake-token-123"
+        "fake-token-123",
+        expect.any(Function)
       );
     });
   });
