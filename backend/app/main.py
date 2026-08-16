@@ -1,10 +1,11 @@
 """FastAPI application entry point."""
 
-from fastapi import FastAPI, Depends
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
+from app.api import agents
 from app.core.auth import get_current_user
+from app.core.config import settings
 
 app = FastAPI(
     title="EAIStack Backend",
@@ -19,6 +20,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(agents.router)
 
 
 @app.get("/health")

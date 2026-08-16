@@ -1,20 +1,26 @@
 """Pytest configuration and shared fixtures."""
 
-import os
 from typing import Generator
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from testcontainers.postgres import PostgresContainer
 
-# Use in-memory SQLite for speed in unit tests, real Postgres for integration tests
+try:
+    from testcontainers.postgres import PostgresContainer
+
+    HAS_TESTCONTAINERS = True
+except ImportError:
+    HAS_TESTCONTAINERS = False
 
 
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator:
     """Start a Postgres container for integration tests."""
-    # Only start if running integration tests
+    if not HAS_TESTCONTAINERS:
+        yield None
+        return
+
     container = PostgresContainer("pgvector/pgvector:0.5.1")
     container.start()
     yield container
@@ -30,14 +36,15 @@ def test_db_url(request) -> str:
     - Integration tests: real Postgres (from container)
     """
     if "integration" in request.keywords:
-        # Integration tests use real Postgres
+        if not HAS_TESTCONTAINERS:
+            pytest.skip("testcontainers not installed")
+
         container = PostgresContainer("pgvector/pgvector:0.5.1")
         container.start()
         url = container.get_connection_url()
         yield url
         container.stop()
     else:
-        # Unit tests use SQLite in-memory
         yield "sqlite:///:memory:"
 
 

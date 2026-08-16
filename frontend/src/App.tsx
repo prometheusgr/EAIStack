@@ -1,4 +1,5 @@
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { ChatWindow } from './components/ChatWindow'
 import './App.css'
 
 function AppContent() {
@@ -25,7 +26,10 @@ function AppContent() {
         <span>Welcome, {user?.name || user?.username}</span>
         <button onClick={logout}>Logout</button>
       </div>
-      <p>Phase 1: Auth working end-to-end</p>
+      <div className="content">
+        <h2>Phase 2: Agent Chat</h2>
+        <ChatWindow />
+      </div>
     </div>
   )
 }

@@ -2,9 +2,8 @@
 
 from typing import Any, List, Optional
 
-from langchain_core.language_model import LLM
 from langchain_core.callbacks import CallbackManagerForLLMRun
-from pydantic import BaseModel
+from langchain_core.language_models import LLM
 
 
 class FakeChatModel(LLM):
@@ -28,24 +27,6 @@ class FakeChatModel(LLM):
         self.call_count += 1
         return self.response
 
-    def _generate(
-        self,
-        messages: List[Any],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> Any:
-        """Generate method required by LangChain."""
-        self.call_count += 1
-        from langchain_core.outputs import ChatGeneration, LLMResult
-        from langchain_core.messages import AIMessage
-
-        return LLMResult(
-            generations=[
-                [ChatGeneration(message=AIMessage(content=self.response))]
-            ]
-        )
-
 
 def get_llm_client():
     """
@@ -54,7 +35,6 @@ def get_llm_client():
     In production, returns a real client pointing to llama-server.
     In tests, this is replaced by mock_llm fixture.
     """
-    from app.core.config import settings
 
     # TODO: Return ChatOpenAI client pointing to llama-server in production
     # For now, return a placeholder

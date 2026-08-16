@@ -1,8 +1,8 @@
 """Authentication and authorization middleware."""
 
+
 import httpx
-from typing import Optional
-from fastapi import HTTPException, status, Depends
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 
 from app.core.config import settings
@@ -12,14 +12,16 @@ security = HTTPBearer()
 
 async def get_keycloak_public_key() -> dict:
     """Fetch Keycloak realm's public key."""
-    jwks_url = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
+    jwks_url = (
+        f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
+    )
     async with httpx.AsyncClient() as client:
         response = await client.get(jwks_url)
         response.raise_for_status()
         return response.json()
 
 
-async def verify_token(credentials = Depends(security)) -> dict:
+async def verify_token(credentials=Depends(security)) -> dict:
     """Verify JWT token from Keycloak."""
     token = credentials.credentials
 
@@ -69,7 +71,7 @@ async def verify_token(credentials = Depends(security)) -> dict:
         )
 
 
-async def get_current_user(payload: dict = Depends(verify_token)) -> dict:
+async def extract_user_from_payload(payload: dict) -> dict:
     """Extract current user from verified token payload."""
     user_id = payload.get("sub")
     username = payload.get("preferred_username")
@@ -87,3 +89,8 @@ async def get_current_user(payload: dict = Depends(verify_token)) -> dict:
         "name": payload.get("name"),
         "token": payload,
     }
+
+
+async def get_current_user(payload: dict = Depends(verify_token)) -> dict:
+    """Extract current user from verified token payload (dependency-injected)."""
+    return await extract_user_from_payload(payload)

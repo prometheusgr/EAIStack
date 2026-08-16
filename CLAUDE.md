@@ -18,11 +18,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Phase 1 Complete ✓**: Authentication & local dev loop (Keycloak OIDC + JWT validation + protected endpoints)
 
-**Phase 2 (Current)**: Agent Orchestration & LLM Integration
-- Backend: `POST /api/agents/chat` endpoint + LangGraph agent with mocked LLM
-- Frontend: Chat UI component + message streaming
-- Testing: End-to-end flow with deterministic (mocked) responses
-- Critical note: llama.cpp tool-calling with streaming has rough edges—test early in Phase 2
+**Phase 2 Complete ✓**: Agent Orchestration & LLM Integration
+- Backend: `POST /api/agents/chat` endpoint + LangGraph agent with mocked LLM (no real llama-server yet)
+- Frontend: Chat UI component with message display
+- Testing: End-to-end flow with deterministic (mocked) responses and TDD-first implementation
+- Scope note: Streaming (SSE/WebSocket), persistence (Postgres checkpointer), and real llama-server wiring deferred to Phase 2b/3
+- Tool-calling: Mocked tool calls work; real MCP integration and pgvector search is Phase 3
 
 ## Common Development Commands
 
