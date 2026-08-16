@@ -17,9 +17,12 @@ export function ChatWindow() {
       return;
     }
 
-    if (!keycloak?.token) {
+    // Try to get token from keycloak.token, fall back to localStorage
+    const token = keycloak?.token || localStorage.getItem('access_token');
+
+    if (!token) {
       setError("No auth token available. Please log in.");
-      console.error('[Chat] No token available:', { token: keycloak?.token, keycloak });
+      console.error('[Chat] No token available:', { token, keycloak });
       return;
     }
 
@@ -32,11 +35,11 @@ export function ChatWindow() {
       setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
       setInputValue("");
 
-      console.log('[Chat] Sending message with token:', keycloak.token.substring(0, 20) + '...');
+      console.log('[Chat] Sending message with token:', token.substring(0, 20) + '...');
       const response = await sendChatMessage(
         userMessage,
         currentThreadId,
-        keycloak.token
+        token
       );
 
       setThreadId(response.threadId);

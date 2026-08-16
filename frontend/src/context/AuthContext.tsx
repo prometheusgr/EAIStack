@@ -87,6 +87,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     )
                     console.log('[Auth] Token payload:', payload.preferred_username)
 
+                    // Set token on keycloak instance so ChatWindow can access it
+                    kc.token = tokenData.access_token
+                    kc.tokenParsed = payload
+
                     // Update auth state
                     setKeycloak(kc)
                     setIsAuthenticated(true)
@@ -140,6 +144,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               const payload = JSON.parse(
                 atob(tokenParts[1].replace(/-/g, '+').replace(/_/g, '/'))
               )
+              // Set keycloak.token so ChatWindow can access it
+              kc.token = storedToken
+              kc.tokenParsed = payload
               setKeycloak(kc)
               setIsAuthenticated(true)
               setUser({
@@ -210,6 +217,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   const logout = () => {
+    // Clear tokens from localStorage
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('token_type')
+    localStorage.removeItem('refresh_token')
+
+    // Reset auth state
+    setIsAuthenticated(false)
+    setUser(null)
+    setKeycloak(null)
+
+    console.log('[Auth] Logged out, tokens cleared')
+
+    // Redirect to Keycloak logout endpoint
     if (keycloak) {
       keycloak.logout({ redirectUri: `${window.location.origin}/` })
     }
