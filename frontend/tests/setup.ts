@@ -1,7 +1,11 @@
 import '@testing-library/jest-dom'
 
+declare global {
+  var Keycloak: any
+}
+
 // Mock Keycloak for tests
-global.Keycloak = function() {
+globalThis.Keycloak = function() {
   return {
     init: () => Promise.resolve(true),
     login: () => {},

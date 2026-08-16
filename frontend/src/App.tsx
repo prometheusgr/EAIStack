@@ -1,6 +1,5 @@
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ChatWindow } from './components/ChatWindow'
-import './App.css'
 
 function AppContent() {
   const { isAuthenticated, isLoading, login, logout, user } = useAuth()

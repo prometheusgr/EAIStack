@@ -7,7 +7,10 @@ async function globalSetup() {
   let keycloakReady = false
   for (let i = 0; i < 30; i++) {
     try {
-      const response = await fetch('http://localhost:8080/realms/eaistack', { timeout: 2000 })
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 2000)
+      const response = await fetch('http://localhost:8080/realms/eaistack', { signal: controller.signal })
+      clearTimeout(timeoutId)
       if (response.ok) {
         console.log('[global-setup] ✓ Keycloak available')
         keycloakReady = true
