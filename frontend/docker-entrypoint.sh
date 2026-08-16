@@ -13,4 +13,4 @@ echo ""
 echo "[entrypoint] Starting Vite dev server..."
 
 # Start Vite dev server with host binding
-exec vite --host 0.0.0.0
+exec npx vite --host 0.0.0.0
