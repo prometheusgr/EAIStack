@@ -101,7 +101,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
-      VITE_KEYCLOAK_URL: http://localhost:8080
+      VITE_KEYCLOAK_URL: http://localhost:8080/
       VITE_BACKEND_URL: http://localhost:8001
       BACKEND_URL: http://backend:8000
     ports:

@@ -21,22 +21,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     const initKeycloak = async () => {
       // Determine Keycloak URL based on environment
-      // In Docker: keycloak service at http://keycloak:8080
+      // In Docker: Browser sees http://localhost:8080 (published port)
       // In local dev: http://localhost:8080
-      const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8080'
+      let keycloakUrl = 'http://localhost:8080/'
+      if (import.meta.env.VITE_KEYCLOAK_URL) {
+        keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL
+        // Ensure trailing slash for Keycloak client
+        if (!keycloakUrl.endsWith('/')) {
+          keycloakUrl += '/'
+        }
+      }
 
-      console.log('[Auth] Environment variables:', {
-        VITE_KEYCLOAK_URL: import.meta.env.VITE_KEYCLOAK_URL,
-        VITE_BACKEND_URL: import.meta.env.VITE_BACKEND_URL,
-      })
-      console.log('[Auth] Final Keycloak URL:', keycloakUrl)
+      console.log('[Auth] Configured Keycloak URL:', keycloakUrl)
 
       const kc = new Keycloak({
         url: keycloakUrl,
         realm: 'eaistack',
         clientId: 'eaistack-web',
       })
-      console.log('[Auth] Keycloak instance created, about to initialize')
+
+      console.log('[Auth] Keycloak instance URL:', kc.authServerUrl)
+
+      console.log('[Auth] Keycloak config:', {
+        url: kc.authServerUrl,
+        realm: kc.realm,
+        clientId: kc.clientId,
+      })
       try {
         const authenticated = await kc.init({
           checkLoginIframe: false,
