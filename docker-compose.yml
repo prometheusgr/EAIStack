@@ -41,6 +41,8 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/eaistack
       KC_DB_USERNAME: postgres
       KC_DB_PASSWORD: postgres
+      KC_HOSTNAME: localhost
+      KC_PROXY: edge
     ports:
       - "8080:8080"
     depends_on:
@@ -49,6 +51,11 @@ services:
     volumes:
       - ./infra/keycloak/realm-import.json:/opt/keycloak/data/import/realm.json:ro
     command: start-dev --import-realm
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   llama-server:
     # TODO: Build custom image with a default model
