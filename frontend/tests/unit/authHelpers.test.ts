@@ -67,16 +67,32 @@ describe('authHelpers', () => {
   })
 
   describe('buildKeycloakLogoutUrl', () => {
-    it('builds logout URL with redirect_uri', () => {
+    it('builds logout URL with post_logout_redirect_uri', () => {
       const url = buildKeycloakLogoutUrl('http://localhost:8080/', 'http://localhost:3000/')
 
       expect(url).toContain('http://localhost:8080/realms/eaistack/protocol/openid-connect/logout')
-      expect(url).toContain('redirect_uri=http%3A%2F%2Flocalhost%3A3000%2F')
+      expect(url).toContain('post_logout_redirect_uri=http%3A%2F%2Flocalhost%3A3000%2F')
     })
 
-    it('does not include prompt parameter', () => {
+    it('includes id_token_hint when idToken is provided', () => {
+      const idToken = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.sig'
+      const url = buildKeycloakLogoutUrl('http://localhost:8080/', 'http://localhost:3000/', idToken)
+
+      expect(url).toContain('id_token_hint=eyJhbGciOiJIUzI1NiJ9')
+      expect(url).toContain('post_logout_redirect_uri=http%3A%2F%2Flocalhost%3A3000%2F')
+    })
+
+    it('omits id_token_hint when idToken is not provided', () => {
       const url = buildKeycloakLogoutUrl('http://localhost:8080/', 'http://localhost:3000/')
-      expect(url).not.toContain('prompt')
+
+      expect(url).not.toContain('id_token_hint')
+      expect(url).toContain('post_logout_redirect_uri')
+    })
+
+    it('uses post_logout_redirect_uri and id_token_hint per OIDC spec', () => {
+      const url = buildKeycloakLogoutUrl('http://localhost:8080/', 'http://localhost:3000/')
+      expect(url).toContain('post_logout_redirect_uri=')
+      expect(url).not.toMatch(/[?&]redirect_uri=/)
     })
 
     it('handles Keycloak URL with trailing slash', () => {

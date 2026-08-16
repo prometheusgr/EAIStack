@@ -27,6 +27,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     refresh_token: str | None = None
+    id_token: str | None = None
     expires_in: int | None = None
 
 
@@ -112,6 +113,7 @@ async def exchange_token(request: TokenExchangeRequest):
                 access_token=token_response.get("access_token"),
                 token_type=token_response.get("token_type", "Bearer"),
                 refresh_token=token_response.get("refresh_token"),
+                id_token=token_response.get("id_token"),
                 expires_in=token_response.get("expires_in"),
             )
 

@@ -5,6 +5,7 @@ export interface AuthTokenPayload {
   name?: string
   exp: number
   aud?: string | string[]
+  iss?: string
 }
 
 export interface AuthUser {
@@ -45,13 +46,17 @@ export function buildKeycloakLoginUrl(
 
 export function buildKeycloakLogoutUrl(
   keycloakUrl: string,
-  redirectUri: string
+  redirectUri: string,
+  idToken?: string
 ): string {
   const baseUrl = keycloakUrl.replace(/\/$/, '')
   const logoutUrl = new URL(
     `${baseUrl}/realms/eaistack/protocol/openid-connect/logout`
   )
 
-  logoutUrl.searchParams.set('redirect_uri', redirectUri)
+  if (idToken) {
+    logoutUrl.searchParams.set('id_token_hint', idToken)
+  }
+  logoutUrl.searchParams.set('post_logout_redirect_uri', redirectUri)
   return logoutUrl.href
 }

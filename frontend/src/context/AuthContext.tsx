@@ -61,6 +61,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 if (tokenData.refresh_token) {
                   localStorage.setItem('refresh_token', tokenData.refresh_token)
                 }
+                if (tokenData.id_token) {
+                  localStorage.setItem('id_token', tokenData.id_token)
+                }
 
                 try {
                   const payload = decodeJwt(tokenData.access_token)
@@ -75,6 +78,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   localStorage.removeItem('access_token')
                   localStorage.removeItem('refresh_token')
                   localStorage.removeItem('token_type')
+                  localStorage.removeItem('id_token')
                 }
               }
               window.history.replaceState(null, '', window.location.pathname)
@@ -109,6 +113,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             localStorage.removeItem('access_token')
             localStorage.removeItem('refresh_token')
             localStorage.removeItem('token_type')
+            localStorage.removeItem('id_token')
           }
         }
 
@@ -156,6 +161,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('token_type')
+        localStorage.removeItem('id_token')
         setIsAuthenticated(false)
         setUser(null)
         setToken(null)
@@ -168,6 +174,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.setItem('token_type', tokenData.token_type || 'Bearer')
         if (tokenData.refresh_token) {
           localStorage.setItem('refresh_token', tokenData.refresh_token)
+        }
+        if (tokenData.id_token) {
+          localStorage.setItem('id_token', tokenData.id_token)
         }
 
         try {
@@ -183,6 +192,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.removeItem('access_token')
           localStorage.removeItem('refresh_token')
           localStorage.removeItem('token_type')
+          localStorage.removeItem('id_token')
           setIsAuthenticated(false)
           setUser(null)
           setToken(null)
@@ -194,6 +204,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('token_type')
+      localStorage.removeItem('id_token')
       setIsAuthenticated(false)
       setUser(null)
       setToken(null)
@@ -202,16 +213,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   const logout = () => {
+    const idToken = localStorage.getItem('id_token')
     localStorage.removeItem('access_token')
     localStorage.removeItem('token_type')
     localStorage.removeItem('refresh_token')
+    localStorage.removeItem('id_token')
 
     setIsAuthenticated(false)
     setUser(null)
     setToken(null)
 
     try {
-      const logoutUrl = buildKeycloakLogoutUrl(keycloakUrl, window.location.origin + '/')
+      const logoutUrl = buildKeycloakLogoutUrl(keycloakUrl, window.location.origin + '/', idToken || undefined)
       window.location.replace(logoutUrl)
     } catch {
       // Fallback: stay on page with cleared auth
