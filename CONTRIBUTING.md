@@ -45,57 +45,20 @@ Read [CLAUDE.md](CLAUDE.md) for project overview, development standards, and tes
 
 ## Testing Discipline (TDD)
 
-**Write tests first, implementation second.** Every commit should have corresponding tests.
-
-### Backend
-```bash
-# Unit tests (must pass before commit)
-pytest tests/unit/
-
-# Integration tests (smoke check, non-blocking)
-pytest tests/integration/
-```
-
-### Frontend
-```bash
-npm run test
-```
-
-### Pre-commit
-```bash
-# Run linters
-npm run lint
-pytest --cov
-```
+**Write tests first, implementation second.** Every commit should have corresponding tests. See [AGENTS.md#testing-tdd-enforced-by-ci](AGENTS.md#testing-tdd-enforced-by-ci) for detailed testing standards, commands, and CI requirements.
 
 ## Commit Workflow
 
-1. Create a feature branch: `git checkout -b feature/your-feature`
-2. Write a failing test
-3. Implement to make it pass
-4. Run full test suite locally
-5. Commit with a descriptive message:
-   ```
-   Brief one-line summary
-
-   Longer explanation of why this change matters. Reference the plan or
-   issue if applicable. Focus on the decision, not the implementation.
-   ```
-6. Push and open a PR
+See [AGENTS.md#development-workflow](AGENTS.md#development-workflow) and [AGENTS.md#commit-standards](AGENTS.md#commit-standards) for detailed workflow, commit format, and pre-push checklist.
 
 ## Code Review Checklist
 
-- [ ] Tests written first (TDD), all passing
-- [ ] No mocking of LLM at the wrong boundary (should only mock at the LLM service boundary, not in business logic)
-- [ ] No unnecessary abstractions
-- [ ] Clear variable/function names (code documents itself)
-- [ ] No feature flags or backwards-compat shims
-- [ ] Follows the phase scope (don't add features outside the current phase)
+See [AGENTS.md#code-review-checklist](AGENTS.md#code-review-checklist) for the full checklist.
 
 ## Reporting Issues
 
 If you find a bug or have a question:
-1. Check the [plan file](/.claude/plans/indexed-tinkering-babbage.md) for context
+1. Check current [plan files](.claude/plans/) for context
 2. Open an issue with reproduction steps and expected vs. actual behavior
 3. Reference relevant code locations
 

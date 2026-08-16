@@ -1,0 +1,200 @@
+# Development Standards & Process
+
+This file defines coding standards and development process for EAIStack contributors. It is referenced by both Claude Code (via CLAUDE.md import) and GitHub Copilot (via .github/copilot-instructions.md).
+
+## Testing (TDD enforced by CI)
+
+**TDD is mandatory.** Tests are the specification. Every feature and bug fix is driven by a test written first.
+
+### TDD Discipline
+
+**For new features**:
+1. Write a failing test that specifies the desired behavior
+2. Run the test and confirm it fails (red)
+3. Implement the minimum code to make it pass (green)
+4. Refactor for clarity and maintainability without changing behavior (refactor)
+
+**For bugs**:
+1. Write a failing test that reproduces the bug
+2. Run the test and confirm it fails (red)
+3. Research and fix the root cause
+4. Run the test and confirm it passes (green)
+5. Refactor if needed for clarity
+
+**Test outcomes define correctness.** If a test passes, the function behaves as specified. If it fails, the implementation is wrong. There is no other source of truth.
+
+All unit tests must pass locally before pushing. Every commit must have corresponding tests.
+
+### Backend (FastAPI/LangGraph)
+
+- Mock the LLM boundary (`FakeChatModel` in tests); TDD all deterministic logic
+- `tests/unit/` — fast, mocked, gates every commit (CI requirement)
+- `tests/integration/` — real llama-server, not gated, smoke-test only
+- Fixtures: fake LLM, test Postgres (testcontainers), test MinIO
+
+**Test commands**:
+```bash
+pytest tests/unit/                    # Unit tests only (mocked, fast)
+pytest tests/unit/test_auth.py -v     # Single test file
+pytest tests/unit/ -k "test_name" -v  # Single test function
+pytest --cov                          # Full coverage report
+pytest tests/integration/              # Integration tests (real services, slow)
+```
+
+### Frontend (React/TypeScript)
+
+- React Testing Library + Vitest
+- Mock Keycloak provider for auth-flow tests
+- Component and integration tests written first
+
+**Test commands**:
+```bash
+npm test                 # Run all tests
+npm run test:ui         # Run with interactive UI
+npm test -- filename.test.ts  # Single test file
+```
+
+### MCP doc-search server (Phase 3+)
+
+- TDD pgvector query logic against test Postgres
+
+### Infra (Helm/K3s) (Phase 5+)
+
+- Write validation scripts before manifests (assertions about pod readiness, TLS cert validity, etcd encryption)
+- CI runs infra tests against k3d
+
+### CI Pipeline
+
+GitHub Actions (see `.github/workflows/ci.yml`) runs on every PR:
+- **Backend**: `pytest tests/unit/` + `ruff check` + `black --check`
+- **Frontend**: `npm test` + `npm run lint`
+- Coverage enforced on changed code (baseline exists in Phase 1)
+
+## Coding Standards
+
+**Code must be maintainable for a 10-year lifecycle.** This is not a throwaway project. Every line should be clear enough that someone reading it in 2034 understands intent without archaeological investigation.
+
+### Readability & Intent
+
+- **Clear, descriptive names**: Variables, functions, classes should reveal intent. A reader should understand *what* code does and *why* it matters without needing to trace execution.
+- **No clever tricks**: Avoid obfuscation, cryptic patterns, or "clever" optimizations that require footnotes to understand. Clarity beats cleverness.
+- **Comments only for *why*, not *what***; well-named code documents the what. Only comment non-obvious decisions, constraints, or workarounds.
+- **One responsibility per function**: Functions should do one thing well. Long functions with multiple concerns are a maintenance burden.
+
+### Logic & Testability
+
+- **Prefer deterministic, testable logic**: Hide non-determinism (LLM calls, I/O, time-dependent behavior) behind mock boundaries so logic can be tested in isolation.
+- **No mocking of LLM at the wrong boundary**: Should only mock at the LLM service boundary (`app.core.llm_client`), not in business logic. Keeps mocks honest.
+- **Trust framework guarantees**: Don't add error handling for scenarios that can't happen. Trust that FastAPI validates inputs, SQLAlchemy handles transactions correctly, etc. Add error handling only at system boundaries (user input, external APIs).
+
+### Design & Abstraction
+
+- **No premature abstractions**: Three similar lines is better than a shared utility. Don't extract a function unless you have a second caller or a strong reason to isolate logic.
+- **Avoid feature flags and backwards-compatibility shims**: Just change the code. Feature flags add cognitive load and technical debt. If code needs to work two ways, it needs refactoring.
+- **Prefer composition over inheritance**: Simpler to understand, test, and modify.
+
+## Commit Standards
+
+- **Descriptive commit messages**: explain the *why*, not just what changed
+- **One logical change per commit**; squash before merge if needed
+- **Reference issue/plan context** if relevant, but don't bury the actual change description
+
+**Commit message format**:
+```
+Brief one-line summary
+
+Longer explanation of why this change matters. Reference the plan or
+issue if applicable. Focus on the decision, not the implementation.
+```
+
+## Code Review Checklist
+
+### TDD & Testing
+
+- [ ] Tests written first (TDD) — test exists and fails before implementation
+- [ ] All unit tests pass locally and in CI
+- [ ] Tests specify behavior, not implementation (would pass if refactored correctly)
+- [ ] No test-only mocking that wouldn't apply to production code
+- [ ] Coverage: all new code paths have corresponding tests
+
+### Readability & Maintainability
+
+- [ ] Variable, function, and class names are clear and reveal intent
+- [ ] No comments unless explaining *why*; the code itself documents *what*
+- [ ] Functions do one thing well (single responsibility)
+- [ ] No clever tricks, obfuscation, or cryptic patterns
+- [ ] Logic is deterministic and testable; non-determinism is isolated behind boundaries
+
+### Design & Correctness
+
+- [ ] No mocking of LLM at the wrong boundary (only mock at `app.core.llm_client`)
+- [ ] No unnecessary abstractions (no function extracted for a single caller)
+- [ ] No feature flags or backwards-compat shims
+- [ ] Error handling only at system boundaries (user input, external APIs)
+- [ ] Follows the phase scope (don't add features outside the current phase)
+
+### For Bug Fixes
+
+- [ ] Failing test reproduces the bug (red)
+- [ ] Root cause identified and documented
+- [ ] Fix makes the test pass (green)
+- [ ] No regression — existing tests still pass
+
+## Development Workflow
+
+1. **Create a feature branch**: `git checkout -b feature/your-feature`
+2. **Write a failing test** (TDD discipline)
+3. **Implement to make it pass**
+4. **Run full test suite locally** before committing
+5. **Commit** with a descriptive message (see Commit Standards above)
+6. **Push and open a PR** — CI gates merging on red tests or lint failures
+
+## Linting & Formatting
+
+### Backend (Python)
+
+```bash
+ruff check .            # Check linting issues
+black --check .         # Check formatting
+black .                 # Auto-format
+ruff check . --fix      # Auto-fix linting issues
+mypy app/               # Type checking
+```
+
+### Frontend (Node.js)
+
+```bash
+npm run lint            # Check linting issues
+npm run build           # Production build
+```
+
+## Key Constraints
+
+- **LLM mock boundary**: All LLM calls go through `app.core.llm_client`. Unit tests mock this boundary only; don't mock at higher levels.
+- **Agent state isolation**: LangGraph checkpoints live in Postgres, keyed by `(user_id, thread_id)`. Prevents context bleeding between sessions.
+- **Phase scope**: Don't add features outside the current phase (see CLAUDE.md Current Status). Stick to thin vertical slices.
+- **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, minio).
+- **MCP transport**: Must be Streamable HTTP (not stdio) for K8s pod-to-pod communication (Phase 3+).
+
+## Code Maintenance & 10-Year Lifecycle
+
+This software is built to last a decade. Every commit should reflect that perspective.
+
+### What This Means
+
+- **Clarity over brevity**: A few extra lines of clear code beat a dense line of clever code. Your future self (and the person who inherits this code in 2034) will thank you.
+- **Tests as living documentation**: A well-written test shows exactly how a function is supposed to be used. It's a form of documentation that can't get out of sync with the code.
+- **Refactor for readability**: If you understand how to make code clearer without changing behavior, do it. This is not waste; it's maintenance.
+- **Avoid technical debt**: Don't cut corners to ship faster. A quick hack today is a burden for years. TDD, clear naming, and good design cost the same on day 1 but pay dividends forever.
+- **Document decisions**: In commit messages and (rarely) in code comments, explain *why* a design choice was made. Future maintainers need to know what constraints or trade-offs led to the current implementation.
+
+### Red Flags
+
+These patterns signal code that will be painful to maintain in year 5:
+
+- **Long functions** (>50 lines): Break them down. Each function should do one thing.
+- **Unclear variable names** (e.g., `x`, `temp`, `data`, `config`): Use names that reveal intent.
+- **Tight coupling** (functions that depend on implementation details of other functions): Hide complexity behind clear boundaries.
+- **Missing or outdated tests**: Tests are the only thing you can trust won't rot. If a test fails, you know something broke. If there's no test, you don't know.
+- **Comments that explain *what* the code does**: That's a sign the code is unclear. Rename variables or break up functions instead.
+- **Premature optimization**: Profile before optimizing. Unoptimized-but-clear code is faster to understand, maintain, and fix than optimized spaghetti.

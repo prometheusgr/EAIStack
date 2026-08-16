@@ -96,55 +96,16 @@ docker-compose down -v  # Also remove volumes
 
 ## Development Standards
 
-### Testing (TDD enforced by CI)
-
-**Backend (FastAPI/LangGraph)**:
-- Mock the LLM boundary (`FakeChatModel` in tests); TDD all deterministic logic
-- `tests/unit/` — fast, mocked, gates every commit (CI requirement)
-- `tests/integration/` — real llama-server, not gated, smoke-test only
-- Fixtures: fake LLM, test Postgres (testcontainers), test MinIO
-- For Phase 2: Agent endpoint tests must mock LLM responses; add integration smoke-test for real llama-server
-
-**Frontend (React/TypeScript)**:
-- React Testing Library + Vitest
-- Mock Keycloak provider for auth-flow tests
-- Component and integration tests written first
-- For Phase 2: Chat UI component tests with mocked API responses
-
-**MCP doc-search server** (Phase 3+):
-- TDD pgvector query logic against test Postgres
-
-**Infra (Helm/K3s)** (Phase 5+):
-- Write validation scripts before manifests (assertions about pod readiness, TLS cert validity, etcd encryption)
-- CI runs infra tests against k3d
-
-**CI pipeline**:
-- GitHub Actions (see `.github/workflows/ci.yml`): runs unit tests + lint on every PR, fails on red
-- Backend: `pytest tests/unit/` + `ruff check` + `black --check`
-- Frontend: `npm test` + `npm run lint`
-- Coverage enforced on changed code (baseline exists in Phase 1)
-
-### Coding Standards
-
-- No comments unless the *why* is non-obvious; well-named code is its own documentation
-- Prefer deterministic, testable logic; hide non-determinism (LLM calls) behind mock boundaries
-- No premature abstractions; three similar lines is better than a shared utility
-- Don't add error handling for scenarios that can't happen; trust framework guarantees
-- Avoid feature flags and backwards-compatibility shims; just change the code
-
-### Commit Standards
-
-- Descriptive commit messages (explain the *why*, not just what changed)
-- One logical change per commit; squash before merge if needed
-- Reference issue/plan context if relevant, but don't bury the actual change description
+@AGENTS.md
 
 ## Helpful Context
 
-- This is a greenfield project; no legacy code to preserve
-- The user is less familiar with Kubernetes; infrastructure docs should assume minimal prior K8s knowledge
-- Encryption and session/context lifecycle are hard requirements (not bolt-on later)
-- Bitnami Helm charts are off-limits (deprecated free tier); use official upstream charts
-- MCP transport must be Streamable HTTP (not stdio) for service-to-service K8s deployment
+- **10-year lifecycle**: This software is built to last a decade. Code clarity, comprehensive tests, and good design are investments, not costs.
+- **Greenfield project**: No legacy code to preserve. Decisions made early shape the codebase for years.
+- **User familiarity**: The user is less familiar with Kubernetes; infrastructure docs should assume minimal prior K8s knowledge.
+- **Hard requirements**: Encryption and session/context lifecycle are non-negotiable (not bolt-on later). Security and session isolation are baked in from Phase 1.
+- **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, minio). Deprecated free tier is off-limits.
+- **MCP transport**: Must be Streamable HTTP (not stdio) for service-to-service K8s deployment (Phase 3+).
 
 ## Architecture Overview
 
