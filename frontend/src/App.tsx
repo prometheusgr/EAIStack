@@ -1,36 +1,52 @@
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ChatWindow } from './components/ChatWindow'
+import { Button } from './components/ui/button'
 
 function AppContent() {
   const { isAuthenticated, isLoading, login, logout, user } = useAuth()
 
   if (isLoading) {
-    return <div>Loading...</div>
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="App">
-        <h1>EAIStack</h1>
-        <p>Enterprise AI Stack - Please log in</p>
-        <button
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-background">
+        <h1 className="text-4xl font-bold">EAIStack</h1>
+        <p className="text-lg text-muted-foreground">Enterprise AI Stack - Please log in</p>
+        <Button
           data-testid="login-button"
-          onClick={login}>Login</button>
+          onClick={login}
+          size="lg"
+        >
+          Login
+        </Button>
       </div>
     )
   }
 
   return (
-    <div className="App">
-      <h1>EAIStack</h1>
-      <div className="header">
-        <span>Welcome, {user?.name || user?.username}</span>
-        <button onClick={logout}>Logout</button>
-      </div>
-      <div className="content">
-        <h2>Phase 2: Agent Chat</h2>
-        <ChatWindow />
-      </div>
+    <div className="flex flex-col min-h-screen bg-background">
+      <header className="border-b border-border bg-card px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">EAIStack</h1>
+            <p className="text-sm text-muted-foreground">Enterprise AI Stack</p>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-foreground">Welcome, {user?.name || user?.username}</span>
+            <Button onClick={logout} variant="outline">
+              Logout
+            </Button>
+          </div>
+        </div>
+      </header>
+      <main className="flex-1 p-6">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl font-semibold mb-4">Phase 2: Agent Chat</h2>
+          <ChatWindow />
+        </div>
+      </main>
     </div>
   )
 }

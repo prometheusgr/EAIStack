@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { sendChatMessage } from "../api/agentsClient";
 import { ChatMessage } from "../types/chat";
-import "./ChatWindow.css";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export function ChatWindow() {
   const { token, refreshAccessToken } = useAuth();
@@ -51,32 +52,73 @@ export function ChatWindow() {
   };
 
   return (
-    <div className="chat-window">
-      <div className="messages-container">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`message message-${msg.role}`}>
-            <span className="message-role">
-              {msg.role === "user" ? "You" : "Agent"}
-            </span>
-            <p className="message-text">{msg.text}</p>
-          </div>
-        ))}
-        {isLoading && <div className="message-loading">Agent is thinking...</div>}
-        {error && <div className="message-error">Error: {error}</div>}
-      </div>
-      <div className="input-container">
-        <input
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyPress={(e) => e.key === "Enter" && handleSend()}
-          placeholder="Type your message..."
-          disabled={isLoading}
-        />
-        <button onClick={handleSend} disabled={isLoading || !inputValue.trim()}>
-          {isLoading ? "Sending..." : "Send"}
-        </button>
-      </div>
-    </div>
+    <Card className="flex flex-col h-96">
+      <CardHeader>
+        <CardTitle>Chat</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col flex-1 gap-4">
+        <div className="flex-1 overflow-y-auto space-y-3 border border-border rounded-md p-4 bg-muted">
+          {messages.length === 0 && (
+            <div className="text-center text-muted-foreground text-sm py-8">
+              Start a conversation...
+            </div>
+          )}
+          {messages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex gap-2 ${
+                msg.role === "user" ? "justify-end" : "justify-start"
+              }`}
+            >
+              <div
+                className={`max-w-xs px-4 py-2 rounded-lg ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-br-none"
+                    : "bg-card border border-border rounded-bl-none"
+                }`}
+              >
+                <span className="text-xs font-semibold opacity-70">
+                  {msg.role === "user" ? "You" : "Agent"}
+                </span>
+                <p className="text-sm mt-1">{msg.text}</p>
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="flex justify-start gap-2">
+              <div className="bg-card border border-border px-4 py-2 rounded-lg rounded-bl-none">
+                <span className="text-xs font-semibold opacity-70">Agent</span>
+                <p className="text-sm mt-1 text-muted-foreground italic">
+                  Agent is thinking...
+                </p>
+              </div>
+            </div>
+          )}
+          {error && (
+            <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm">
+              Error: {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={(e) => e.key === "Enter" && !isLoading && handleSend()}
+            placeholder="Type your message..."
+            disabled={isLoading}
+            className="flex-1 px-4 py-2 border border-input rounded-md bg-background text-foreground placeholder-muted-foreground disabled:opacity-50"
+          />
+          <Button
+            onClick={handleSend}
+            disabled={isLoading || !inputValue.trim()}
+          >
+            {isLoading ? "Sending..." : "Send"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

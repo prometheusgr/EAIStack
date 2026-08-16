@@ -12,10 +12,14 @@ export async function sendChatMessage(
     threadId,
   };
 
+  if (!onRefresh) {
+    throw new Error('Auth refresh callback is required')
+  }
+
   const response = await authorizedFetch(
     "/api/agents/chat",
     token,
-    onRefresh || (async () => token),
+    onRefresh,
     {
       method: "POST",
       headers: {
