@@ -189,7 +189,7 @@ describe('Chat Message Authentication - Integration Test', () => {
       if (!response.ok) {
         if (response.status === 401) {
           const errorMessage = 'Chat request failed: Unauthorized'
-          expect(errorMessage).toContain('401')
+          expect(errorMessage).toContain('Unauthorized')
         }
       }
     })
@@ -254,16 +254,19 @@ describe('Chat Message Authentication - Integration Test', () => {
       const errorResponses = [
         {
           status: 401,
+          statusText: 'Unauthorized',
           message: 'Chat request failed: Unauthorized',
           cause: 'No valid auth token',
         },
         {
           status: 403,
+          statusText: 'Forbidden',
           message: 'Chat request failed: Forbidden',
           cause: 'Token valid but insufficient permissions',
         },
         {
           status: 500,
+          statusText: 'Internal Server Error',
           message: 'Chat request failed: Internal Server Error',
           cause: 'Backend error',
         },
@@ -271,7 +274,7 @@ describe('Chat Message Authentication - Integration Test', () => {
 
       errorResponses.forEach((err) => {
         expect(err.message).toContain('Chat request failed')
-        expect(err.message).toContain(err.status.toString())
+        expect(err.message).toContain(err.statusText)
       })
     })
 
