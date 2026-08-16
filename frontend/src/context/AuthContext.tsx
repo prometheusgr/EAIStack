@@ -41,19 +41,88 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       })
 
       try {
-        // CRITICAL FIX: Replace browser location search to prevent init() from re-processing
-        // Keycloak redirect parameters. If Keycloak redirected with ?error=login_required,
-        // we need to remove that from the URL before calling init(), otherwise init() might
-        // re-process the same error and trigger the loop again.
+        // Check for authorization code from Keycloak redirect
         const urlParams = new URLSearchParams(window.location.search)
         const code = urlParams.get('code')
         const error = urlParams.get('error')
         const state = urlParams.get('state')
 
-        // If we have a redirect error or code in the URL, remove it before init
-        if (error || code) {
-          console.log('[Auth] Detected redirect parameter:', error ? `error=${error}` : `code=${code}`)
-          // Replace history to clean URL without triggering re-init
+        // Handle authorization code exchange
+        if (code) {
+          console.log('[Auth] Authorization code detected, exchanging for token...')
+
+          // Exchange code for token via backend
+          try {
+            const tokenResponse = await fetch('/api/auth/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                code,
+                redirect_uri: window.location.origin + '/',
+              }),
+            })
+
+            if (tokenResponse.ok) {
+              const tokenData = await tokenResponse.json()
+              console.log('[Auth] Token received:', tokenData.access_token ? 'success' : 'no token')
+
+              // Store token for future requests
+              if (tokenData.access_token) {
+                localStorage.setItem('access_token', tokenData.access_token)
+                localStorage.setItem('token_type', tokenData.token_type || 'Bearer')
+                if (tokenData.refresh_token) {
+                  localStorage.setItem('refresh_token', tokenData.refresh_token)
+                }
+
+                // Parse token to extract user info
+                try {
+                  // Decode JWT without verification (we trust it from our backend)
+                  const tokenParts = tokenData.access_token.split('.')
+                  if (tokenParts.length === 3) {
+                    const payload = JSON.parse(
+                      atob(tokenParts[1].replace(/-/g, '+').replace(/_/g, '/'))
+                    )
+                    console.log('[Auth] Token payload:', payload.preferred_username)
+
+                    // Update auth state
+                    setKeycloak(kc)
+                    setIsAuthenticated(true)
+                    setUser({
+                      username: payload.preferred_username,
+                      email: payload.email,
+                      name: payload.name,
+                    })
+                  }
+                } catch (parseErr) {
+                  console.warn('[Auth] Could not parse token:', parseErr)
+                }
+              }
+
+              // Clean URL to prevent re-processing
+              window.history.replaceState(null, '', window.location.pathname)
+
+              // Redirect to chat page
+              console.log('[Auth] Token exchanged successfully, redirecting to chat...')
+              window.location.href = '/chat'
+              return // Exit here, let the redirect happen
+            } else {
+              console.error('[Auth] Token exchange failed:', tokenResponse.status)
+              setError('Login failed. Please try again.')
+            }
+          } catch (exchangeErr) {
+            console.error('[Auth] Code exchange error:', exchangeErr)
+            setError('Login failed. Please try again.')
+          }
+
+          // Clean URL even if exchange failed
+          window.history.replaceState(null, '', window.location.pathname)
+        }
+
+        // Handle login_required error
+        if (error) {
+          console.warn('[Auth] Detected error:', error)
+          setError(error === 'login_required' ? 'Login required' : error)
+          // Clean URL to prevent re-processing
           window.history.replaceState(null, '', window.location.pathname)
         }
 
