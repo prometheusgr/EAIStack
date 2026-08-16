@@ -71,14 +71,23 @@ def mock_llm():
 
 
 @pytest.fixture
-def client():
-    """Provide a test client for the app."""
+def client(db_session):
+    """Provide a test client for the app with DB dependency."""
     from starlette.testclient import TestClient
-
     from app.main import app
+    from app.api.apikeys import get_db
+
+    def get_db_override():
+        return db_session
+
+    app.dependency_overrides[get_db] = get_db_override
 
     # TestClient now takes the app as a positional argument, not keyword
-    return TestClient(app)
+    client = TestClient(app)
+    yield client
+
+    # Clean up dependency override
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
