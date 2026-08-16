@@ -16,14 +16,18 @@
     "grep": {},
     "grepInvert": null,
     "maxFailures": 0,
-    "metadata": {},
+    "metadata": {
+      "actualWorkers": 1
+    },
     "preserveOutput": "always",
     "projects": [
       {
         "outputDir": "C:/Users/Beat/source/EAIStack/frontend/test-results",
         "repeatEach": 1,
         "retries": 0,
-        "metadata": {},
+        "metadata": {
+          "actualWorkers": 1
+        },
         "id": "chromium",
         "name": "chromium",
         "testDir": "C:/Users/Beat/source/EAIStack/frontend/tests/e2e",
@@ -64,25 +68,268 @@
       "timeout": 120000
     }
   },
-  "suites": [],
-  "errors": [
+  "suites": [
     {
-      "message": "TypeError: Cannot read properties of undefined (reading 'baseURL')",
-      "stack": "TypeError: Cannot read properties of undefined (reading 'baseURL')\n    at globalSetup (C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\global-setup.ts:6:30)",
-      "location": {
-        "file": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\global-setup.ts",
-        "column": 30,
-        "line": 6
-      },
-      "snippet": "\u001b[90m   at \u001b[39mglobal-setup.ts:6\n\n\u001b[0m \u001b[90m 4 |\u001b[39m   console\u001b[33m.\u001b[39mlog(\u001b[32m'[global-setup] Checking service health before E2E tests...'\u001b[39m)\n \u001b[90m 5 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 6 |\u001b[39m   \u001b[36mconst\u001b[39m baseURL \u001b[33m=\u001b[39m config\u001b[33m.\u001b[39muse\u001b[33m.\u001b[39mbaseURL \u001b[33m||\u001b[39m \u001b[32m'http://localhost:3000'\u001b[39m\n \u001b[90m   |\u001b[39m                              \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 7 |\u001b[39m\n \u001b[90m 8 |\u001b[39m   \u001b[90m// Check frontend\u001b[39m\n \u001b[90m 9 |\u001b[39m   \u001b[36mtry\u001b[39m {\u001b[0m"
+      "title": "auth.spec.ts",
+      "file": "auth.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Authentication Flow",
+          "file": "auth.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "user can login and access chat",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "timedOut",
+                      "duration": 30070,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\auth.spec.ts",
+                            "column": 20,
+                            "line": 15
+                          },
+                          "message": "Error: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"Login\")')\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=8bdc99e7-049b-4f59-b2fa-b700efde0620&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=8bdc99e7-049b-4f59-b2fa-b700efde0620\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=08eec704-f4d3-46da-ab04-7af36e65ede8&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=08eec704-f4d3-46da-ab04-7af36e65ede8\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=99551c34-c5c4-4985-9074-3ec974de3e0e&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=99551c34-c5c4-4985-9074-3ec974de3e0e\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=bfc2f6ad-e2b7-4b27-a431-45dd9964b1d1&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=bfc2f6ad-e2b7-4b27-a431-45dd9964b1d1\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=e86b9778-898d-41f1-b185-2d4c250ef707\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=75216041-7606-48b6-99e7-3f65b267645f\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=b9dee799-f9db-4ae8-80e0-6c69e6c89226\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=7dbf13a6-d6e5-4925-9fca-53ca80abc238\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=bbdaffc9-fe23-43d1-891c-14dcae01f31c\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=443b5404-cf35-4f5a-be7d-984a14a77aa8\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=ef37ead4-3be1-46bb-84cd-f31ce6cdcf77\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=a4240676-fd6a-4773-8983-15f78b7b7c21&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=a4240676-fd6a-4773-8983-15f78b7b7c21\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=dd526072-cdce-46dd-865b-3c725eb08240\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=5c10d348-51eb-448e-8ca1-cffdd18976ea\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=945fac2e-3aed-427f-9d68-3d425ae5e1bf\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=59a5ffae-b320-4ce3-bb35-1523390db402\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=3a396b0b-2414-422e-b603-759d0f7c81b4\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=307226b5-951d-4751-9a6e-3888295ca7bf\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=4c39a229-8ff2-4d39-82f2-389bb9803ab1\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=66348226-72da-40d1-85db-2f3e2539bd3c&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=66348226-72da-40d1-85db-2f3e2539bd3c\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=eb5d58a8-b57b-4613-956c-29274a3ed2fa\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=95064aa5-23a8-4349-a7df-8adb64b65682&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=95064aa5-23a8-4349-a7df-8adb64b65682\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=b480c9ec-43e2-4ba4-90e3-3f3f598c1a13\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=d3ea0fd9-9e6a-4d04-9210-27b47804e0f6\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=4965abf3-cb4c-46e3-b8e1-3b714f07bc30&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=4965abf3-cb4c-46e3-b8e1-3b714f07bc30\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=4f19759d-2db8-4f00-8692-acbfaa7885e4&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=4f19759d-2db8-4f00-8692-acbfaa7885e4\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=4095ac1f-3bbb-4ad2-80c1-ed9c7b9f30b8\"\u001b[22m\n\n\n  13 |\n  14 |     // 3. Click login - should redirect to Keycloak\n> 15 |     await loginBtn.click()\n     |                    ^\n  16 |     console.log('[test] Clicked login button')\n  17 |\n  18 |     // 4. Wait for Keycloak login form\n    at C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\auth.spec.ts:15:20"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "[test] Navigated to home page\n"
+                        },
+                        {
+                          "text": "[test] Login button visible\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-16T02:04:37.085Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\test-results\\auth-Authentication-Flow-user-can-login-and-access-chat-chromium\\error-context.md"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-22db351155fab6ad26c1",
+              "file": "auth.spec.ts",
+              "line": 4,
+              "column": 3
+            },
+            {
+              "title": "user can send message after login",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "timedOut",
+                      "duration": 30078,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\auth.spec.ts",
+                            "column": 20,
+                            "line": 63
+                          },
+                          "message": "Error: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"Login\")')\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=d0c0b68c-8045-4f66-bb78-3732c51ad9ee\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=4be4287f-0184-47c4-ad6e-36700e87aa78&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=4be4287f-0184-47c4-ad6e-36700e87aa78\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=7f6e2848-351c-4e95-8974-17c617134dbb&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=7f6e2848-351c-4e95-8974-17c617134dbb\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=65147dea-0174-4b53-8a97-b72f022a72e4&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=65147dea-0174-4b53-8a97-b72f022a72e4\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=396520db-b81c-46b4-8f08-d7266145ce44&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=396520db-b81c-46b4-8f08-d7266145ce44\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=a1ae36c9-4fb7-451a-8077-1988825eea8d\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=689cc5e4-c94b-4a17-8275-1df79bae6eeb\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=27f99897-4ae9-4b4e-84b8-5125180a1ce0\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=978c40bd-5704-4498-891e-9dbc66cc21e5\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=e76bd3e2-5e2c-4d65-95fc-ac6e29a5d2bb&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=e76bd3e2-5e2c-4d65-95fc-ac6e29a5d2bb\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=1883953b-cd60-451a-9958-6c642d092645&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=1883953b-cd60-451a-9958-6c642d092645\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=8f4ea6c0-432a-4e3a-bac6-556f420f2304\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=cc6024c3-a872-4fd6-8a9b-937fb3297dbc\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=aa781402-6e38-4b93-9ec6-3dd6c007de5a&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=aa781402-6e38-4b93-9ec6-3dd6c007de5a\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=8757892d-1cee-470b-8e18-00ddb0ff4e13\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=711c8c8c-6c9e-4a2a-8b52-435eeb28f7e2\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=a4a5d1b9-f2c3-48ad-9aaf-d5ec98ad772e\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=a262e9d2-3090-4b25-b0f7-b8bb2fbc4155\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=1d4b216c-d9ca-498f-8d7f-c2bdc41fd3b5\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=8d854142-e7c5-4108-b2a2-ca4c1dd5080d\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=0f30c58a-db06-443e-8729-64448c4f4da0\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=d4aa975b-d7ef-4e8c-9ddf-fe798f4ebdfb\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=9d83754c-be95-44e2-9075-23e2c81a94b4\"\u001b[22m\n\n\n  61 |     await page.goto('/')\n  62 |     const loginBtn = page.locator('button:has-text(\"Login\")')\n> 63 |     await loginBtn.click()\n     |                    ^\n  64 |\n  65 |     // Wait for Keycloak and login\n  66 |     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })\n    at C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\auth.spec.ts:63:20"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-16T02:05:08.745Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\test-results\\auth-Authentication-Flow-user-can-send-message-after-login-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\test-results\\auth-Authentication-Flow-user-can-send-message-after-login-chromium\\error-context.md"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-e9b766a03baec0870079",
+              "file": "auth.spec.ts",
+              "line": 59,
+              "column": 3
+            },
+            {
+              "title": "user is logged out after logout",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 0,
+                      "status": "timedOut",
+                      "duration": 33092,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\auth.spec.ts",
+                            "column": 20,
+                            "line": 107
+                          },
+                          "message": "Error: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"Login\")')\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=f40db232-908e-43e3-8f11-c88f8c8066e8\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=96d4d5ea-96c8-4888-8167-d7b71e2a4e12&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=96d4d5ea-96c8-4888-8167-d7b71e2a4e12\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=c0911669-ff1e-4074-84f7-10ec98e6c3b1\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=7a95314d-9424-43ba-8187-b033ab44ec68\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=4dd4172f-e988-4ebb-8ed9-4154f5c7cb9d\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=1dbca577-0e4b-4a77-8cc0-0d57d6b1af9e&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=1dbca577-0e4b-4a77-8cc0-0d57d6b1af9e\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=62bbf6c8-f5e5-4801-b8f9-f059e64c01ff\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=f050e6f2-7dcf-41f4-86ee-89dfdf1f7b52\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=2e500d0b-f3e4-4a57-86ee-4c693035200d\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=7dad7ef6-742d-4028-b384-f4027da63df2\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=16d7446a-c85c-4a46-8a6d-0ffd72d6549a\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=6d67022e-5b85-4f56-a3f0-02243289db86\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=b7ec4bd7-34dc-465e-9591-9e7ca5777f96\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=77213046-7a90-4340-a86b-7ff8ef10725a\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=5b30ced6-b164-4852-848b-29546d8a54b1\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=e706a296-1c2c-4cc0-8fa8-a7e52b3860da\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=cf8df603-30be-4e81-88e6-a4b6e6e76733\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=bec99a7b-c047-48bf-8bd8-74532fd686ec\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=a3f0bd1d-dfdc-4183-b1dd-0b74c5ba0023\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=2b8a0d44-b438-4cbb-8a97-7032e15cf514\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=34309ee4-b9c5-48bd-8b6d-31dd2bdf17ed&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=34309ee4-b9c5-48bd-8b6d-31dd2bdf17ed\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=0dcde786-7504-48fc-a7f3-3b7bbd3aa5cc\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=c31d4099-4cbd-4a83-8ff2-660d3fac9d88\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=b2d5bc05-a141-4ec5-946e-e3fa8098da65\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=26341864-360e-4e82-9ea3-c6b932266ef9\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=cffe4e27-7126-49d0-904a-633e2a116102\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=6e09376e-37a6-47f4-82b8-c836eae84e1a\"\u001b[22m\n\n\n  105 |     await page.goto('/')\n  106 |     const loginBtn = page.locator('button:has-text(\"Login\")')\n> 107 |     await loginBtn.click()\n      |                    ^\n  108 |\n  109 |     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })\n  110 |     await page.locator('input[name=\"username\"]').fill('testuser')\n    at C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\auth.spec.ts:107:20"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-16T02:05:39.589Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\test-results\\auth-Authentication-Flow-user-is-logged-out-after-logout-chromium\\error-context.md"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-c1f540f631d3d3d301ba",
+              "file": "auth.spec.ts",
+              "line": 103,
+              "column": 3
+            },
+            {
+              "title": "login with wrong password fails",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "timedOut",
+                      "duration": 30081,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\auth.spec.ts",
+                            "column": 20,
+                            "line": 144
+                          },
+                          "message": "Error: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"Login\")')\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=f8aaae71-09cd-4d7b-8899-439dd8601b4d&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=f8aaae71-09cd-4d7b-8899-439dd8601b4d\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=55b23ea6-f8f5-421f-87fe-015be4fbc5f5\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=3486a5fd-2144-455e-a43c-cc905a115ade\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=46e7a3d7-6121-46dc-8379-c7863119ed4c\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=9548d2f2-810d-4d36-9e54-c8047010b0bc\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=d8d2aba0-1843-4a31-a5c4-32d01a47d615\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=07edc6c9-0170-4e7b-8636-73d82b4fe3c2\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=e9f54497-2a90-4504-8197-2c4f8c9e2109&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=e9f54497-2a90-4504-8197-2c4f8c9e2109\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=2405839e-bad4-4e61-82ad-5e3ca97bd9d3\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=15f6ea0b-9c65-4e99-904b-762b1a74ceff\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=ff02f3da-28d6-4a60-ba8e-379ccf22ed33\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=099bf529-d953-47ea-8f98-b5d937f14eaf\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=67a713c0-0952-4b51-a9be-70ca4fd546f2\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=c931eb02-ebaf-4cee-8bc5-c37f34a21502\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=889824da-0172-4c86-8b7d-c5dc872dcf11&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=889824da-0172-4c86-8b7d-c5dc872dcf11\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=313ca1d9-097e-4aca-9ea3-1b66c2161d2f\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:3000/\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=26a975eb-fb46-48fc-907f-66f8f046ebb7\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=b48ed358-53ff-49c1-81d0-87dbaea3a3a6\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=e95426a1-003b-4801-a971-7c782f045c11&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=e95426a1-003b-4801-a971-7c782f045c11\"\u001b[22m\n\u001b[2m    - waiting for \"http://localhost:8080/realms/eaistack/protocol/openid-connect/auth?client_id=eaistack-web&redirect_uri=http%3A%2F%2Flocalhost%3A3000&state=42762e8a-0cf3-422c-85ac-4a74ce41ca83&response_mode=fragment&…\" navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=42762e8a-0cf3-422c-85ac-4a74ce41ca83\"\u001b[22m\n\u001b[2m    - waiting for navigation to finish...\u001b[22m\n\u001b[2m    - navigated to \"http://localhost:3000/#error=login_required&state=715310a4-5756-446d-bfd7-74033a8e0bc1\"\u001b[22m\n\n\n  142 |     await page.goto('/')\n  143 |     const loginBtn = page.locator('button:has-text(\"Login\")')\n> 144 |     await loginBtn.click()\n      |                    ^\n  145 |\n  146 |     // 2. Wait for Keycloak\n  147 |     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })\n    at C:\\Users\\Beat\\source\\EAIStack\\frontend\\tests\\e2e\\auth.spec.ts:144:20"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-16T02:06:13.350Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Beat\\source\\EAIStack\\frontend\\test-results\\auth-Authentication-Flow-login-with-wrong-password-fails-chromium\\error-context.md"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-d6829a3c41281031f980",
+              "file": "auth.spec.ts",
+              "line": 140,
+              "column": 3
+            }
+          ]
+        }
+      ]
     }
   ],
+  "errors": [],
   "stats": {
-    "startTime": "2026-08-16T01:59:14.686Z",
-    "duration": 1373.743,
+    "startTime": "2026-08-16T02:04:36.543Z",
+    "duration": 127116.427,
     "expected": 0,
     "skipped": 0,
-    "unexpected": 0,
+    "unexpected": 4,
     "flaky": 0
   }
 }

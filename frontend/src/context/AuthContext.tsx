@@ -15,8 +15,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [keycloak, setKeycloak] = useState<Keycloak.KeycloakInstance | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [user, setUser] = useState(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const initKeycloak = async () => {
@@ -48,26 +49,44 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         clientId: kc.clientId,
       })
       try {
+        // Check for redirect loop (error=login_required in hash)
+        if (window.location.hash.includes('error=login_required')) {
+          console.warn('[Auth] Detected login_required error - possible session issue')
+          setError('Login failed. Please try again.')
+          setKeycloak(kc)
+          setIsAuthenticated(false)
+          setIsLoading(false)
+          return
+        }
+
         const authenticated = await kc.init({
           checkLoginIframe: false,
           onLoad: 'check-sso',
-          redirectUri: window.location.origin,
+          pkceMethod: 'S256',
         })
+
+        console.log('[Auth] Init complete, authenticated:', authenticated)
+
         setKeycloak(kc)
         setIsAuthenticated(authenticated)
-        if (authenticated) {
+
+        if (authenticated && kc.tokenParsed) {
           setUser({
-            username: kc.tokenParsed?.preferred_username,
-            email: kc.tokenParsed?.email,
-            name: kc.tokenParsed?.name,
+            username: kc.tokenParsed.preferred_username,
+            email: kc.tokenParsed.email,
+            name: kc.tokenParsed.name,
           })
-          console.log('[Auth] Initialized with user:', kc.tokenParsed?.preferred_username)
+          console.log('[Auth] User logged in:', kc.tokenParsed.preferred_username)
+          setError(null)
         }
       } catch (err) {
         console.error('[Auth] Keycloak init failed:', err)
+        setError(err instanceof Error ? err.message : 'Initialization failed')
         setKeycloak(kc)
+        setIsAuthenticated(false)
+      } finally {
+        setIsLoading(false)
       }
-      setIsLoading(false)
     }
     initKeycloak()
   }, [])
