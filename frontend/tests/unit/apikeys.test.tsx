@@ -80,20 +80,23 @@ describe('apiKeysClient types', () => {
   })
 
   describe('APIKeyUpdate', () => {
-    it('requires keyId and name only', () => {
+    it('requires keyId, name, and provider', () => {
       const payload: APIKeyUpdate = {
         keyId: 'key-1',
         name: 'Updated Name',
+        provider: 'anthropic',
       }
 
       expect(payload.keyId).toBe('key-1')
       expect(payload.name).toBe('Updated Name')
+      expect(payload.provider).toBe('anthropic')
     })
 
     it('does not allow secret_value in update payload', () => {
       const payload: APIKeyUpdate = {
         keyId: 'key-1',
         name: 'Updated',
+        provider: 'openai',
       }
 
       // @ts-expect-error - secret_value should not be updatable
