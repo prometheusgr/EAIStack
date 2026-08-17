@@ -6,6 +6,21 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+# Patch httpx.Client to work with Starlette TestClient
+# This is a workaround for Starlette/httpx version incompatibility
+import httpx
+
+_original_httpx_init = httpx.Client.__init__
+
+
+def _patched_httpx_init(self, *args, app=None, **kwargs):
+    """Patch to ignore app parameter passed by Starlette TestClient."""
+    return _original_httpx_init(self, *args, **kwargs)
+
+
+httpx.Client.__init__ = _patched_httpx_init
+
+
 try:
     from testcontainers.postgres import PostgresContainer
 
@@ -28,11 +43,11 @@ def postgres_container() -> Generator:
 
 
 @pytest.fixture
-def test_db_url(request) -> str:
+def test_db_url(request, tmp_path) -> str:
     """
     Provide a database URL.
 
-    - Unit tests: SQLite in-memory (fast)
+    - Unit tests: SQLite file-based (workaround for TestClient threading)
     - Integration tests: real Postgres (from container)
     """
     if "integration" in request.keywords:
@@ -45,7 +60,9 @@ def test_db_url(request) -> str:
         yield url
         container.stop()
     else:
-        yield "sqlite:///:memory:"
+        # Use file-based SQLite for unit tests to ensure same DB across sessions
+        db_file = tmp_path / "test.db"
+        yield f"sqlite:///{db_file}?check_same_thread=False"
 
 
 @pytest.fixture
@@ -53,7 +70,18 @@ def db_session(test_db_url):
     """Provide a SQLAlchemy session for testing."""
     from app.db.models import Base
 
-    engine = create_engine(test_db_url, echo=False)
+    # For SQLite, we need to handle Vector type which is PostgreSQL-specific
+    # Vector columns will be stored as BLOB in SQLite but SQLAlchemy will handle conversion
+    connect_args = {"check_same_thread": False} if "sqlite" in test_db_url else {}
+    engine = create_engine(test_db_url, echo=False, connect_args=connect_args)
+
+    # Create tables, handling PostgreSQL-specific types
+    if "postgres" in test_db_url:
+        with engine.connect() as conn:
+            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            conn.commit()
+
+    Base.metadata.drop_all(engine)  # Clean up from previous tests
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()
@@ -71,22 +99,32 @@ def mock_llm():
 
 
 @pytest.fixture
-def client(db_session):
+def client(db_session, test_db_url):
     """Provide a test client for the app with DB dependency."""
     from starlette.testclient import TestClient
     from app.main import app
-    from app.api.apikeys import get_db
+    from app.api import apikeys
+    from app.core.auth import get_current_user
 
     def get_db_override():
         return db_session
 
-    app.dependency_overrides[get_db] = get_db_override
+    mock_user = {
+        "user_id": "test-user-123",
+        "username": "testuser",
+        "email": "test@example.com",
+        "name": "Test User",
+    }
 
-    # TestClient now takes the app as a positional argument, not keyword
+    def get_current_user_override():
+        return mock_user
+
+    app.dependency_overrides[apikeys.get_db] = get_db_override
+    app.dependency_overrides[get_current_user] = get_current_user_override
+
     client = TestClient(app)
     yield client
 
-    # Clean up dependency override
     app.dependency_overrides.clear()
 
 

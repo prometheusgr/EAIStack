@@ -6,6 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import agents, auth, apikeys
 from app.core.auth import get_current_user
 from app.core.config import settings
+from sqlalchemy.orm import sessionmaker
+from app.db.models import Base
+from sqlalchemy import create_engine
 
 app = FastAPI(
     title="EAIStack Backend",
@@ -20,6 +23,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Database setup for SessionLocal
+# Note: Tables are created only in tests (via conftest) or via alembic migrations
+# in production. This avoids connection errors at import time if DB is not ready.
+try:
+    engine = create_engine(settings.database_url)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+except Exception:
+    # If DB connection fails at import time, create a dummy SessionLocal
+    # Tests will override this via dependency injection
+    from sqlalchemy import create_mock_engine
+
+    def dump(sql, *multiparams, **params):
+        pass
+
+    mock_engine = create_mock_engine(lambda: None, dump)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=mock_engine)
 
 app.include_router(agents.router)
 app.include_router(auth.router)
@@ -40,16 +60,4 @@ async def get_user_info(user: dict = Depends(get_current_user)):
         "username": user["username"],
         "email": user["email"],
         "name": user["name"],
-    }
-
-
-@app.get("/debug/token")
-async def debug_token(user: dict = Depends(get_current_user)):
-    """Debug endpoint - shows full token payload."""
-    return {
-        "message": "Token validation successful",
-        "user": user,
-        "keycloak_url": settings.keycloak_url,
-        "keycloak_realm": settings.keycloak_realm,
-        "keycloak_client_id": settings.keycloak_client_id,
     }

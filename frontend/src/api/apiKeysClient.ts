@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authorizedFetch, type AuthRefresh } from './authorizedFetch'
 
 export interface APIKey {
@@ -21,7 +21,10 @@ export interface APIKeyCreate {
 export interface APIKeyUpdate {
   keyId: string
   name: string
+  provider: string
 }
+
+const QUERY_KEY = ['apikeys']
 
 function getAuthToken(): string {
   const token = localStorage.getItem('access_token')
@@ -41,7 +44,7 @@ function getRefreshFn(): AuthRefresh {
 
 export function useAPIKeys() {
   return useQuery<APIKey[]>({
-    queryKey: ['apikeys'],
+    queryKey: QUERY_KEY,
     queryFn: async () => {
       const token = getAuthToken()
       const response = await authorizedFetch(
@@ -63,6 +66,7 @@ export function useAPIKeys() {
 }
 
 export function useCreateAPIKey() {
+  const queryClient = useQueryClient()
   return useMutation<APIKey, Error, APIKeyCreate>({
     mutationFn: async (payload: APIKeyCreate) => {
       const token = getAuthToken()
@@ -85,12 +89,16 @@ export function useCreateAPIKey() {
 
       return response.json()
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY })
+    },
   })
 }
 
 export function useUpdateAPIKey() {
+  const queryClient = useQueryClient()
   return useMutation<APIKey, Error, APIKeyUpdate>({
-    mutationFn: async ({ keyId, name }: APIKeyUpdate) => {
+    mutationFn: async ({ keyId, name, provider }: APIKeyUpdate) => {
       const token = getAuthToken()
       const response = await authorizedFetch(
         `/api/apikeys/${keyId}`,
@@ -101,7 +109,7 @@ export function useUpdateAPIKey() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({ name, provider }),
         }
       )
 
@@ -111,10 +119,14 @@ export function useUpdateAPIKey() {
 
       return response.json()
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY })
+    },
   })
 }
 
 export function useRevokeAPIKey() {
+  const queryClient = useQueryClient()
   return useMutation<APIKey, Error, string>({
     mutationFn: async (keyId: string) => {
       const token = getAuthToken()
@@ -133,5 +145,26 @@ export function useRevokeAPIKey() {
 
       return response.json()
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY })
+    },
   })
+}
+
+export async function getAPIKeyDetail(keyId: string): Promise<APIKey> {
+  const token = getAuthToken()
+  const response = await authorizedFetch(
+    `/api/apikeys/${keyId}`,
+    token,
+    getRefreshFn(),
+    {
+      method: 'GET',
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch API key detail: ${response.statusText}`)
+  }
+
+  return response.json()
 }

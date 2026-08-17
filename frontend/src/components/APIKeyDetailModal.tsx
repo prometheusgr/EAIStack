@@ -25,7 +25,7 @@ interface APIKeyDetailModalProps {
   apiKey: APIKey
   open: boolean
   onOpenChange: (open: boolean) => void
-  onUpdate: (keyId: string, name: string) => Promise<void>
+  onUpdate: (keyId: string, name: string, provider: string) => Promise<void>
 }
 
 export function APIKeyDetailModal({
@@ -41,13 +41,14 @@ export function APIKeyDetailModal({
     resolver: zodResolver(APIKeyUpdateSchema),
     defaultValues: {
       name: apiKey.name,
+      provider: apiKey.provider,
     },
   })
 
   const handleSave = async (data: APIKeyUpdateFormData) => {
     setIsSaving(true)
     try {
-      await onUpdate(apiKey.id, data.name)
+      await onUpdate(apiKey.id, data.name, data.provider)
       setIsEditing(false)
     } finally {
       setIsSaving(false)
@@ -114,6 +115,28 @@ export function APIKeyDetailModal({
                     <FormLabel>Name</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder="Enter key name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="provider"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Provider</FormLabel>
+                    <FormControl>
+                      <select
+                        {...field}
+                        className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+                      >
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="huggingface">HuggingFace</option>
+                        <option value="custom">Custom</option>
+                      </select>
                     </FormControl>
                     <FormMessage />
                   </FormItem>

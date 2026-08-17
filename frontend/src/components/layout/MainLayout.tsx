@@ -1,0 +1,65 @@
+import { ReactNode } from 'react'
+import { useAuth } from '../../context/AuthContext'
+import { Button } from '../ui/button'
+
+interface MainLayoutProps {
+  children: ReactNode
+  currentView: 'chat' | 'apikeys'
+  onViewChange: (view: 'chat' | 'apikeys') => void
+}
+
+export function MainLayout({ children, currentView, onViewChange }: MainLayoutProps) {
+  const { logout, user } = useAuth()
+
+  return (
+    <div className="flex flex-col min-h-screen bg-background">
+      <header className="border-b border-border bg-card px-4 py-4 md:px-6">
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">EAIStack</h1>
+            <p className="text-xs md:text-sm text-muted-foreground">Enterprise AI Stack</p>
+          </div>
+          <div className="flex items-center gap-2 md:gap-4">
+            <span className="text-sm md:text-base text-foreground truncate">
+              Welcome, {user?.name || user?.username}
+            </span>
+            <Button onClick={logout} variant="outline" size="sm" className="text-xs md:text-sm">
+              Logout
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <nav className="border-b border-border bg-card px-4 md:px-6 overflow-x-auto">
+        <div className="flex gap-2 max-w-6xl mx-auto">
+          <Button
+            variant={currentView === 'chat' ? 'default' : 'ghost'}
+            onClick={() => onViewChange('chat')}
+            className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary text-xs md:text-sm"
+            data-active={currentView === 'chat'}
+          >
+            Chat
+          </Button>
+          <Button
+            variant={currentView === 'apikeys' ? 'default' : 'ghost'}
+            onClick={() => onViewChange('apikeys')}
+            className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary text-xs md:text-sm"
+            data-active={currentView === 'apikeys'}
+          >
+            API Keys
+          </Button>
+        </div>
+      </nav>
+
+      <main className="flex-1 p-4 md:p-6">
+        <div className="max-w-6xl mx-auto">
+          {children}
+        </div>
+      </main>
+
+      <footer className="border-t border-border bg-card px-4 py-3 md:px-6 text-center text-xs text-muted-foreground">
+        <p>&copy; 2024 Enterprise AI Stack. All rights reserved.</p>
+      </footer>
+    </div>
+  )
+}

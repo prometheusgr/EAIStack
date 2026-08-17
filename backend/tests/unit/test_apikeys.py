@@ -5,6 +5,9 @@ from uuid import uuid4
 from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from unittest.mock import MagicMock, patch
+
+from app.db.models import APIKey, ProviderEnum
 
 
 @pytest.mark.unit
@@ -159,3 +162,174 @@ def test_apikey_request_schema_requires_fields(db_session):
         secret_value="sk-proj-secret"
     )
     assert valid.name == "Test"
+
+
+# === ENDPOINT TESTS ===
+# (client fixture provided by conftest.py)
+
+
+@pytest.mark.unit
+def test_create_apikey_success(client, db_session):
+    """Test creating an API key with name, provider, secret — expect 201, response has masked secret."""
+    create_request = {
+        "name": "OpenAI Key",
+        "provider": "openai",
+        "secret_value": "sk-1234567890abcdef",
+    }
+
+    response = client.post(
+        "/api/apikeys",
+        json=create_request,
+    )
+
+    # Expect 201 Created
+    assert response.status_code == 201
+    data = response.json()
+    assert data["name"] == "OpenAI Key"
+    assert data["provider"] == "openai"
+    assert data["user_id"] == "test-user-123"
+    # Secret should be masked
+    assert data.get("secret_value_masked") is not None
+    # Verify it was stored in DB
+    stored_key = db_session.query(APIKey).filter_by(user_id="test-user-123").first()
+    assert stored_key is not None
+    assert stored_key.name == "OpenAI Key"
+
+
+@pytest.mark.unit
+def test_list_apikeys_returns_user_keys(client, db_session):
+    """Test: list as user A returns only A's keys."""
+    # Create some test keys for the user
+    key1 = APIKey(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        name="Key 1",
+        provider=ProviderEnum.openai,
+        secret_value="secret-1",
+    )
+    key2 = APIKey(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        name="Key 2",
+        provider=ProviderEnum.anthropic,
+        secret_value="secret-2",
+    )
+    db_session.add_all([key1, key2])
+    db_session.commit()
+
+    response = client.get("/api/apikeys")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    names = {key["name"] for key in data}
+    assert names == {"Key 1", "Key 2"}
+
+
+@pytest.mark.unit
+def test_get_apikey_detail_masked_secret(client, db_session):
+    """Test: GET APIKey detail — expect secret masked/truncated, never full value."""
+    key = APIKey(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        name="Test Key",
+        provider=ProviderEnum.openai,
+        secret_value="sk-verylongsecretvalue1234567890",
+    )
+    db_session.add(key)
+    db_session.commit()
+
+    response = client.get(f"/api/apikeys/{key.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    # Verify secret is masked (should not be full value)
+    assert data["secret_value_masked"] != "sk-verylongsecretvalue1234567890"
+    assert "sk-" in data["secret_value_masked"]
+
+
+@pytest.mark.unit
+def test_update_apikey_name(client, db_session):
+    """Test: update APIKey name — expect 200, secret unchanged (immutable)."""
+    key = APIKey(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        name="Old Name",
+        provider=ProviderEnum.openai,
+        secret_value="sk-original",
+    )
+    db_session.add(key)
+    db_session.commit()
+
+    update_request = {
+        "name": "New Name",
+        "provider": "openai",
+    }
+
+    response = client.put(f"/api/apikeys/{key.id}", json=update_request)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "New Name"
+    # Secret should remain unchanged
+    db_session.refresh(key)
+    assert key.secret_value == "sk-original"
+
+
+@pytest.mark.unit
+def test_revoke_apikey_success(client, db_session):
+    """Test: revoke APIKey — expect 200, revoked_at set."""
+    key = APIKey(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        name="Test Key",
+        provider=ProviderEnum.openai,
+        secret_value="sk-secret",
+    )
+    db_session.add(key)
+    db_session.commit()
+
+    response = client.delete(f"/api/apikeys/{key.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    # revoked_at should be set (not None)
+    assert data["revoked_at"] is not None
+
+
+@pytest.mark.unit
+def test_list_filters_out_revoked_keys(client, db_session):
+    """Test: revoked APIKey doesn't appear in list."""
+    active_key = APIKey(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        name="Active Key",
+        provider=ProviderEnum.openai,
+        secret_value="sk-active",
+        revoked_at=None,
+    )
+    revoked_key = APIKey(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        name="Revoked Key",
+        provider=ProviderEnum.anthropic,
+        secret_value="sk-revoked",
+        revoked_at=datetime.utcnow(),
+    )
+    db_session.add_all([active_key, revoked_key])
+    db_session.commit()
+
+    response = client.get("/api/apikeys")
+
+    assert response.status_code == 200
+    data = response.json()
+    # Should only have active key
+    assert len(data) == 1
+    assert data[0]["name"] == "Active Key"
+
+
+@pytest.mark.unit
+def test_get_apikey_not_found(client):
+    """Test: GET APIKey for non-existent key returns 404."""
+    response = client.get("/api/apikeys/nonexistent-id")
+    assert response.status_code == 404

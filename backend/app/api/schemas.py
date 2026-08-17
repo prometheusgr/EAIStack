@@ -23,14 +23,15 @@ class APIKeyCreate(BaseModel):
     """Request body for creating an API key."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    provider: str = Field(..., description="API provider (openai, anthropic, huggingface, etc)")
+    provider: str = Field(..., description="API provider (openai, anthropic, huggingface, custom)")
     secret_value: str = Field(..., min_length=1, description="The secret API key")
 
 
 class APIKeyUpdate(BaseModel):
-    """Request body for updating an API key (name only, secret is immutable)."""
+    """Request body for updating an API key (name/provider only, secret is immutable)."""
 
     name: str = Field(..., min_length=1, max_length=255)
+    provider: str = Field(..., description="API provider (openai, anthropic, huggingface, custom)")
 
 
 class APIKeyResponse(BaseModel):
