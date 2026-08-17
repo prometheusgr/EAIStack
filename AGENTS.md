@@ -25,6 +25,16 @@ This file defines coding standards and development process for EAIStack contribu
 
 All unit tests must pass locally before pushing. Every commit must have corresponding tests.
 
+### What NOT to Test
+
+**Tests are for logic, not build artifacts.** Don't write tests for:
+- **Dependency resolution**: If `npm install` fails or a module can't be imported, that's a build error caught by the compiler/CI, not a logic error. Write a test when there's logic to verify (e.g., "does this function handle the data correctly").
+- **Type checking**: TypeScript catches type errors at compile time. Don't write tests to verify types work.
+- **Configuration/setup**: Environment setup, webpack/vite config, CI pipelines — these belong in validation scripts, not unit tests.
+- **Import/export mechanics**: The module system handles this; a successful build means it works.
+
+**Tests must specify behavior.** A good test says "when I call this function with X, it returns Y." A bad test says "this function exists and doesn't crash." Unit tests should verify business logic, not implementation details.
+
 ### Backend (FastAPI/LangGraph)
 
 - Mock the LLM boundary (`FakeChatModel` in tests); TDD all deterministic logic
@@ -41,11 +51,37 @@ pytest --cov                          # Full coverage report
 pytest tests/integration/              # Integration tests (real services, slow)
 ```
 
+### Effective Unit Tests (All Platforms)
+
+**A unit test should:**
+1. **Test behavior, not implementation** — If you rewrote the function but kept the same logic, the test should still pass.
+2. **Be deterministic** — Same input → same output, every time. No randomness, no mocking of time (unless testing time-dependent behavior). No mocked LLM calls in business logic tests (mock only at the LLM boundary).
+3. **Use real data paths** — If testing database queries, use a real test database (e.g., testcontainers). If testing API calls, use real HTTP clients. Mocking should be minimal and only at external boundaries (LLM service, third-party APIs).
+4. **Have clear failure messages** — If a test fails, the error message should tell you what went wrong, not just "assertion failed."
+5. **Test one thing** — A single test should verify one behavior. If your test has "and" in the name, split it.
+
+**Example (what NOT to do):**
+```python
+def test_api_key_form_works():  # ❌ Too vague
+    form = APIKeyForm()
+    assert form is not None  # ❌ Useless
+```
+
+**Example (what TO do):**
+```python
+def test_api_key_form_rejects_empty_name():  # ✓ Specific behavior
+    form = APIKeyForm()
+    result = form.validate({'name': '', 'provider': 'openai', 'secret': 'key'})
+    assert result.is_valid is False  # ✓ Clear what we're checking
+    assert 'name' in result.errors  # ✓ Shows which field failed
+```
+
 ### Frontend (React/TypeScript)
 
 - React Testing Library + Vitest
 - Mock Keycloak provider for auth-flow tests
 - Component and integration tests written first
+- Test user interactions and data flow, not DOM internals
 
 **Test commands**:
 ```bash
