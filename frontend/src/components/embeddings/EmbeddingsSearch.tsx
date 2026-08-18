@@ -4,7 +4,6 @@ import { knowledgeBaseClient } from '@/services/knowledgeBaseClient'
 import type { SemanticSearchResult } from '@/types/embeddings'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { KnowledgeBaseUpload } from './KnowledgeBaseUpload'
 
 export function EmbeddingsSearch() {
   const [query, setQuery] = useState('')
@@ -51,10 +50,8 @@ export function EmbeddingsSearch() {
 
   return (
     <div className="space-y-6">
-      <KnowledgeBaseUpload onUploadSuccess={() => {}} />
-
-      <div className="border-t pt-6">
-        <h3 className="text-lg font-semibold mb-4">Search Knowledge Base</h3>
+      <div>
+        <h3 className="text-lg font-semibold mb-4">Search</h3>
         <form onSubmit={handleSearch} className="flex gap-2">
           <Input
             placeholder="Search by topic or content..."
@@ -69,7 +66,7 @@ export function EmbeddingsSearch() {
         </form>
       </div>
 
-      {error && (
+      {error && !loading && (
         <div className="p-4 bg-red-50 text-red-700 rounded border border-red-200" role="alert">
           {error}
         </div>

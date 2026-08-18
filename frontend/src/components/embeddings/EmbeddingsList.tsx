@@ -94,15 +94,15 @@ export function EmbeddingsList() {
       <div className="space-y-6">
         <KnowledgeBaseUpload onUploadSuccess={loadEmbeddings} />
         <div className="text-center py-12 text-gray-500">
-          <p className="text-lg">No embeddings found yet</p>
-          <p className="text-sm">Add a knowledge base entry above to get started</p>
+          <p className="text-lg">No documents yet</p>
+          <p className="text-sm">Create a knowledge base entry above to get started</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <KnowledgeBaseUpload onUploadSuccess={loadEmbeddings} />
       <div className="rounded-lg border">
         <Table>
