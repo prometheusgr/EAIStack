@@ -1,7 +1,10 @@
 import { useState } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ChatWindow } from './components/ChatWindow'
 import { APIKeys } from './components/APIKeys'
+import { EmbeddingsList } from '@/components/embeddings/EmbeddingsList'
+import { EmbeddingsSearch } from '@/components/embeddings/EmbeddingsSearch'
 import { Button } from './components/ui/button'
 import { MainLayout } from './components/layout/MainLayout'
 import { ToastProvider } from './components/ui/toast'
@@ -9,7 +12,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AppContent() {
   const { isAuthenticated, isLoading, login } = useAuth()
-  const [currentView, setCurrentView] = useState<'chat' | 'apikeys'>('chat')
+  const [currentView, setCurrentView] = useState<'chat' | 'apikeys' | 'embeddings' | 'embeddings-search'>('chat')
 
   if (isLoading) {
     return (
@@ -49,18 +52,33 @@ function AppContent() {
       {currentView === 'apikeys' && (
         <APIKeys />
       )}
+      {currentView === 'embeddings' && (
+        <>
+          <h2 className="text-2xl font-semibold mb-4">Embeddings</h2>
+          <EmbeddingsList />
+        </>
+      )}
+      {currentView === 'embeddings-search' && (
+        <>
+          <h2 className="text-2xl font-semibold mb-4">Semantic Search</h2>
+          <EmbeddingsSearch />
+        </>
+      )}
     </MainLayout>
   )
 }
 
 function App() {
+  const [queryClient] = useState(() => new QueryClient())
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <ToastProvider>
-          <AppContent />
-        </ToastProvider>
-      </AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ToastProvider>
+            <AppContent />
+          </ToastProvider>
+        </AuthProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   )
 }
