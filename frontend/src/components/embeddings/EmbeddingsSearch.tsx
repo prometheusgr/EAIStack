@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input'
 export function EmbeddingsSearch() {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SemanticSearchResult[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
-  const [deleting, setDeleting] = useState<string | null>(null)
+
+  const searchMutation = useMutation({
+    mutationFn: (searchQuery: string) => embeddingsClient.semanticSearch(searchQuery, 10),
+  })
 
   const deleteMutation = useMutation({
     mutationFn: (docId: string) => knowledgeBaseClient.delete(docId),
@@ -26,19 +26,8 @@ export function EmbeddingsSearch() {
     e.preventDefault()
     if (!query.trim()) return
 
-    setLoading(true)
-    setError(null)
     setHasSearched(true)
-
-    try {
-      const searchResults = await embeddingsClient.semanticSearch(query, 10)
-      setResults(searchResults)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed')
-      setResults([])
-    } finally {
-      setLoading(false)
-    }
+    await searchMutation.mutateAsync(query)
   }
 
   async function handleDelete(docId: string, embeddingId: string) {
@@ -46,14 +35,15 @@ export function EmbeddingsSearch() {
       return
     }
 
-    setDeleting(embeddingId)
-    try {
-      await deleteMutation.mutateAsync(docId)
-      setResults((prev) => prev.filter((r) => r.id !== embeddingId))
-    } finally {
-      setDeleting(null)
+    await deleteMutation.mutateAsync(docId)
+    if (searchMutation.data) {
+      searchMutation.data = searchMutation.data.filter((r) => r.id !== embeddingId)
     }
   }
+
+  const results = searchMutation.data || []
+  const loading = searchMutation.isPending
+  const error = searchMutation.error
 
   return (
     <div className="space-y-6">
@@ -75,7 +65,7 @@ export function EmbeddingsSearch() {
 
       {error && !loading && (
         <div className="p-4 bg-red-50 text-red-700 rounded border border-red-200" role="alert">
-          {error}
+          {error instanceof Error ? error.message : 'Search failed'}
         </div>
       )}
 
@@ -107,10 +97,10 @@ export function EmbeddingsSearch() {
                 variant="ghost"
                 size="sm"
                 onClick={() => handleDelete(result.doc_id, result.id)}
-                disabled={deleting === result.id || deleteMutation.isPending}
+                disabled={deleteMutation.isPending}
                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
               >
-                {deleting === result.id ? 'Deleting...' : 'Delete'}
+                {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
               </Button>
             </div>
           </div>
