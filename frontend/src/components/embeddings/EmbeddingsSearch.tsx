@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { embeddingsClient } from '@/services/embeddingsClient'
 import { knowledgeBaseClient } from '@/services/knowledgeBaseClient'
 import type { SemanticSearchResult } from '@/types/embeddings'
@@ -6,12 +7,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 export function EmbeddingsSearch() {
+  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SemanticSearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+
+  const deleteMutation = useMutation({
+    mutationFn: (docId: string) => knowledgeBaseClient.delete(docId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['embeddings'] })
+    },
+  })
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -39,10 +48,8 @@ export function EmbeddingsSearch() {
 
     setDeleting(embeddingId)
     try {
-      await knowledgeBaseClient.delete(docId)
+      await deleteMutation.mutateAsync(docId)
       setResults((prev) => prev.filter((r) => r.id !== embeddingId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed')
     } finally {
       setDeleting(null)
     }
@@ -100,7 +107,7 @@ export function EmbeddingsSearch() {
                 variant="ghost"
                 size="sm"
                 onClick={() => handleDelete(result.doc_id, result.id)}
-                disabled={deleting === result.id}
+                disabled={deleting === result.id || deleteMutation.isPending}
                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
               >
                 {deleting === result.id ? 'Deleting...' : 'Delete'}

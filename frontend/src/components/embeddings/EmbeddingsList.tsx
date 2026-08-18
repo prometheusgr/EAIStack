@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { embeddingsClient } from '@/services/embeddingsClient'
 import { knowledgeBaseClient } from '@/services/knowledgeBaseClient'
 import type { EmbeddingResponse } from '@/types/embeddings'
@@ -15,32 +16,27 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 
 export function EmbeddingsList() {
-  const [embeddings, setEmbeddings] = useState<EmbeddingResponse[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const [deleting, setDeleting] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadEmbeddings()
-  }, [])
-
-  async function loadEmbeddings() {
-    setLoading(true)
-    setError(null)
-
-    try {
+  const { data: embeddings = [], isLoading, error, refetch } = useQuery<EmbeddingResponse[]>({
+    queryKey: ['embeddings'],
+    queryFn: async () => {
       const data = await embeddingsClient.listEmbeddings()
-      const sorted = data.sort(
+      return data.sort(
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       )
-      setEmbeddings(sorted)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load embeddings')
-      setEmbeddings([])
-    } finally {
-      setLoading(false)
-    }
-  }
+    },
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (docId: string) => knowledgeBaseClient.delete(docId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['embeddings'] })
+    },
+  })
 
   async function handleDelete(docId: string, embeddingId: string) {
     if (!window.confirm('Are you sure you want to delete this entry?')) {
@@ -49,17 +45,13 @@ export function EmbeddingsList() {
 
     setDeleting(embeddingId)
     try {
-      // Delete the knowledge base entry (which cascades to embeddings)
-      await knowledgeBaseClient.delete(docId)
-      setEmbeddings((prev) => prev.filter((e) => e.id !== embeddingId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed')
+      await deleteMutation.mutateAsync(docId)
     } finally {
       setDeleting(null)
     }
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <div className="text-gray-500">Loading...</div>
@@ -73,14 +65,11 @@ export function EmbeddingsList() {
   if (error) {
     return (
       <div className="p-4 bg-red-50 text-red-700 rounded border border-red-200" role="alert">
-        <p>{error}</p>
+        <p>{error instanceof Error ? error.message : 'Failed to load embeddings'}</p>
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
-            setError(null)
-            loadEmbeddings()
-          }}
+          onClick={() => refetch()}
           className="mt-2"
         >
           Retry
@@ -92,7 +81,7 @@ export function EmbeddingsList() {
   if (embeddings.length === 0) {
     return (
       <div className="space-y-6">
-        <KnowledgeBaseUpload onUploadSuccess={loadEmbeddings} />
+        <KnowledgeBaseUpload onUploadSuccess={() => refetch()} />
         <div className="text-center py-12 text-gray-500">
           <p className="text-lg">No documents yet</p>
           <p className="text-sm">Create a knowledge base entry above to get started</p>
@@ -103,7 +92,7 @@ export function EmbeddingsList() {
 
   return (
     <div className="space-y-6">
-      <KnowledgeBaseUpload onUploadSuccess={loadEmbeddings} />
+      <KnowledgeBaseUpload onUploadSuccess={() => refetch()} />
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
@@ -125,7 +114,7 @@ export function EmbeddingsList() {
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDelete(embedding.doc_id, embedding.id)}
-                    disabled={deleting === embedding.id}
+                    disabled={deleting === embedding.id || deleteMutation.isPending}
                     className="text-red-600 hover:text-red-700 hover:bg-red-50"
                   >
                     {deleting === embedding.id ? 'Deleting...' : 'Delete'}
