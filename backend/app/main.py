@@ -3,12 +3,11 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agents, auth, apikeys
+from app.api import agents, auth, apikeys, embeddings
 from app.core.auth import get_current_user
 from app.core.config import settings
-from sqlalchemy.orm import sessionmaker
+from app.db.database import SessionLocal, engine
 from app.db.models import Base
-from sqlalchemy import create_engine
 
 app = FastAPI(
     title="EAIStack Backend",
@@ -24,26 +23,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database setup for SessionLocal
-# Note: Tables are created only in tests (via conftest) or via alembic migrations
-# in production. This avoids connection errors at import time if DB is not ready.
-try:
-    engine = create_engine(settings.database_url)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-except Exception:
-    # If DB connection fails at import time, create a dummy SessionLocal
-    # Tests will override this via dependency injection
-    from sqlalchemy import create_mock_engine
-
-    def dump(sql, *multiparams, **params):
-        pass
-
-    mock_engine = create_mock_engine(lambda: None, dump)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=mock_engine)
+# Create tables at startup (development only; production uses alembic migrations)
+with engine.begin() as conn:
+    conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
+    conn.commit()
+Base.metadata.create_all(bind=engine)
 
 app.include_router(agents.router)
 app.include_router(auth.router)
 app.include_router(apikeys.router)
+app.include_router(embeddings.router)
 
 
 @app.get("/health")

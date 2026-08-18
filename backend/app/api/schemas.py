@@ -1,8 +1,9 @@
 """API request/response schemas."""
 
-from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import Optional
+
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ChatRequest(BaseModel):
@@ -47,3 +48,46 @@ class APIKeyResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
     revoked_at: Optional[datetime] = None
+
+
+class EmbeddingResponse(BaseModel):
+    """Response body for an embedding."""
+
+    id: str
+    doc_id: str
+    embedding: list[float]
+    embed_metadata: dict = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+    deleted_at: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    doc_metadata: Optional[dict] = None
+
+
+class SemanticSearchRequest(BaseModel):
+    """Request body for semantic search."""
+
+    query_text: str = Field(..., min_length=1, description="The search query")
+    top_k: int = Field(default=10, ge=1, le=100, description="Number of results to return")
+
+
+class SemanticSearchResult(BaseModel):
+    """A single result from semantic search."""
+
+    id: str
+    doc_id: str
+    title: str
+    content: str
+    preview: str
+    similarity_score: float
+    created_at: str
+    embed_metadata: Optional[dict] = None
+    doc_metadata: Optional[dict] = None
+
+
+class SemanticSearchResponse(BaseModel):
+    """Response body for semantic search."""
+
+    results: list[SemanticSearchResult]
+    query_count: int
