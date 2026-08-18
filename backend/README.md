@@ -10,6 +10,30 @@ source venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## Database Migrations
+
+Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/).
+
+### Running migrations
+
+```bash
+# Apply all pending migrations
+alembic upgrade head
+
+# Rollback one migration
+alembic downgrade -1
+
+# Generate a new migration after model changes
+alembic revision --autogenerate -m "Add new_field to users table"
+```
+
+**New feature workflow:**
+1. Modify `app/db/models.py` to add/change a field
+2. Generate migration: `alembic revision --autogenerate -m "description"`
+3. Review `alembic/versions/` to ensure the migration is correct
+4. Test locally: `alembic upgrade head`
+5. Commit both the model change and the migration file
+
 ## Running Locally
 
 ### With docker-compose (full stack)
@@ -20,6 +44,10 @@ docker-compose up
 
 ### Backend only (for development)
 ```bash
+# Apply migrations first
+alembic upgrade head
+
+# Start the server
 uvicorn app.main:app --reload
 ```
 

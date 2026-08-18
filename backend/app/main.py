@@ -23,11 +23,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create tables at startup (development only; production uses alembic migrations)
-with engine.begin() as conn:
-    conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
-    conn.commit()
-Base.metadata.create_all(bind=engine)
+# Schema is managed by Alembic migrations
+# Run migrations with: alembic upgrade head
+# To generate new migrations after model changes: alembic revision --autogenerate -m "description"
 
 app.include_router(agents.router)
 app.include_router(auth.router)

@@ -2,19 +2,17 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
-from uuid import uuid4
 
 from app.core.auth import get_current_user
-from app.db.models import APIKey
 from app.db.database import get_db
 from app.api.schemas import APIKeyCreate, APIKeyUpdate, APIKeyResponse
 from app.core.security import mask_secret
+from app.repositories import APIKeyRepository
 
 router = APIRouter(prefix="/api/apikeys", tags=["apikeys"])
 
 
-def _to_response(key: APIKey) -> APIKeyResponse:
+def _to_response(key) -> APIKeyResponse:
     """Convert APIKey model to response DTO."""
     return APIKeyResponse(
         id=key.id,
@@ -35,16 +33,13 @@ async def create_apikey(
     db: Session = Depends(get_db),
 ):
     """Create a new API key for the current user."""
-    key = APIKey(
-        id=str(uuid4()),
+    repo = APIKeyRepository(db)
+    key = repo.create(
         user_id=user["user_id"],
         name=payload.name,
         provider=payload.provider,
         secret_value=payload.secret_value,
     )
-    db.add(key)
-    db.commit()
-    db.refresh(key)
     return _to_response(key)
 
 
@@ -54,10 +49,8 @@ async def list_apikeys(
     db: Session = Depends(get_db),
 ):
     """List all active API keys for the current user."""
-    keys = db.query(APIKey).filter(
-        APIKey.user_id == user["user_id"],
-        APIKey.revoked_at.is_(None),
-    ).all()
+    repo = APIKeyRepository(db)
+    keys = repo.get_by_user(user["user_id"])
     return [_to_response(key) for key in keys]
 
 
@@ -68,10 +61,8 @@ async def get_apikey(
     db: Session = Depends(get_db),
 ):
     """Get a specific API key (masked secret)."""
-    key = db.query(APIKey).filter(
-        APIKey.id == key_id,
-        APIKey.user_id == user["user_id"],
-    ).first()
+    repo = APIKeyRepository(db)
+    key = repo.get_by_id(key_id, user["user_id"])
 
     if not key:
         raise HTTPException(status_code=404, detail="API key not found")
@@ -86,10 +77,8 @@ async def update_apikey(
     db: Session = Depends(get_db),
 ):
     """Update an API key (name only; secret is immutable)."""
-    key = db.query(APIKey).filter(
-        APIKey.id == key_id,
-        APIKey.user_id == user["user_id"],
-    ).first()
+    repo = APIKeyRepository(db)
+    key = repo.get_by_id(key_id, user["user_id"])
 
     if not key:
         raise HTTPException(status_code=404, detail="API key not found")
@@ -97,10 +86,7 @@ async def update_apikey(
     if key.revoked_at is not None:
         raise HTTPException(status_code=410, detail="API key has been revoked")
 
-    key.name = payload.name
-    key.provider = payload.provider
-    key.updated_at = datetime.now(timezone.utc)
-    db.commit()
+    repo.update(key_id, payload.name, payload.provider)
     db.refresh(key)
     return _to_response(key)
 
@@ -112,15 +98,12 @@ async def revoke_apikey(
     db: Session = Depends(get_db),
 ):
     """Revoke (soft-delete) an API key."""
-    key = db.query(APIKey).filter(
-        APIKey.id == key_id,
-        APIKey.user_id == user["user_id"],
-    ).first()
+    repo = APIKeyRepository(db)
+    key = repo.get_by_id(key_id, user["user_id"])
 
     if not key:
         raise HTTPException(status_code=404, detail="API key not found")
 
-    key.revoked_at = datetime.now(timezone.utc)
-    db.commit()
+    repo.revoke(key_id)
     db.refresh(key)
     return _to_response(key)
