@@ -91,3 +91,23 @@ class SemanticSearchResponse(BaseModel):
 
     results: list[SemanticSearchResult]
     query_count: int
+
+
+class KnowledgeBaseCreate(BaseModel):
+    """Request body for creating a knowledge base entry."""
+
+    title: str = Field(..., min_length=1, max_length=500, description="Document title")
+    content: str = Field(..., min_length=1, description="Document content")
+    metadata: dict = Field(default_factory=dict, description="Optional metadata")
+
+
+class KnowledgeBaseResponse(BaseModel):
+    """Response body for a knowledge base entry."""
+
+    id: str
+    user_id: str
+    title: str
+    content: str
+    doc_metadata: Optional[dict] = None
+    created_at: str
+    updated_at: str
