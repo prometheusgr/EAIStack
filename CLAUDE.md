@@ -80,6 +80,27 @@ npm run lint            # Check
 npm run build           # Production build
 ```
 
+### Database Migrations (Alembic)
+
+```bash
+cd backend
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Generate a new migration after model changes
+alembic revision --autogenerate -m "Description of change"
+
+# Rollback one migration
+alembic downgrade -1
+
+# View current migration version
+alembic current
+
+# View migration history
+alembic history --verbose
+```
+
 ### Full Stack (Docker Compose)
 
 ```bash
@@ -141,15 +162,24 @@ backend/
 frontend/
   src/
     context/        AuthContext.tsx (Keycloak setup, login/logout)
-    components/     React components (Phase 2+: ChatWindow, MessageList)
+    api/            API clients (HTTP-only, take token as param)
+    services/       Service layer (business logic, wrap clients)
+    hooks/          Custom hooks (useApiCall, useApiMutation, service-specific)
+    components/     React components (use hooks for data/state)
     App.tsx         Entry point
   tests/            Vitest test files
   vitest.config.ts  Test configuration
 ```
 
 **Key patterns**:
-- **Auth**: AuthContext wraps app, handles Keycloak OIDC. Tests mock Keycloak provider (`tests/setup.ts`).
-- **API calls**: Fetch from `http://localhost:8001` (backend). Protected endpoints include auth token in headers.
+- **Auth**: AuthContext wraps app, handles Keycloak OIDC. Tests mock Keycloak provider.
+- **Three-layer API architecture**: Components → Hooks → Services → API Clients → HTTP
+  - API Clients (`src/api/`): HTTP-only, take token as param, no business logic
+  - Services (`src/services/`): Business logic, wrap API clients, take token in constructor
+  - Hooks (`src/hooks/`): State management, use generic hooks (useApiCall/useApiMutation) with services
+  - Components: Use hooks only, no direct fetch() or API calls
+- **Generic hooks** for reuse: `useApiCall<T>()` (GET), `useApiMutation<T, R>()` (POST/PUT/DELETE)
+- **Service-specific hooks**: `useChatService()`, `useEmbeddingsService()` (see AGENTS.md for pattern)
 
 ### Other Layers
 

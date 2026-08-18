@@ -69,3 +69,5 @@ charts/*/charts/
 # Misc
 *.log
 .cache/
+frontend/playwright-report/data/
+frontend/test-results/
