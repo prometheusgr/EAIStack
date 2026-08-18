@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useAuth } from '@/context/AuthContext'
+import { KnowledgeBaseService } from '@/services/knowledgeBaseService'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -8,6 +10,7 @@ export interface KnowledgeBaseUploadProps {
 }
 
 export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: KnowledgeBaseUploadProps) {
+  const { token, refreshAccessToken } = useAuth()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
@@ -20,31 +23,17 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
       return
     }
 
+    if (!token) {
+      setError('Not authenticated')
+      return
+    }
+
     setLoading(true)
     setError(null)
 
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        throw new Error('Not authenticated')
-      }
-
-      const response = await fetch('/api/knowledge-base', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title: title.trim(),
-          content: content.trim(),
-          metadata: {},
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`)
-      }
+      const service = new KnowledgeBaseService(token)
+      await service.create(title.trim(), content.trim(), {})
 
       // Clear form
       setTitle('')

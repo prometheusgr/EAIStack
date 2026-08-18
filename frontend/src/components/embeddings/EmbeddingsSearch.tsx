@@ -1,33 +1,25 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { embeddingsClient } from '@/services/embeddingsClient'
-import { knowledgeBaseClient } from '@/services/knowledgeBaseClient'
-import type { SemanticSearchResult } from '@/types/embeddings'
+import { useEmbeddingsService } from '@/hooks/useEmbeddingsService'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 export function EmbeddingsSearch() {
-  const queryClient = useQueryClient()
+  const { search, delete: deleteEmbedding } = useEmbeddingsService()
   const [query, setQuery] = useState('')
   const [hasSearched, setHasSearched] = useState(false)
-
-  const searchMutation = useMutation({
-    mutationFn: (searchQuery: string) => embeddingsClient.semanticSearch(searchQuery, 10),
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (docId: string) => knowledgeBaseClient.delete(docId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['embeddings'] })
-    },
-  })
+  const [results, setResults] = useState<typeof search.data>([])
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
     if (!query.trim()) return
 
     setHasSearched(true)
-    await searchMutation.mutateAsync(query)
+    try {
+      const data = await search.mutateAsync(query)
+      setResults(data)
+    } catch {
+      // Error is handled by hook and displayed below
+    }
   }
 
   async function handleDelete(docId: string, embeddingId: string) {
@@ -35,15 +27,16 @@ export function EmbeddingsSearch() {
       return
     }
 
-    await deleteMutation.mutateAsync(docId)
-    if (searchMutation.data) {
-      searchMutation.data = searchMutation.data.filter((r) => r.id !== embeddingId)
+    try {
+      await deleteEmbedding.mutateAsync(docId)
+      setResults((prev) => prev?.filter((r) => r.id !== embeddingId) || [])
+    } catch {
+      // Error is handled by hook
     }
   }
 
-  const results = searchMutation.data || []
-  const loading = searchMutation.isPending
-  const error = searchMutation.error
+  const loading = search.isPending
+  const error = search.error
 
   return (
     <div className="space-y-6">
@@ -73,12 +66,12 @@ export function EmbeddingsSearch() {
         <div className="text-center text-gray-500 py-8">Enter a query to search</div>
       )}
 
-      {!loading && hasSearched && results.length === 0 && (
+      {!loading && hasSearched && (!results || results.length === 0) && (
         <div className="text-center text-gray-500 py-8">No results found</div>
       )}
 
       <div className="space-y-4">
-        {results.map((result) => (
+        {results?.map((result) => (
           <div key={result.id} className="border rounded p-4 hover:bg-gray-50 transition">
             <div className="flex justify-between items-start mb-2">
               <div className="flex-1">
@@ -97,10 +90,10 @@ export function EmbeddingsSearch() {
                 variant="ghost"
                 size="sm"
                 onClick={() => handleDelete(result.doc_id, result.id)}
-                disabled={deleteMutation.isPending}
+                disabled={deleteEmbedding.isPending}
                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
               >
-                {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+                {deleteEmbedding.isPending ? 'Deleting...' : 'Delete'}
               </Button>
             </div>
           </div>

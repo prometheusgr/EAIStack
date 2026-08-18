@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ChatWindow } from './components/ChatWindow'
@@ -68,17 +68,27 @@ function AppContent() {
   )
 }
 
+function AppWithProviders() {
+  const queryClientRef = useRef<QueryClient | null>(null)
+  if (!queryClientRef.current) {
+    queryClientRef.current = new QueryClient()
+  }
+
+  return (
+    <QueryClientProvider client={queryClientRef.current}>
+      <AuthProvider>
+        <ToastProvider>
+          <AppContent />
+        </ToastProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  )
+}
+
 function App() {
-  const [queryClient] = useState(() => new QueryClient())
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ToastProvider>
-            <AppContent />
-          </ToastProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <AppWithProviders />
     </ErrorBoundary>
   )
 }
