@@ -103,7 +103,7 @@ def client(db_session, test_db_url):
     """Provide a test client for the app with DB dependency."""
     from starlette.testclient import TestClient
     from app.main import app
-    from app.api import apikeys
+    from app.db.database import get_db
     from app.core.auth import get_current_user
 
     def get_db_override():
@@ -119,7 +119,7 @@ def client(db_session, test_db_url):
     def get_current_user_override():
         return mock_user
 
-    app.dependency_overrides[apikeys.get_db] = get_db_override
+    app.dependency_overrides[get_db] = get_db_override
     app.dependency_overrides[get_current_user] = get_current_user_override
 
     client = TestClient(app)

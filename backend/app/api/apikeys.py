@@ -7,21 +7,11 @@ from uuid import uuid4
 
 from app.core.auth import get_current_user
 from app.db.models import APIKey
+from app.db.database import get_db
 from app.api.schemas import APIKeyCreate, APIKeyUpdate, APIKeyResponse
 from app.core.security import mask_secret
 
 router = APIRouter(prefix="/api/apikeys", tags=["apikeys"])
-
-
-def get_db():
-    """Get database session (overridable in tests)."""
-    from app.core.config import SessionLocal
-
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _to_response(key: APIKey) -> APIKeyResponse:
