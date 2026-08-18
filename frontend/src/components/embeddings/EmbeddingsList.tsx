@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { embeddingsClient } from '@/services/embeddingsClient'
+import { knowledgeBaseClient } from '@/services/knowledgeBaseClient'
 import type { EmbeddingResponse } from '@/types/embeddings'
 import { Button } from '@/components/ui/button'
 import { KnowledgeBaseUpload } from './KnowledgeBaseUpload'
@@ -17,6 +18,7 @@ export function EmbeddingsList() {
   const [embeddings, setEmbeddings] = useState<EmbeddingResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
     loadEmbeddings()
@@ -40,12 +42,20 @@ export function EmbeddingsList() {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(docId: string, embeddingId: string) {
+    if (!window.confirm('Are you sure you want to delete this entry?')) {
+      return
+    }
+
+    setDeleting(embeddingId)
     try {
-      await embeddingsClient.deleteEmbedding(id)
-      setEmbeddings((prev) => prev.filter((e) => e.id !== id))
+      // Delete the knowledge base entry (which cascades to embeddings)
+      await knowledgeBaseClient.delete(docId)
+      setEmbeddings((prev) => prev.filter((e) => e.id !== embeddingId))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeleting(null)
     }
   }
 
@@ -63,7 +73,18 @@ export function EmbeddingsList() {
   if (error) {
     return (
       <div className="p-4 bg-red-50 text-red-700 rounded border border-red-200" role="alert">
-        {error}
+        <p>{error}</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setError(null)
+            loadEmbeddings()
+          }}
+          className="mt-2"
+        >
+          Retry
+        </Button>
       </div>
     )
   }
@@ -81,36 +102,40 @@ export function EmbeddingsList() {
   }
 
   return (
-    <div className="rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Title</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Updated</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {embeddings.map((embedding) => (
-            <TableRow key={embedding.id} className="hover:bg-gray-50">
-              <TableCell className="font-medium">{embedding.title || 'Untitled'}</TableCell>
-              <TableCell>{new Date(embedding.created_at).toLocaleDateString()}</TableCell>
-              <TableCell>{new Date(embedding.updated_at).toLocaleDateString()}</TableCell>
-              <TableCell className="text-right">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDelete(embedding.id)}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                >
-                  Delete
-                </Button>
-              </TableCell>
+    <div className="space-y-4">
+      <KnowledgeBaseUpload onUploadSuccess={loadEmbeddings} />
+      <div className="rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Title</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Updated</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {embeddings.map((embedding) => (
+              <TableRow key={embedding.id} className="hover:bg-gray-50">
+                <TableCell className="font-medium">{embedding.title || 'Untitled'}</TableCell>
+                <TableCell>{new Date(embedding.created_at).toLocaleDateString()}</TableCell>
+                <TableCell>{new Date(embedding.updated_at).toLocaleDateString()}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(embedding.doc_id, embedding.id)}
+                    disabled={deleting === embedding.id}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    {deleting === embedding.id ? 'Deleting...' : 'Delete'}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }
