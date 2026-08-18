@@ -4,8 +4,8 @@ import { Button } from '../ui/button'
 
 interface MainLayoutProps {
   children: ReactNode
-  currentView: 'chat' | 'apikeys'
-  onViewChange: (view: 'chat' | 'apikeys') => void
+  currentView: 'chat' | 'apikeys' | 'embeddings' | 'embeddings-search'
+  onViewChange: (view: 'chat' | 'apikeys' | 'embeddings' | 'embeddings-search') => void
 }
 
 export function MainLayout({ children, currentView, onViewChange }: MainLayoutProps) {
@@ -47,6 +47,22 @@ export function MainLayout({ children, currentView, onViewChange }: MainLayoutPr
             data-active={currentView === 'apikeys'}
           >
             API Keys
+          </Button>
+          <Button
+            variant={currentView === 'embeddings' ? 'default' : 'ghost'}
+            onClick={() => onViewChange('embeddings')}
+            className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary text-xs md:text-sm"
+            data-active={currentView === 'embeddings'}
+          >
+            Embeddings
+          </Button>
+          <Button
+            variant={currentView === 'embeddings-search' ? 'default' : 'ghost'}
+            onClick={() => onViewChange('embeddings-search')}
+            className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary text-xs md:text-sm"
+            data-active={currentView === 'embeddings-search'}
+          >
+            Search
           </Button>
         </div>
       </nav>
