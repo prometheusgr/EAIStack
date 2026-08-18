@@ -231,11 +231,11 @@ def test_delete_excludes_from_list(client, db_session):
 @pytest.mark.unit
 def test_mock_embedding_deterministic(db_session):
     """Test: Mock embedding is deterministic (same text = same embedding)."""
-    from app.api.knowledge_base import _generate_mock_embedding
+    from app.services import generate_embedding
 
     text = "Hello world this is a test"
-    emb1 = _generate_mock_embedding(text)
-    emb2 = _generate_mock_embedding(text)
+    emb1 = generate_embedding(text)
+    emb2 = generate_embedding(text)
 
     assert emb1 == emb2
     assert len(emb1) == 1536
@@ -244,9 +244,9 @@ def test_mock_embedding_deterministic(db_session):
 @pytest.mark.unit
 def test_mock_embedding_different_for_different_text(db_session):
     """Test: Different text produces different embedding."""
-    from app.api.knowledge_base import _generate_mock_embedding
+    from app.services import generate_embedding
 
-    emb1 = _generate_mock_embedding("Text A")
-    emb2 = _generate_mock_embedding("Text B")
+    emb1 = generate_embedding("Text A")
+    emb2 = generate_embedding("Text B")
 
     assert emb1 != emb2

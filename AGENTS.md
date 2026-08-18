@@ -185,6 +185,306 @@ issue if applicable. Focus on the decision, not the implementation.
 5. **Commit** with a descriptive message (see Commit Standards above)
 6. **Push and open a PR** — CI gates merging on red tests or lint failures
 
+## Adding Database Models & Migrations
+
+**New database tables or schema changes must follow this workflow:**
+
+### 1. Write a Failing Test First (TDD)
+```python
+# tests/unit/test_new_model.py
+def test_new_model_creation():
+    """Test that new model persists to database."""
+    model = NewModel(user_id="user-1", field="value")
+    session.add(model)
+    session.commit()
+    
+    retrieved = session.query(NewModel).filter_by(user_id="user-1").first()
+    assert retrieved is not None
+    assert retrieved.field == "value"
+```
+
+### 2. Define the SQLAlchemy Model
+```python
+# app/db/models.py
+class NewModel(Base):
+    """Description of what this model represents."""
+    __tablename__ = "new_models"
+    
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(255), nullable=False, index=True)
+    field = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    
+    def __repr__(self):
+        return f"<NewModel(id={self.id}, user_id={self.user_id}, field={self.field})>"
+```
+
+**Model best practices:**
+- Always include `id` (UUID primary key), `user_id` (for data isolation), `created_at`, `updated_at`
+- Add `index=True` to frequently queried columns (user_id, doc_id, etc.)
+- Use proper types (String, Text, DateTime, JSON, Vector for pgvector)
+- Include foreign keys with `ondelete='CASCADE'` for referential integrity
+- Add soft-delete support with optional `deleted_at` column if needed
+
+### 3. Generate the Alembic Migration
+```bash
+cd backend
+# Alembic inspects models and generates migration
+alembic revision --autogenerate -m "Add NewModel table"
+```
+
+This creates a new file in `alembic/versions/`.
+
+### 4. Review the Generated Migration
+Always review the generated migration file:
+```python
+# alembic/versions/xxx_add_new_model_table.py
+def upgrade() -> None:
+    op.create_table(
+        'new_models',
+        sa.Column('id', sa.String(36), nullable=False),
+        sa.Column('user_id', sa.String(255), nullable=False, index=True),
+        sa.Column('field', sa.String(255), nullable=False),
+        # ... other columns
+        sa.PrimaryKeyConstraint('id')
+    )
+
+def downgrade() -> None:
+    op.drop_table('new_models')
+```
+
+**Verify:**
+- All columns are present with correct types
+- Indexes are on the right columns
+- Foreign keys have proper `ondelete` behavior
+- Primary keys are defined correctly
+
+### 5. Test the Migration Locally
+```bash
+cd backend
+
+# Apply the migration
+alembic upgrade head
+
+# Run your new test to verify it works
+pytest tests/unit/test_new_model.py -v
+
+# Test rollback
+alembic downgrade -1
+
+# Re-apply to verify idempotency
+alembic upgrade head
+```
+
+### 6. Commit Both Files
+**Always commit the model AND the migration together:**
+```bash
+git add app/db/models.py
+git add alembic/versions/xxx_add_new_model_table.py
+git commit -m "Add NewModel with user isolation
+
+- Stores new_field data per user
+- Includes user_id index for query performance
+- Soft-delete ready with deleted_at column
+"
+```
+
+### 7. Run Full Test Suite
+```bash
+pytest tests/unit/ -v
+```
+
+All tests must pass, including the new model test and existing database tests.
+
+## Adding Backend Services
+
+**Business logic should live in the service layer (`app/services/`), not in API endpoints.** Services isolate reusable logic, enable testing without HTTP/FastAPI concerns, and prevent inter-API coupling.
+
+### When to Create a Service
+
+Create a service when:
+- Logic is used by **more than one API endpoint**
+- Logic is **independent of HTTP concerns** (request/response handling)
+- Logic should be **unit-testable in isolation** (no FastAPI mocking needed)
+- Logic is a **distinct responsibility** that could live in another context (e.g., embedding generation, search, validation)
+
+Do NOT create a service for:
+- Simple DTO conversions (leave in the endpoint)
+- Single-use endpoint logic (keep in the endpoint until it's needed elsewhere)
+- HTTP concerns (auth, headers, status codes—these belong in endpoints)
+
+### Pattern: Create a Service
+
+**1. Write a Failing Test First (TDD)**
+```python
+# tests/unit/test_embedding_service.py
+from app.services import generate_embedding
+
+def test_generate_embedding_deterministic():
+    """Test: Same text always produces same embedding."""
+    text = "Hello world"
+    emb1 = generate_embedding(text)
+    emb2 = generate_embedding(text)
+    assert emb1 == emb2
+
+def test_generate_embedding_different_texts():
+    """Test: Different texts produce different embeddings."""
+    emb1 = generate_embedding("Text A")
+    emb2 = generate_embedding("Text B")
+    assert emb1 != emb2
+```
+
+**2. Create the Service Module**
+```python
+# app/services/embedding_service.py
+"""Service for embedding generation and management."""
+
+import random
+
+
+def generate_embedding(text: str) -> list[float]:
+    """Generate a deterministic mock embedding from text.
+
+    For MVP, we use a simple hash-based approach that's deterministic
+    so the same text always produces the same embedding.
+
+    Args:
+        text: The text to generate an embedding for.
+
+    Returns:
+        A list of 1536 floating point values representing the embedding.
+    """
+    random.seed(hash(text) % (2**32))
+    return [random.gauss(0, 0.1) for _ in range(1536)]
+```
+
+**Key design principles:**
+- **No FastAPI imports** — Services are business logic, not HTTP handlers
+- **Pure functions where possible** — Deterministic, testable, no side effects
+- **Clear type hints** — Use Python 3.9+ style (`list[float]` not `List[float]`)
+- **Docstring for public API** — Explain *what* and *why*, not implementation details
+- **One responsibility per function** — A service function should do one thing well
+
+**3. Export from Services `__init__.py`**
+```python
+# app/services/__init__.py
+"""Backend service layer for business logic."""
+
+from app.services.embedding_service import generate_embedding
+
+__all__ = ["generate_embedding"]
+```
+
+**4. Update API Endpoints to Use the Service**
+```python
+# app/api/embeddings.py
+from app.services import generate_embedding
+
+@router.post("/search")
+async def search_embeddings(payload: SemanticSearchRequest, ...):
+    """Perform semantic search."""
+    # Use the service
+    query_embedding = generate_embedding(payload.query_text)
+    # ... rest of logic
+```
+
+**5. Update Any Other Endpoints Using This Logic**
+```python
+# app/api/knowledge_base.py
+from app.services import generate_embedding
+
+@router.post("")
+async def create_knowledge_base(payload: KnowledgeBaseCreate, ...):
+    """Create knowledge base with auto-generated embeddings."""
+    # Use the service
+    embedding_vector = generate_embedding(payload.content)
+    # ... rest of logic
+```
+
+**6. Remove the Old Implementation**
+- Delete the old function from the API module (e.g., `_generate_mock_embedding` from knowledge_base.py)
+- Update any tests that imported the old function to use the service instead
+
+**7. Run Tests**
+```bash
+pytest tests/unit/ -v
+```
+
+All tests must pass, including:
+- New service tests
+- Existing API endpoint tests
+- Any other tests that use this logic
+
+### Example: Refactoring Existing Code to a Service
+
+**Before (coupled):**
+```python
+# app/api/embeddings.py
+from app.api.knowledge_base import _generate_mock_embedding  # ❌ Inter-API import
+
+query_embedding = _generate_mock_embedding(payload.query_text)
+```
+
+**After (decoupled):**
+```python
+# app/api/embeddings.py
+from app.services import generate_embedding  # ✓ Service import
+
+query_embedding = generate_embedding(payload.query_text)
+```
+
+And:
+```python
+# app/api/knowledge_base.py
+from app.services import generate_embedding  # ✓ Service import
+
+embedding_vector = generate_embedding(payload.content)
+```
+
+Result: No inter-API imports, reusable logic, easier to test.
+
+### Code Review Checklist for Services
+
+- [ ] Service has no FastAPI imports (is pure business logic)
+- [ ] Service functions have clear, descriptive names and docstrings
+- [ ] All functions are unit-tested independently (no mocking of HTTP/database at this level)
+- [ ] Type hints are present and accurate (Python 3.9+ style)
+- [ ] No mutable global state or side effects (where possible)
+- [ ] Service is exported from `app/services/__init__.py`
+- [ ] All API endpoints using this logic import from the service, not from each other
+- [ ] No inter-API imports remain (check with: `grep -r "from app.api.X import" app/api/Y.py`)
+
+## Migration Troubleshooting
+
+**If a migration fails:**
+
+1. **Column type mismatch** — Check that SQLAlchemy column types match database types. Use `compare_type=True` in env.py.
+2. **Foreign key constraints** — Ensure parent table exists before creating child table. Alembic respects table order.
+3. **Default values** — Use `server_default=` for database-level defaults, `default=` for Python-side defaults.
+4. **pgvector columns** — Use raw SQL for Vector types: `op.execute("ALTER TABLE ... ADD COLUMN embedding vector(1536)")`
+
+**To reset migrations in development (WARNING: loses data):**
+```bash
+# Drop all tables and version history
+alembic downgrade base
+
+# Re-apply from scratch
+alembic upgrade head
+```
+
+**To inspect current schema:**
+```bash
+# View current migration version
+alembic current
+
+# View full history
+alembic history --verbose
+
+# Generate offline SQL (don't apply it)
+alembic upgrade head --sql
+```
+
 ## Linting & Formatting
 
 ### Backend (Python)

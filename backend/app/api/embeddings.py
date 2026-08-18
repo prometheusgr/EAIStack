@@ -9,6 +9,8 @@ from app.core.auth import get_current_user
 from app.db.models import Embedding, KnowledgeBase
 from app.db.database import get_db
 from app.api.schemas import EmbeddingResponse, SemanticSearchRequest, SemanticSearchResponse
+from app.repositories import EmbeddingRepository
+from app.services import generate_embedding
 
 router = APIRouter(prefix="/api/embeddings", tags=["embeddings"])
 
@@ -36,29 +38,17 @@ async def search_embeddings(
     db: Session = Depends(get_db),
 ):
     """Perform semantic search using pgvector similarity."""
-    from app.api.knowledge_base import _generate_mock_embedding
-
     # Generate embedding for query
-    query_embedding = _generate_mock_embedding(payload.query_text)
+    query_embedding = generate_embedding(payload.query_text)
 
-    # Get all user's embeddings
-    embeddings = db.query(Embedding).join(
-        KnowledgeBase,
-        Embedding.doc_id == KnowledgeBase.id
-    ).filter(
-        KnowledgeBase.user_id == user["user_id"],
-        Embedding.deleted_at.is_(None),
-    ).all()
+    repo = EmbeddingRepository(db)
+
+    # Get all user's embeddings with knowledge bases
+    embedding_kb_pairs = repo.search_similar(user["user_id"], query_embedding)
 
     # Calculate similarity scores (dot product)
     results = []
-    for emb in embeddings:
-        kb = db.query(KnowledgeBase).filter(
-            KnowledgeBase.id == emb.doc_id
-        ).first()
-        if not kb:
-            continue
-
+    for emb, kb in embedding_kb_pairs:
         # Dot product similarity
         similarity = sum(a * b for a, b in zip(query_embedding, emb.embedding))
 
@@ -91,19 +81,12 @@ async def list_embeddings(
     db: Session = Depends(get_db),
 ):
     """List all embeddings for the current user."""
-    embeddings = db.query(Embedding).join(
-        KnowledgeBase,
-        Embedding.doc_id == KnowledgeBase.id
-    ).filter(
-        KnowledgeBase.user_id == user["user_id"],
-        Embedding.deleted_at.is_(None),
-    ).all()
+    repo = EmbeddingRepository(db)
+    embeddings = repo.search_by_user(user["user_id"])
 
     result = []
     for embedding in embeddings:
-        kb = db.query(KnowledgeBase).filter(
-            KnowledgeBase.id == embedding.doc_id
-        ).first()
+        kb = repo.get_knowledge_base_for_embedding(embedding.id)
         result.append(_to_response(embedding, kb))
 
     return result
@@ -116,20 +99,13 @@ async def get_embedding(
     db: Session = Depends(get_db),
 ):
     """Get a specific embedding (with knowledge base info)."""
-    embedding = db.query(Embedding).join(
-        KnowledgeBase,
-        Embedding.doc_id == KnowledgeBase.id
-    ).filter(
-        Embedding.id == embedding_id,
-        KnowledgeBase.user_id == user["user_id"],
-    ).first()
+    repo = EmbeddingRepository(db)
+    embedding = repo.get_by_id(embedding_id, user["user_id"])
 
     if not embedding:
         raise HTTPException(status_code=404, detail="Embedding not found")
 
-    kb = db.query(KnowledgeBase).filter(
-        KnowledgeBase.id == embedding.doc_id
-    ).first()
+    kb = repo.get_knowledge_base_for_embedding(embedding_id)
     return _to_response(embedding, kb)
 
 
@@ -141,26 +117,17 @@ async def update_embedding(
     db: Session = Depends(get_db),
 ):
     """Update embedding metadata."""
-    embedding = db.query(Embedding).join(
-        KnowledgeBase,
-        Embedding.doc_id == KnowledgeBase.id
-    ).filter(
-        Embedding.id == embedding_id,
-        KnowledgeBase.user_id == user["user_id"],
-    ).first()
+    repo = EmbeddingRepository(db)
+    embedding = repo.get_by_id(embedding_id, user["user_id"])
 
     if not embedding:
         raise HTTPException(status_code=404, detail="Embedding not found")
 
     if "metadata" in payload:
-        embedding.embed_metadata = payload["metadata"]
-        embedding.updated_at = datetime.now(timezone.utc)
-        db.commit()
+        repo.update_metadata(embedding_id, payload["metadata"])
         db.refresh(embedding)
 
-    kb = db.query(KnowledgeBase).filter(
-        KnowledgeBase.id == embedding.doc_id
-    ).first()
+    kb = repo.get_knowledge_base_for_embedding(embedding_id)
     return _to_response(embedding, kb)
 
 
@@ -171,16 +138,10 @@ async def delete_embedding(
     db: Session = Depends(get_db),
 ):
     """Soft-delete an embedding."""
-    embedding = db.query(Embedding).join(
-        KnowledgeBase,
-        Embedding.doc_id == KnowledgeBase.id
-    ).filter(
-        Embedding.id == embedding_id,
-        KnowledgeBase.user_id == user["user_id"],
-    ).first()
+    repo = EmbeddingRepository(db)
+    embedding = repo.get_by_id(embedding_id, user["user_id"])
 
     if not embedding:
         raise HTTPException(status_code=404, detail="Embedding not found")
 
-    embedding.deleted_at = datetime.now(timezone.utc)
-    db.commit()
+    repo.soft_delete(embedding_id)

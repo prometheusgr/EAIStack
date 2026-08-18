@@ -1,6 +1,5 @@
 """API endpoints for Knowledge Base management."""
 
-import random
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -10,18 +9,9 @@ from app.core.auth import get_current_user
 from app.db.models import KnowledgeBase, Embedding
 from app.db.database import get_db
 from app.api.schemas import KnowledgeBaseCreate, KnowledgeBaseResponse
+from app.services import generate_embedding
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
-
-
-def _generate_mock_embedding(text: str) -> list[float]:
-    """Generate a deterministic mock embedding from text.
-
-    For MVP, we use a simple hash-based approach that's deterministic
-    so the same text always produces the same embedding.
-    """
-    random.seed(hash(text) % (2**32))
-    return [random.gauss(0, 0.1) for _ in range(1536)]
 
 
 def _to_response(kb: KnowledgeBase) -> KnowledgeBaseResponse:
@@ -60,7 +50,7 @@ async def create_knowledge_base(
     db.flush()  # Flush to get the ID before creating embedding
 
     # Generate and store embedding
-    embedding_vector = _generate_mock_embedding(payload.content)
+    embedding_vector = generate_embedding(payload.content)
     embedding = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
@@ -134,7 +124,7 @@ async def update_knowledge_base(
     ).first()
 
     if embedding:
-        embedding.embedding = _generate_mock_embedding(payload.content)
+        embedding.embedding = generate_embedding(payload.content)
         embedding.updated_at = datetime.now(timezone.utc)
         db.commit()
 
