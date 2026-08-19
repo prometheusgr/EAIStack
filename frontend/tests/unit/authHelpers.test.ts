@@ -3,7 +3,6 @@ import {
   decodeJwt,
   buildKeycloakLoginUrl,
   buildKeycloakLogoutUrl,
-  AuthTokenPayload,
 } from '../../src/auth/authHelpers'
 
 describe('authHelpers', () => {

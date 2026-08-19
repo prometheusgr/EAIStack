@@ -5,13 +5,6 @@ import { MainLayout } from '../../../src/components/layout/MainLayout'
 import { AuthProvider } from '../../../src/context/AuthContext'
 import { ToastProvider } from '../../../src/components/ui/toast'
 
-const mockUser = {
-  user_id: '123',
-  username: 'testuser',
-  email: 'test@example.com',
-  name: 'Test User',
-}
-
 describe('MainLayout', () => {
   const defaultProps = {
     currentView: 'chat' as const,
@@ -85,7 +78,7 @@ describe('MainLayout', () => {
       </MainLayout>
     )
 
-    let chatButton = screen.getByRole('button', { name: /Chat/i })
+    const chatButton = screen.getByRole('button', { name: /Chat/i })
     expect(chatButton).toHaveAttribute('data-active', 'true')
 
     rerender(

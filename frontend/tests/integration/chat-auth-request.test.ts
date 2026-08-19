@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { sendChatMessage } from '../../src/api/agentsClient'
 
 /**
  * Integration Test: Chat Message with Authentication
@@ -21,7 +20,6 @@ describe('Chat Message Authentication - Integration Test', () => {
   describe('Request Construction', () => {
     it('should construct request with correct headers', () => {
       const token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.signature'
-      const message = 'test message'
 
       // Simulate what agentsClient does
       const headers = {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 describe('API Integration', () => {
   it('should have backend URL configured', () => {

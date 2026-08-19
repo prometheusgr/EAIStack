@@ -1,7 +1,7 @@
 import { useAuth } from '@/context/AuthContext'
 import { embeddingsClient } from '@/api/embeddingsClient'
 import { knowledgeBaseClient } from '@/api/knowledgeBaseClient'
-import type { EmbeddingResponse, SemanticSearchResult } from '@/types/embeddings'
+import type { SemanticSearchResult } from '@/types/embeddings'
 import { useApiCall } from './useApiCall'
 import { useApiMutation } from './useApiMutation'
 

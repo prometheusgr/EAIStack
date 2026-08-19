@@ -15,5 +15,8 @@ module.exports = {
       { allowConstantExport: true },
     ],
     'react/react-in-jsx-scope': 'off',
+    // TypeScript enforces prop types at compile time; this rule can't see
+    // through forwardRef<T, Props> generics and false-positives on them.
+    'react/prop-types': 'off',
   },
 }

@@ -25,7 +25,7 @@ export function ChatWindow() {
       const result = await sendMessage({ message: userMessage, threadId: currentThreadId });
       setThreadId(result.threadId);
       setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
-    } catch (err) {
+    } catch {
       setMessages((prev) => prev.slice(0, -1));
     }
   };

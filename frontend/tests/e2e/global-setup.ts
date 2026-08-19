@@ -16,7 +16,7 @@ async function globalSetup() {
         keycloakReady = true
         break
       }
-    } catch (err) {
+    } catch {
       if (i < 29) {
         process.stdout.write('.')
         await new Promise((r) => setTimeout(r, 1000))

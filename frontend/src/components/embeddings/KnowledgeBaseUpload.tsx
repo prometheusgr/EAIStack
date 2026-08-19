@@ -10,7 +10,7 @@ export interface KnowledgeBaseUploadProps {
 }
 
 export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: KnowledgeBaseUploadProps) {
-  const { token, refreshAccessToken } = useAuth()
+  const { token } = useAuth()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
