@@ -29,10 +29,6 @@ export async function sendChatMessage(
     }
   );
 
-  if (!response.ok) {
-    throw new Error(`Chat request failed: ${response.statusText}`);
-  }
-
   const data = (await response.json()) as {
     response: string;
     thread_id: string;

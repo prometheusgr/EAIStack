@@ -10,6 +10,7 @@ from app.api.schemas import KnowledgeBaseCreate, KnowledgeBaseResponse
 from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.db.models import Embedding, KnowledgeBase
+from app.repositories import KnowledgeBaseRepository
 from app.services import generate_embedding
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
@@ -40,6 +41,7 @@ async def create_knowledge_base(
     - Generates a mock embedding for the content
     - Returns the created knowledge base
     """
+    repo = KnowledgeBaseRepository(db)
     kb = KnowledgeBase(
         id=str(uuid4()),
         user_id=user["user_id"],
@@ -47,8 +49,6 @@ async def create_knowledge_base(
         content=payload.content,
         doc_metadata=payload.metadata or {},
     )
-    db.add(kb)
-    db.flush()  # Flush to get the ID before creating embedding
 
     # Generate and store embedding
     embedding_vector = generate_embedding(payload.content)
@@ -58,10 +58,11 @@ async def create_knowledge_base(
         embedding=embedding_vector,
     )
     db.add(embedding)
-    db.commit()
-    db.refresh(kb)
 
-    return _to_response(kb)
+    created = repo.create(kb)
+    db.commit()
+    db.refresh(created)
+    return _to_response(created)
 
 
 @router.get("", response_model=list[KnowledgeBaseResponse])
@@ -70,14 +71,8 @@ async def list_knowledge_base(
     db: Session = Depends(get_db),
 ):
     """List all knowledge base entries for the current user."""
-    entries = (
-        db.query(KnowledgeBase)
-        .filter(
-            KnowledgeBase.user_id == user["user_id"],
-            KnowledgeBase.deleted_at.is_(None),
-        )
-        .all()
-    )
+    repo = KnowledgeBaseRepository(db)
+    entries = repo.get_by_user(user["user_id"])
 
     return [_to_response(kb) for kb in entries]
 
@@ -89,14 +84,8 @@ async def get_knowledge_base(
     db: Session = Depends(get_db),
 ):
     """Get a specific knowledge base entry."""
-    kb = (
-        db.query(KnowledgeBase)
-        .filter(
-            KnowledgeBase.id == kb_id,
-            KnowledgeBase.user_id == user["user_id"],
-        )
-        .first()
-    )
+    repo = KnowledgeBaseRepository(db)
+    kb = repo.get_by_id(kb_id, user["user_id"])
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base entry not found")
@@ -112,23 +101,13 @@ async def update_knowledge_base(
     db: Session = Depends(get_db),
 ):
     """Update a knowledge base entry and regenerate embedding."""
-    kb = (
-        db.query(KnowledgeBase)
-        .filter(
-            KnowledgeBase.id == kb_id,
-            KnowledgeBase.user_id == user["user_id"],
-        )
-        .first()
-    )
+    repo = KnowledgeBaseRepository(db)
+    kb = repo.get_by_id(kb_id, user["user_id"])
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base entry not found")
 
-    kb.title = payload.title
-    kb.content = payload.content
-    kb.doc_metadata = payload.metadata or {}
-    kb.updated_at = datetime.now(timezone.utc)
-    db.commit()
+    repo.update(kb, payload.title, payload.content, payload.metadata or {})
 
     # Update embedding if content changed
     embedding = (
@@ -143,8 +122,8 @@ async def update_knowledge_base(
     if embedding:
         embedding.embedding = generate_embedding(payload.content)
         embedding.updated_at = datetime.now(timezone.utc)
-        db.commit()
 
+    db.commit()
     db.refresh(kb)
     return _to_response(kb)
 
@@ -156,30 +135,11 @@ async def delete_knowledge_base(
     db: Session = Depends(get_db),
 ):
     """Soft-delete a knowledge base entry and its embeddings."""
-    kb = (
-        db.query(KnowledgeBase)
-        .filter(
-            KnowledgeBase.id == kb_id,
-            KnowledgeBase.user_id == user["user_id"],
-        )
-        .first()
-    )
+    repo = KnowledgeBaseRepository(db)
+    kb = repo.get_by_id(kb_id, user["user_id"])
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base entry not found")
 
-    # Soft-delete the knowledge base
-    kb.deleted_at = datetime.now(timezone.utc)
-
-    # Soft-delete associated embeddings
-    embeddings = (
-        db.query(Embedding)
-        .filter(
-            Embedding.doc_id == kb.id,
-        )
-        .all()
-    )
-    for emb in embeddings:
-        emb.deleted_at = datetime.now(timezone.utc)
-
+    repo.soft_delete_with_embeddings(kb)
     db.commit()

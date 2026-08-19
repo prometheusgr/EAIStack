@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { useAuth } from '@/context/AuthContext'
-import { KnowledgeBaseService } from '@/services/knowledgeBaseService'
+import { useEmbeddingsService } from '@/hooks/useEmbeddingsService'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -10,10 +9,9 @@ export interface KnowledgeBaseUploadProps {
 }
 
 export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: KnowledgeBaseUploadProps) {
-  const { token } = useAuth()
+  const { upload } = useEmbeddingsService()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -23,17 +21,10 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
       return
     }
 
-    if (!token) {
-      setError('Not authenticated')
-      return
-    }
-
-    setLoading(true)
     setError(null)
 
     try {
-      const service = new KnowledgeBaseService(token)
-      await service.create(title.trim(), content.trim(), {})
+      await upload.mutateAsync({ title: title.trim(), content: content.trim(), metadata: {} })
 
       // Clear form
       setTitle('')
@@ -44,8 +35,6 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
       const errorMsg = err instanceof Error ? err.message : 'Upload failed'
       setError(errorMsg)
       onUploadError?.(errorMsg)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -69,7 +58,7 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
             placeholder="Document title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            disabled={loading}
+            disabled={upload.isPending}
             maxLength={500}
           />
           <p className="text-xs text-gray-500 mt-1">{title.length}/500 characters</p>
@@ -84,7 +73,7 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
             placeholder="Document content..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            disabled={loading}
+            disabled={upload.isPending}
             className="w-full p-2 border rounded-md font-mono text-sm min-h-[120px] focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <p className="text-xs text-gray-500 mt-1">{content.length} characters</p>
@@ -99,12 +88,12 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
               setContent('')
               setError(null)
             }}
-            disabled={loading}
+            disabled={upload.isPending}
           >
             Clear
           </Button>
-          <Button type="submit" disabled={loading || !title.trim() || !content.trim()}>
-            {loading ? 'Uploading...' : 'Create Entry'}
+          <Button type="submit" disabled={upload.isPending || !title.trim() || !content.trim()}>
+            {upload.isPending ? 'Uploading...' : 'Create Entry'}
           </Button>
         </div>
       </form>

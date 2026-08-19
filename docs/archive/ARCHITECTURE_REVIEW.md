@@ -1,4 +1,6 @@
-# EAIStack Architecture Review
+# EAIStack Architecture Review (August 18, 2026)
+
+⚠️ **SUPERSEDED**: This review is dated August 18, 2026. Its headline recommendation (extract `generate_embedding` into a service) has since been implemented. See [ARCHITECTURE_REVIEW_2026-08-19.md](./ARCHITECTURE_REVIEW_2026-08-19.md) for the current review.
 
 **Review Date:** August 18, 2026  
 **Scope:** Clean Architecture & Clean Code principles compliance  
