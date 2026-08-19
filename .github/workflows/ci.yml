@@ -64,9 +64,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Clear npm cache (workaround for optional deps bug)
-        run: npm cache clean --force
-
       - name: Install frontend dependencies
         working-directory: ./frontend
         run: npm ci
