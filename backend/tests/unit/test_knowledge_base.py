@@ -4,6 +4,8 @@ import pytest
 from uuid import uuid4
 
 from app.db.models import KnowledgeBase, Embedding
+from app.core.auth import get_current_user
+from app.main import app
 
 
 @pytest.mark.unit
@@ -54,178 +56,248 @@ def test_knowledge_base_user_isolation(db_session):
 @pytest.mark.unit
 def test_create_knowledge_base_success(client, db_session):
     """Test: POST /api/knowledge-base creates KB + embedding."""
-    payload = {
-        "title": "My Document",
-        "content": "This is the document content",
-        "metadata": {"source": "test"},
-    }
+    fake_user = {"user_id": "test-user-123", "token": {}}
 
-    response = client.post("/api/knowledge-base", json=payload)
+    def override_get_current_user():
+        return fake_user
 
-    assert response.status_code == 201
-    data = response.json()
-    assert data["title"] == "My Document"
-    assert data["content"] == "This is the document content"
-    assert data["user_id"] == "test-user-123"
+    app.dependency_overrides[get_current_user] = override_get_current_user
 
-    # Verify KB was stored
-    kb = db_session.query(KnowledgeBase).filter_by(user_id="test-user-123").first()
-    assert kb is not None
+    try:
+        payload = {
+            "title": "My Document",
+            "content": "This is the document content",
+            "metadata": {"source": "test"},
+        }
 
-    # Verify embedding was created
-    emb = db_session.query(Embedding).filter_by(doc_id=kb.id).first()
-    assert emb is not None
-    assert len(emb.embedding) == 1536
+        response = client.post("/api/knowledge-base", json=payload)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["title"] == "My Document"
+        assert data["content"] == "This is the document content"
+        assert data["user_id"] == "test-user-123"
+
+        # Verify KB was stored
+        kb = db_session.query(KnowledgeBase).filter_by(user_id="test-user-123").first()
+        assert kb is not None
+
+        # Verify embedding was created
+        emb = db_session.query(Embedding).filter_by(doc_id=kb.id).first()
+        assert emb is not None
+        assert len(emb.embedding) == 1536
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.unit
 def test_list_knowledge_base_success(client, db_session):
     """Test: GET /api/knowledge-base lists user's entries."""
-    # Create test entries
-    kb1 = KnowledgeBase(
-        id=str(uuid4()),
-        user_id="test-user-123",
-        title="Doc 1",
-        content="Content 1",
-    )
-    kb2 = KnowledgeBase(
-        id=str(uuid4()),
-        user_id="test-user-123",
-        title="Doc 2",
-        content="Content 2",
-    )
-    db_session.add_all([kb1, kb2])
-    db_session.commit()
+    fake_user = {"user_id": "test-user-123", "token": {}}
 
-    response = client.get("/api/knowledge-base")
+    def override_get_current_user():
+        return fake_user
 
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 2
-    titles = {kb["title"] for kb in data}
-    assert titles == {"Doc 1", "Doc 2"}
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        # Create test entries
+        kb1 = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Doc 1",
+            content="Content 1",
+        )
+        kb2 = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Doc 2",
+            content="Content 2",
+        )
+        db_session.add_all([kb1, kb2])
+        db_session.commit()
+
+        response = client.get("/api/knowledge-base")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        titles = {kb["title"] for kb in data}
+        assert titles == {"Doc 1", "Doc 2"}
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.unit
 def test_get_knowledge_base_detail(client, db_session):
     """Test: GET /api/knowledge-base/{id} returns KB details."""
-    kb = KnowledgeBase(
-        id=str(uuid4()),
-        user_id="test-user-123",
-        title="Test Doc",
-        content="Test content",
-    )
-    db_session.add(kb)
-    db_session.commit()
+    fake_user = {"user_id": "test-user-123", "token": {}}
 
-    response = client.get(f"/api/knowledge-base/{kb.id}")
+    def override_get_current_user():
+        return fake_user
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["id"] == kb.id
-    assert data["title"] == "Test Doc"
-    assert data["content"] == "Test content"
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Test Doc",
+            content="Test content",
+        )
+        db_session.add(kb)
+        db_session.commit()
+
+        response = client.get(f"/api/knowledge-base/{kb.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == kb.id
+        assert data["title"] == "Test Doc"
+        assert data["content"] == "Test content"
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.unit
 def test_get_knowledge_base_not_found(client):
     """Test: GET /api/knowledge-base/{id} returns 404 for missing KB."""
-    response = client.get(f"/api/knowledge-base/{uuid4()}")
-    assert response.status_code == 404
+    fake_user = {"user_id": "test-user-123", "token": {}}
+
+    def override_get_current_user():
+        return fake_user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        response = client.get(f"/api/knowledge-base/{uuid4()}")
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.unit
 def test_update_knowledge_base_success(client, db_session):
     """Test: PUT /api/knowledge-base/{id} updates KB and regenerates embedding."""
-    kb = KnowledgeBase(
-        id=str(uuid4()),
-        user_id="test-user-123",
-        title="Old Title",
-        content="Old content",
-    )
-    db_session.add(kb)
-    db_session.commit()
+    fake_user = {"user_id": "test-user-123", "token": {}}
 
-    # Create embedding for original content
-    embedding = Embedding(
-        id=str(uuid4()),
-        doc_id=kb.id,
-        embedding=[0.1] * 1536,
-    )
-    db_session.add(embedding)
-    db_session.commit()
+    def override_get_current_user():
+        return fake_user
 
-    old_embedding = embedding.embedding[0]
+    app.dependency_overrides[get_current_user] = override_get_current_user
 
-    update_payload = {
-        "title": "New Title",
-        "content": "New content here",
-        "metadata": {},
-    }
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Old Title",
+            content="Old content",
+        )
+        db_session.add(kb)
+        db_session.commit()
 
-    response = client.put(f"/api/knowledge-base/{kb.id}", json=update_payload)
+        # Create embedding for original content
+        embedding = Embedding(
+            id=str(uuid4()),
+            doc_id=kb.id,
+            embedding=[0.1] * 1536,
+        )
+        db_session.add(embedding)
+        db_session.commit()
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["title"] == "New Title"
-    assert data["content"] == "New content here"
+        old_embedding = embedding.embedding[0]
 
-    # Verify embedding was regenerated
-    db_session.refresh(embedding)
-    assert embedding.embedding[0] != old_embedding  # Should be different for different content
+        update_payload = {
+            "title": "New Title",
+            "content": "New content here",
+            "metadata": {},
+        }
+
+        response = client.put(f"/api/knowledge-base/{kb.id}", json=update_payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "New Title"
+        assert data["content"] == "New content here"
+
+        # Verify embedding was regenerated
+        db_session.refresh(embedding)
+        assert embedding.embedding[0] != old_embedding  # Should be different for different content
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.unit
 def test_delete_knowledge_base_soft_delete(client, db_session):
     """Test: DELETE /api/knowledge-base/{id} soft-deletes KB and embeddings."""
-    kb = KnowledgeBase(
-        id=str(uuid4()),
-        user_id="test-user-123",
-        title="Test Doc",
-        content="Test content",
-    )
-    db_session.add(kb)
-    db_session.commit()
+    fake_user = {"user_id": "test-user-123", "token": {}}
 
-    # Create embedding
-    embedding = Embedding(
-        id=str(uuid4()),
-        doc_id=kb.id,
-        embedding=[0.1] * 1536,
-    )
-    db_session.add(embedding)
-    db_session.commit()
+    def override_get_current_user():
+        return fake_user
 
-    response = client.delete(f"/api/knowledge-base/{kb.id}")
+    app.dependency_overrides[get_current_user] = override_get_current_user
 
-    assert response.status_code == 204
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Test Doc",
+            content="Test content",
+        )
+        db_session.add(kb)
+        db_session.commit()
 
-    # Verify soft-delete
-    db_session.refresh(kb)
-    db_session.refresh(embedding)
-    assert kb.deleted_at is not None
-    assert embedding.deleted_at is not None
+        # Create embedding
+        embedding = Embedding(
+            id=str(uuid4()),
+            doc_id=kb.id,
+            embedding=[0.1] * 1536,
+        )
+        db_session.add(embedding)
+        db_session.commit()
+
+        response = client.delete(f"/api/knowledge-base/{kb.id}")
+
+        assert response.status_code == 204
+
+        # Verify soft-delete
+        db_session.refresh(kb)
+        db_session.refresh(embedding)
+        assert kb.deleted_at is not None
+        assert embedding.deleted_at is not None
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.unit
 def test_delete_excludes_from_list(client, db_session):
     """Test: Deleted KB doesn't appear in list."""
-    active_kb = KnowledgeBase(
-        id=str(uuid4()),
-        user_id="test-user-123",
-        title="Active",
-        content="Active content",
-    )
-    db_session.add(active_kb)
-    db_session.commit()
+    fake_user = {"user_id": "test-user-123", "token": {}}
 
-    # Delete one
-    client.delete(f"/api/knowledge-base/{active_kb.id}")
+    def override_get_current_user():
+        return fake_user
 
-    # List should be empty (or show nothing since we deleted the only one)
-    response = client.get("/api/knowledge-base")
-    data = response.json()
-    assert len(data) == 0
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        active_kb = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Active",
+            content="Active content",
+        )
+        db_session.add(active_kb)
+        db_session.commit()
+
+        # Delete one
+        client.delete(f"/api/knowledge-base/{active_kb.id}")
+
+        # List should be empty (or show nothing since we deleted the only one)
+        response = client.get("/api/knowledge-base")
+        data = response.json()
+        assert len(data) == 0
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.unit

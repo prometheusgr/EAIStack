@@ -21,6 +21,7 @@ async def test_audience_validation_with_real_jwt():
     import jwt
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
+    from jwt.utils import to_base64url_uint
 
     # Generate a test key pair
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -38,15 +39,16 @@ async def test_audience_validation_with_real_jwt():
 
     token = jwt.encode(token_data, private_key, algorithm="RS256", headers={"kid": "test-key"})
 
-    # Mock the JWKS endpoint
+    # Mock the JWKS endpoint with properly base64url-encoded values
+    public_numbers = public_key.public_numbers()
     mock_jwks = {
         "keys": [
             {
                 "kid": "test-key",
                 "kty": "RSA",
                 "use": "sig",
-                "n": public_key.public_numbers().n,
-                "e": public_key.public_numbers().e,
+                "n": to_base64url_uint(public_numbers.n).decode("utf-8"),
+                "e": to_base64url_uint(public_numbers.e).decode("utf-8"),
             }
         ]
     }
@@ -73,6 +75,7 @@ async def test_audience_validation_rejects_invalid_audience():
     """Token with invalid audience should be rejected."""
     import jwt
     from cryptography.hazmat.primitives.asymmetric import rsa
+    from jwt.utils import to_base64url_uint
 
     # Generate a test key pair
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -89,19 +92,15 @@ async def test_audience_validation_rejects_invalid_audience():
 
     token = jwt.encode(token_data, private_key, algorithm="RS256", headers={"kid": "test-key"})
 
-    # Mock the JWKS
-    from cryptography.hazmat.primitives import serialization as crypto_serialization
-
-    n = public_key.public_numbers().n
-    e = public_key.public_numbers().e
-
+    # Mock the JWKS with properly base64url-encoded values
+    public_numbers = public_key.public_numbers()
     mock_jwks = {
         "keys": [
             {
                 "kid": "test-key",
                 "kty": "RSA",
-                "n": n,
-                "e": e,
+                "n": to_base64url_uint(public_numbers.n).decode("utf-8"),
+                "e": to_base64url_uint(public_numbers.e).decode("utf-8"),
             }
         ]
     }
