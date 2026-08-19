@@ -1,0 +1,20 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Compiled build artifacts that can leak into the project root
+# when tsc is run without an explicit outDir (e.g. `tsc -b`).
+/vite.config.js
+/vite.config.d.ts
+*.tsbuildinfo
+
+# Editor/OS
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+
+# Test artifacts
+coverage/
+test-results/
+playwright-report/
