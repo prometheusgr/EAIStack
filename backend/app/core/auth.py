@@ -52,6 +52,12 @@ async def verify_token(credentials=Depends(security)) -> dict:
         logger.debug("Got %d keys from Keycloak", len(jwks.get("keys", [])))
 
         unverified_header = jwt.get_unverified_header(token)
+        if not isinstance(unverified_header, dict):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token header is invalid",
+            )
+
         kid = unverified_header.get("kid")
         logger.debug("Token kid: %s", kid)
 
