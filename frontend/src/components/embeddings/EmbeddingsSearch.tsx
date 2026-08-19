@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { FormEvent } from 'react'
 import { useEmbeddingsService } from '@/hooks/useEmbeddingsService'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,7 +10,7 @@ export function EmbeddingsSearch() {
   const [hasSearched, setHasSearched] = useState(false)
   const [results, setResults] = useState<typeof search.data>([])
 
-  async function handleSearch(e: React.FormEvent) {
+  async function handleSearch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!query.trim()) return
 
