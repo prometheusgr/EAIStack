@@ -10,6 +10,7 @@ from app.repositories import APIKeyRepository, EmbeddingRepository
 
 # === EMBEDDING REPOSITORY TESTS ===
 
+
 @pytest.mark.unit
 def test_embedding_repository_search_by_user(db_session):
     """Test: EmbeddingRepository.search_by_user returns active embeddings for user."""
@@ -264,6 +265,7 @@ def test_embedding_repository_search_similar(db_session):
 
 
 # === API KEY REPOSITORY TESTS ===
+
 
 @pytest.mark.unit
 def test_apikey_repository_get_by_user(db_session):

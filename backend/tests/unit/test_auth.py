@@ -18,8 +18,9 @@ async def test_verify_token_missing_kid():
 
     mock_jwks = {"keys": []}
 
-    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, \
-         patch("app.core.auth.get_keycloak_public_key", return_value=mock_jwks):
+    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, patch(
+        "app.core.auth.get_keycloak_public_key", return_value=mock_jwks
+    ):
         mock_get_header.return_value = {}
 
         with pytest.raises(HTTPException) as exc_info:
@@ -76,10 +77,11 @@ async def test_verify_token_rejects_invalid_audience():
     mock_key = AsyncMock()
     mock_jwks = {"keys": [{"kid": "test-key-id"}]}
 
-    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, \
-         patch("app.core.auth.jwt.PyJWK") as mock_pyjwk, \
-         patch("app.core.auth.jwt.decode") as mock_decode, \
-         patch("app.core.auth.get_keycloak_public_key", return_value=mock_jwks):
+    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, patch(
+        "app.core.auth.jwt.PyJWK"
+    ) as mock_pyjwk, patch("app.core.auth.jwt.decode") as mock_decode, patch(
+        "app.core.auth.get_keycloak_public_key", return_value=mock_jwks
+    ):
         mock_get_header.return_value = {"kid": "test-key-id"}
         mock_pyjwk.return_value = mock_key
 
@@ -115,10 +117,11 @@ async def test_verify_token_accepts_web_client_audience():
     mock_key = AsyncMock()
     mock_jwks = {"keys": [{"kid": "test-key-id"}]}
 
-    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, \
-         patch("app.core.auth.jwt.PyJWK") as mock_pyjwk, \
-         patch("app.core.auth.jwt.decode") as mock_decode, \
-         patch("app.core.auth.get_keycloak_public_key", return_value=mock_jwks):
+    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, patch(
+        "app.core.auth.jwt.PyJWK"
+    ) as mock_pyjwk, patch("app.core.auth.jwt.decode") as mock_decode, patch(
+        "app.core.auth.get_keycloak_public_key", return_value=mock_jwks
+    ):
         mock_get_header.return_value = {"kid": "test-key-id"}
         mock_pyjwk.return_value = mock_key
         mock_decode.return_value = {
@@ -145,10 +148,11 @@ async def test_verify_token_accepts_api_client_audience():
     mock_key = AsyncMock()
     mock_jwks = {"keys": [{"kid": "test-key-id"}]}
 
-    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, \
-         patch("app.core.auth.jwt.PyJWK") as mock_pyjwk, \
-         patch("app.core.auth.jwt.decode") as mock_decode, \
-         patch("app.core.auth.get_keycloak_public_key", return_value=mock_jwks):
+    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, patch(
+        "app.core.auth.jwt.PyJWK"
+    ) as mock_pyjwk, patch("app.core.auth.jwt.decode") as mock_decode, patch(
+        "app.core.auth.get_keycloak_public_key", return_value=mock_jwks
+    ):
         mock_get_header.return_value = {"kid": "test-key-id"}
         mock_pyjwk.return_value = mock_key
         mock_decode.return_value = {

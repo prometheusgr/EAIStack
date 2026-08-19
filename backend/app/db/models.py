@@ -18,6 +18,7 @@ def utc_now() -> datetime:
 
 class ProviderEnum(str, enum.Enum):
     """Supported API key providers."""
+
     openai = "openai"
     anthropic = "anthropic"
     huggingface = "huggingface"
@@ -26,12 +27,15 @@ class ProviderEnum(str, enum.Enum):
 
 class APIKey(Base):
     """API Key model for storing user credentials."""
+
     __tablename__ = "api_keys"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(255), nullable=False, index=True)
     name = Column(String(255), nullable=False)
-    provider = Column(String(50), nullable=False)  # Store as string: openai, anthropic, huggingface, custom
+    provider = Column(
+        String(50), nullable=False
+    )  # Store as string: openai, anthropic, huggingface, custom
     secret_value = Column(String(512), nullable=False)
     created_at = Column(DateTime, nullable=False, default=utc_now)
     updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)

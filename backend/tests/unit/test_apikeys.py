@@ -157,11 +157,7 @@ def test_apikey_request_schema_requires_fields(db_session):
         APIKeyCreate(provider="openai", secret_value="secret")  # Missing name
 
     # Valid creation should succeed
-    valid = APIKeyCreate(
-        name="Test",
-        provider="openai",
-        secret_value="sk-proj-secret"
-    )
+    valid = APIKeyCreate(name="Test", provider="openai", secret_value="sk-proj-secret")
     assert valid.name == "Test"
 
 

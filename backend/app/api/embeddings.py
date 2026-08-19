@@ -54,23 +54,25 @@ async def search_embeddings(
         # Create preview (first 150 chars of content)
         preview = kb.content[:150] + "..." if len(kb.content) > 150 else kb.content
 
-        results.append({
-            "id": emb.id,
-            "doc_id": kb.id,
-            "title": kb.title,
-            "content": kb.content,
-            "preview": preview,
-            "similarity_score": max(0, similarity),  # Clamp to 0 minimum
-            "created_at": emb.created_at.isoformat(),
-            "embed_metadata": emb.embed_metadata or {},
-            "doc_metadata": kb.doc_metadata or {},
-        })
+        results.append(
+            {
+                "id": emb.id,
+                "doc_id": kb.id,
+                "title": kb.title,
+                "content": kb.content,
+                "preview": preview,
+                "similarity_score": max(0, similarity),  # Clamp to 0 minimum
+                "created_at": emb.created_at.isoformat(),
+                "embed_metadata": emb.embed_metadata or {},
+                "doc_metadata": kb.doc_metadata or {},
+            }
+        )
 
     # Sort by similarity (descending)
     results.sort(key=lambda x: x["similarity_score"], reverse=True)
 
     # Return top_k results
-    top_results = results[:payload.top_k]
+    top_results = results[: payload.top_k]
     return SemanticSearchResponse(results=top_results, query_count=len(results))
 
 

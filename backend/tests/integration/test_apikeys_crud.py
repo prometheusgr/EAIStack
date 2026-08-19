@@ -42,6 +42,7 @@ def test_create_apikey_endpoint(client, db_session, mock_keycloak_token):
 
             # Verify it's actually in the database
             from app.db.models import APIKey
+
             key = db_session.query(APIKey).filter_by(user_id=user_id).first()
             assert key is not None
             assert key.name == "OpenAI API Key"
@@ -55,6 +56,7 @@ def test_list_apikeys_user_isolation(client, db_session, mock_keycloak_token):
 
     # Insert keys for both users
     from app.db.models import APIKey
+
     key_a = APIKey(
         id="key-a-1",
         user_id=user_a_id,
@@ -100,6 +102,7 @@ def test_get_apikey_detail_masked(client, db_session, mock_keycloak_token):
 
     # Insert a key
     from app.db.models import APIKey
+
     key = APIKey(
         id="key-test-1",
         user_id=user_id,
@@ -135,6 +138,7 @@ def test_update_apikey_name_only(client, db_session, mock_keycloak_token):
     user_id = mock_keycloak_token["sub"]
 
     from app.db.models import APIKey
+
     key = APIKey(
         id="key-update-1",
         user_id=user_id,
@@ -175,6 +179,7 @@ def test_revoke_apikey_endpoint(client, db_session, mock_keycloak_token):
     user_id = mock_keycloak_token["sub"]
 
     from app.db.models import APIKey
+
     key = APIKey(
         id="key-revoke-1",
         user_id=user_id,
@@ -215,6 +220,7 @@ def test_access_other_users_key_denied(client, db_session, mock_keycloak_token):
 
     # Create key for user A
     from app.db.models import APIKey
+
     key = APIKey(
         id="key-other-user",
         user_id=user_a_id,

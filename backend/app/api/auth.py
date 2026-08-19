@@ -52,9 +52,7 @@ async def exchange_token(request: TokenExchangeRequest):
     4. Returns new access token to frontend
     """
     try:
-        token_endpoint = (
-            f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/token"
-        )
+        token_endpoint = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/token"
 
         if request.grant_type == "authorization_code":
             if not request.code or not request.redirect_uri:

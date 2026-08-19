@@ -58,6 +58,7 @@ async def test_audience_validation_with_real_jwt():
         # Mock must be async since get_keycloak_public_key is async
         async def mock_async_get_key():
             return mock_jwks
+
         mock_get_key.side_effect = mock_async_get_key
 
         result = await verify_token(fake_credentials)
@@ -109,10 +110,13 @@ async def test_audience_validation_rejects_invalid_audience():
         # Mock must be async since get_keycloak_public_key is async
         async def mock_async_get_key():
             return mock_jwks
+
         mock_get_key.side_effect = mock_async_get_key
 
         with pytest.raises(HTTPException) as exc_info:
             await verify_token(fake_credentials)
 
         assert exc_info.value.status_code == 401
-        assert "Invalid audience" in exc_info.value.detail or "Invalid token" in exc_info.value.detail
+        assert (
+            "Invalid audience" in exc_info.value.detail or "Invalid token" in exc_info.value.detail
+        )

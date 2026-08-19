@@ -17,28 +17,30 @@ class APIKeyRepository:
 
     def get_by_user(self, user_id: str) -> list[APIKey]:
         """Fetch all active (non-revoked) API keys for a user."""
-        return self.db.query(APIKey).filter(
-            APIKey.user_id == user_id,
-            APIKey.revoked_at.is_(None),
-        ).all()
+        return (
+            self.db.query(APIKey)
+            .filter(
+                APIKey.user_id == user_id,
+                APIKey.revoked_at.is_(None),
+            )
+            .all()
+        )
 
     def get_by_id(self, api_key_id: str, user_id: str) -> APIKey | None:
         """Fetch a single API key by ID, verifying user ownership.
 
         Returns None if key not found or user doesn't own it.
         """
-        return self.db.query(APIKey).filter(
-            APIKey.id == api_key_id,
-            APIKey.user_id == user_id,
-        ).first()
+        return (
+            self.db.query(APIKey)
+            .filter(
+                APIKey.id == api_key_id,
+                APIKey.user_id == user_id,
+            )
+            .first()
+        )
 
-    def create(
-        self,
-        user_id: str,
-        name: str,
-        provider: str,
-        secret_value: str
-    ) -> APIKey:
+    def create(self, user_id: str, name: str, provider: str, secret_value: str) -> APIKey:
         """Create a new API key for the user.
 
         Returns the newly created APIKey with committed state.
@@ -60,9 +62,7 @@ class APIKeyRepository:
 
         Only non-revoked keys can be updated.
         """
-        key = self.db.query(APIKey).filter(
-            APIKey.id == api_key_id
-        ).first()
+        key = self.db.query(APIKey).filter(APIKey.id == api_key_id).first()
 
         if key and key.revoked_at is None:
             key.name = name
@@ -72,9 +72,7 @@ class APIKeyRepository:
 
     def revoke(self, api_key_id: str) -> None:
         """Soft-delete (revoke) an API key by setting revoked_at timestamp."""
-        key = self.db.query(APIKey).filter(
-            APIKey.id == api_key_id
-        ).first()
+        key = self.db.query(APIKey).filter(APIKey.id == api_key_id).first()
 
         if key:
             key.revoked_at = datetime.now(timezone.utc)

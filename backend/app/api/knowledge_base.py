@@ -70,10 +70,14 @@ async def list_knowledge_base(
     db: Session = Depends(get_db),
 ):
     """List all knowledge base entries for the current user."""
-    entries = db.query(KnowledgeBase).filter(
-        KnowledgeBase.user_id == user["user_id"],
-        KnowledgeBase.deleted_at.is_(None),
-    ).all()
+    entries = (
+        db.query(KnowledgeBase)
+        .filter(
+            KnowledgeBase.user_id == user["user_id"],
+            KnowledgeBase.deleted_at.is_(None),
+        )
+        .all()
+    )
 
     return [_to_response(kb) for kb in entries]
 
@@ -85,10 +89,14 @@ async def get_knowledge_base(
     db: Session = Depends(get_db),
 ):
     """Get a specific knowledge base entry."""
-    kb = db.query(KnowledgeBase).filter(
-        KnowledgeBase.id == kb_id,
-        KnowledgeBase.user_id == user["user_id"],
-    ).first()
+    kb = (
+        db.query(KnowledgeBase)
+        .filter(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.user_id == user["user_id"],
+        )
+        .first()
+    )
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base entry not found")
@@ -104,10 +112,14 @@ async def update_knowledge_base(
     db: Session = Depends(get_db),
 ):
     """Update a knowledge base entry and regenerate embedding."""
-    kb = db.query(KnowledgeBase).filter(
-        KnowledgeBase.id == kb_id,
-        KnowledgeBase.user_id == user["user_id"],
-    ).first()
+    kb = (
+        db.query(KnowledgeBase)
+        .filter(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.user_id == user["user_id"],
+        )
+        .first()
+    )
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base entry not found")
@@ -119,10 +131,14 @@ async def update_knowledge_base(
     db.commit()
 
     # Update embedding if content changed
-    embedding = db.query(Embedding).filter(
-        Embedding.doc_id == kb.id,
-        Embedding.deleted_at.is_(None),
-    ).first()
+    embedding = (
+        db.query(Embedding)
+        .filter(
+            Embedding.doc_id == kb.id,
+            Embedding.deleted_at.is_(None),
+        )
+        .first()
+    )
 
     if embedding:
         embedding.embedding = generate_embedding(payload.content)
@@ -140,10 +156,14 @@ async def delete_knowledge_base(
     db: Session = Depends(get_db),
 ):
     """Soft-delete a knowledge base entry and its embeddings."""
-    kb = db.query(KnowledgeBase).filter(
-        KnowledgeBase.id == kb_id,
-        KnowledgeBase.user_id == user["user_id"],
-    ).first()
+    kb = (
+        db.query(KnowledgeBase)
+        .filter(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.user_id == user["user_id"],
+        )
+        .first()
+    )
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base entry not found")
@@ -152,9 +172,13 @@ async def delete_knowledge_base(
     kb.deleted_at = datetime.now(timezone.utc)
 
     # Soft-delete associated embeddings
-    embeddings = db.query(Embedding).filter(
-        Embedding.doc_id == kb.id,
-    ).all()
+    embeddings = (
+        db.query(Embedding)
+        .filter(
+            Embedding.doc_id == kb.id,
+        )
+        .all()
+    )
     for emb in embeddings:
         emb.deleted_at = datetime.now(timezone.utc)
 

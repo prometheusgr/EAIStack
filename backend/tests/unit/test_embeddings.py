@@ -67,15 +67,19 @@ def test_embedding_user_isolation(db_session):
     db_session.add_all([emb_a, emb_b])
     db_session.commit()
 
-    user_a_embs = db_session.query(Embedding).join(
-        KnowledgeBase,
-        Embedding.doc_id == KnowledgeBase.id
-    ).filter(KnowledgeBase.user_id == "user-a").all()
+    user_a_embs = (
+        db_session.query(Embedding)
+        .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)
+        .filter(KnowledgeBase.user_id == "user-a")
+        .all()
+    )
 
-    user_b_embs = db_session.query(Embedding).join(
-        KnowledgeBase,
-        Embedding.doc_id == KnowledgeBase.id
-    ).filter(KnowledgeBase.user_id == "user-b").all()
+    user_b_embs = (
+        db_session.query(Embedding)
+        .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)
+        .filter(KnowledgeBase.user_id == "user-b")
+        .all()
+    )
 
     assert len(user_a_embs) == 1
     assert len(user_b_embs) == 1
@@ -110,10 +114,11 @@ def test_embedding_soft_delete_excludes_deleted(db_session):
     db_session.add_all([active_emb, deleted_emb])
     db_session.commit()
 
-    active_count = db_session.query(Embedding).filter(
-        Embedding.doc_id == kb.id,
-        Embedding.deleted_at.is_(None)
-    ).count()
+    active_count = (
+        db_session.query(Embedding)
+        .filter(Embedding.doc_id == kb.id, Embedding.deleted_at.is_(None))
+        .count()
+    )
 
     assert active_count == 1
 
