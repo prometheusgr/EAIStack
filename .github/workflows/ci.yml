@@ -68,7 +68,7 @@ jobs:
         working-directory: ./frontend
         run: |
           npm ci
-          npm rebuild
+          npm rebuild --verbose
 
       - name: Run frontend tests
         working-directory: ./frontend
