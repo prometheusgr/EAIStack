@@ -16,7 +16,10 @@ async def test_verify_token_missing_kid():
     fake_credentials = AsyncMock()
     fake_credentials.credentials = "fake.token.here"
 
-    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header:
+    mock_jwks = {"keys": []}
+
+    with patch("app.core.auth.jwt.get_unverified_header") as mock_get_header, \
+         patch("app.core.auth.get_keycloak_public_key", return_value=mock_jwks):
         mock_get_header.return_value = {}
 
         with pytest.raises(HTTPException) as exc_info:
