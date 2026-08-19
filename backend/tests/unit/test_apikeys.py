@@ -1,14 +1,12 @@
 """Unit tests for API Keys CRUD - TDD discipline."""
 
-import pytest
-from uuid import uuid4
 from datetime import datetime
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
-from app.db.models import APIKey, ProviderEnum
+import pytest
+
 from app.core.auth import get_current_user
+from app.db.models import APIKey, ProviderEnum
 from app.main import app
 
 
@@ -144,8 +142,9 @@ def test_apikey_schema_excludes_secret_value_on_response(db_session):
 @pytest.mark.unit
 def test_apikey_request_schema_requires_fields(db_session):
     """Test: APIKey request schema enforces required fields."""
-    from app.api.schemas import APIKeyCreate
     from pydantic import ValidationError
+
+    from app.api.schemas import APIKeyCreate
 
     # Missing required fields should fail
     with pytest.raises(ValidationError):

@@ -1,11 +1,12 @@
 """SQLAlchemy models for database schema."""
 
-from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Enum as SQLEnum, ForeignKey, JSON, Text
-from sqlalchemy.orm import declarative_base, relationship
-from pgvector.sqlalchemy import Vector
-import uuid
 import enum
+import uuid
+from datetime import datetime, timezone
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 

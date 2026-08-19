@@ -1,7 +1,8 @@
 """Integration tests for API Keys CRUD endpoints."""
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import AsyncMock, patch
 
 
 @pytest.mark.integration

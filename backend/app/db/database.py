@@ -1,7 +1,7 @@
 """Database initialization and session management."""
 
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, create_mock_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 

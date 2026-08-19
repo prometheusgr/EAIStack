@@ -1,10 +1,11 @@
 """Unit tests for Knowledge Base API - TDD discipline."""
 
-import pytest
 from uuid import uuid4
 
-from app.db.models import KnowledgeBase, Embedding
+import pytest
+
 from app.core.auth import get_current_user
+from app.db.models import Embedding, KnowledgeBase
 from app.main import app
 
 

@@ -1,6 +1,5 @@
 """Test JWT audience validation."""
 
-import json
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -8,7 +7,6 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.auth import verify_token
-from app.core.config import settings
 
 
 @pytest.mark.unit
@@ -19,7 +17,6 @@ async def test_audience_validation_with_real_jwt():
     This test creates a real JWT token and verifies the audience check.
     """
     import jwt
-    from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from jwt.utils import to_base64url_uint
 

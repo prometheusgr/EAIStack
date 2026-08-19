@@ -3,11 +3,9 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agents, auth, apikeys, embeddings, knowledge_base
+from app.api import agents, apikeys, auth, embeddings, knowledge_base
 from app.core.auth import get_current_user
 from app.core.config import settings
-from app.db.database import SessionLocal, engine
-from app.db.models import Base
 
 app = FastAPI(
     title="EAIStack Backend",

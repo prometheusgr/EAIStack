@@ -1,6 +1,7 @@
 """Authentication endpoints - handles OAuth2 code exchange."""
 
 import logging
+
 import httpx
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel

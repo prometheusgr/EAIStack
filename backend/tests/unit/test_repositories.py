@@ -1,12 +1,12 @@
 """Unit tests for Repository Pattern - TDD discipline."""
 
-import pytest
-from uuid import uuid4
 from datetime import datetime, timezone
+from uuid import uuid4
+
+import pytest
 
 from app.db.models import APIKey, Embedding, KnowledgeBase, ProviderEnum
-from app.repositories import EmbeddingRepository, APIKeyRepository
-
+from app.repositories import APIKeyRepository, EmbeddingRepository
 
 # === EMBEDDING REPOSITORY TESTS ===
 

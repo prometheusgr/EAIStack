@@ -1,18 +1,16 @@
-from logging.config import fileConfig
-import os
 import sys
+from logging.config import fileConfig
 from pathlib import Path
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 
 # Add app directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.db.models import Base
-from app.core.config import settings
+from app.core.config import settings  # noqa: E402
+from app.db.models import Base  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
