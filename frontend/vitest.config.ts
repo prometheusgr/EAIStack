@@ -14,5 +14,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './tests/setup.ts',
     exclude: ['node_modules', 'dist', 'tests/e2e/**/*.spec.ts'],
+    deps: {
+      inline: ['@radix-ui'],
+    },
   },
 })
