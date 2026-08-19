@@ -1,12 +1,12 @@
 """Unit tests for Embeddings API - TDD discipline."""
 
-import pytest
-from uuid import uuid4
 from datetime import datetime, timezone
-from sqlalchemy.orm import Session
+from uuid import uuid4
 
-from app.db.models import Embedding, KnowledgeBase
+import pytest
+
 from app.core.auth import get_current_user
+from app.db.models import Embedding, KnowledgeBase
 from app.main import app
 
 

@@ -2,13 +2,12 @@
 
 from typing import Generator
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 # Patch httpx.Client to work with Starlette TestClient
 # This is a workaround for Starlette/httpx version incompatibility
 import httpx
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 _original_httpx_init = httpx.Client.__init__
 
@@ -107,8 +106,9 @@ def client(db_session, test_db_url):
     Tests that require auth should verify they properly set up the override.
     """
     from starlette.testclient import TestClient
-    from app.main import app
+
     from app.db.database import get_db
+    from app.main import app
 
     def get_db_override():
         return db_session

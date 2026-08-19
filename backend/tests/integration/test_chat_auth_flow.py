@@ -21,8 +21,9 @@ async def test_complete_chat_flow_requires_valid_token():
     3. POST /api/agents/chat with invalid token should return 401
     """
     from starlette.testclient import TestClient
-    from app.main import app
+
     from app.core.auth import get_current_user
+    from app.main import app
 
     client = TestClient(app)
 

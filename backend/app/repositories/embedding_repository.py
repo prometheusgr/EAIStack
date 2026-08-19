@@ -1,6 +1,7 @@
 """Repository for Embedding data access."""
 
 from sqlalchemy.orm import Session
+
 from app.db.models import Embedding, KnowledgeBase
 
 

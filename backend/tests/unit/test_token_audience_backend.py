@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi import HTTPException
+
 from app.core.auth import extract_user_from_payload
 
 

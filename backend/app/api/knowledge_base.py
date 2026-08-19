@@ -1,14 +1,15 @@
 """API endpoints for Knowledge Base management."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from app.core.auth import get_current_user
-from app.db.models import KnowledgeBase, Embedding
-from app.db.database import get_db
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
 from app.api.schemas import KnowledgeBaseCreate, KnowledgeBaseResponse
+from app.core.auth import get_current_user
+from app.db.database import get_db
+from app.db.models import Embedding, KnowledgeBase
 from app.services import generate_embedding
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
