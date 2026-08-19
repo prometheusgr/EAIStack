@@ -100,27 +100,20 @@ def mock_llm():
 
 @pytest.fixture
 def client(db_session, test_db_url):
-    """Provide a test client for the app with DB dependency."""
+    """Provide a test client for the app with DB dependency.
+
+    NOTE: Auth is NOT overridden by default. Tests that require authentication
+    should manually override get_current_user in their test functions.
+    Tests that require auth should verify they properly set up the override.
+    """
     from starlette.testclient import TestClient
     from app.main import app
     from app.db.database import get_db
-    from app.core.auth import get_current_user
 
     def get_db_override():
         return db_session
 
-    mock_user = {
-        "user_id": "test-user-123",
-        "username": "testuser",
-        "email": "test@example.com",
-        "name": "Test User",
-    }
-
-    def get_current_user_override():
-        return mock_user
-
     app.dependency_overrides[get_db] = get_db_override
-    app.dependency_overrides[get_current_user] = get_current_user_override
 
     client = TestClient(app)
     yield client

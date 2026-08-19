@@ -58,7 +58,7 @@ async def verify_token(credentials=Depends(security)) -> dict:
         if not kid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token missing key ID",
+                detail="Token missing key ID (kid)",
             )
 
         key = None

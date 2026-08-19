@@ -1,12 +1,10 @@
 """TDD Tests for OAuth2 code exchange endpoint."""
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 from app.main import app
-
-client = TestClient(app)
 
 
 class TestTokenExchange:
@@ -18,8 +16,7 @@ class TestTokenExchange:
         # The endpoint should accept POST requests with code and redirect_uri
         assert app  # App is loaded
 
-    @pytest.mark.asyncio
-    async def test_exchange_code_for_token_success(self):
+    def test_exchange_code_for_token_success(self):
         """Test successful code exchange."""
         # Given: Keycloak returns a valid token response
         mock_token_response = {
@@ -31,15 +28,19 @@ class TestTokenExchange:
 
         # When: Frontend sends authorization code
         # Then: Backend exchanges it with Keycloak and returns token
-        with patch("app.api.auth.httpx.AsyncClient") as mock_client:
+        with patch("app.api.auth.httpx.AsyncClient") as mock_client_class:
             mock_response = AsyncMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = mock_token_response
+            mock_response.json = MagicMock(return_value=mock_token_response)
 
-            mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-                return_value=mock_response
-            )
+            mock_client_instance = AsyncMock()
+            mock_client_instance.post = AsyncMock(return_value=mock_response)
+            mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+            mock_client_instance.__aexit__ = AsyncMock(return_value=None)
 
+            mock_client_class.return_value = mock_client_instance
+
+            client = TestClient(app)
             response = client.post(
                 "/api/auth/token",
                 json={
@@ -59,6 +60,7 @@ class TestTokenExchange:
         """Test that missing code returns 422 validation error."""
         # When: Frontend doesn't send code
         # Then: Should get validation error
+        client = TestClient(app)
         response = client.post(
             "/api/auth/token",
             json={
@@ -74,6 +76,7 @@ class TestTokenExchange:
         """Test that missing redirect_uri returns 422 validation error."""
         # When: Frontend doesn't send redirect_uri
         # Then: Should get validation error
+        client = TestClient(app)
         response = client.post(
             "/api/auth/token",
             json={
@@ -88,7 +91,8 @@ class TestTokenExchange:
     def test_exchange_empty_code(self):
         """Test that empty code is rejected."""
         # When: Frontend sends empty code
-        # Then: Keycloak will reject it
+        # Then: Keycloak will reject it or Pydantic validates it
+        client = TestClient(app)
         response = client.post(
             "/api/auth/token",
             json={
@@ -97,10 +101,11 @@ class TestTokenExchange:
             },
         )
 
-        # Should validate (the test doesn't fail on empty string in Pydantic,
-        # but Keycloak will reject it when we try to exchange)
-        # Status depends on mock setup
-        assert response.status_code in [200, 401, 503]  # Depends on Keycloak response
+        # Empty code should be rejected by Pydantic or Keycloak
+        # Since code field allows empty strings in Pydantic, Keycloak will reject it
+        # We expect error from attempting to exchange empty code with Keycloak
+        # This could be 401 (Keycloak rejection) or connection error that becomes 503
+        assert response.status_code in [400, 401, 503]
 
 
 class TestTokenExchangeFlow:
