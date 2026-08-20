@@ -59,9 +59,10 @@ describe('knowledgeBaseClient', () => {
       try {
         await knowledgeBaseClient.delete('kb-1', mockToken, mockRefresh)
         expect.fail('Should have thrown')
-      } catch (error: any) {
-        expect(error.status).toBe(401)
-        expect(error.detail).toBe('Invalid credentials')
+      } catch (error: Error | unknown) {
+        const apiError = error as { status: number; detail: string }
+        expect(apiError.status).toBe(401)
+        expect(apiError.detail).toBe('Invalid credentials')
       }
     })
 
@@ -75,9 +76,10 @@ describe('knowledgeBaseClient', () => {
       try {
         await knowledgeBaseClient.create('Title', 'Content', mockToken, mockRefresh)
         expect.fail('Should have thrown')
-      } catch (error: any) {
-        expect(error.status).toBe(500)
-        expect(error.detail).toBe('Internal server error')
+      } catch (error: Error | unknown) {
+        const apiError = error as { status: number; detail: string }
+        expect(apiError.status).toBe(500)
+        expect(apiError.detail).toBe('Internal server error')
       }
     })
   })

@@ -251,9 +251,7 @@ describe('Chat Message Authentication - Integration Test', () => {
     it('should throw ApiError with detail message from backend on non-ok response', async () => {
       const { sendChatMessage } = await import('@/api/agentsClient')
 
-      let fetchCallCount = 0
       global.fetch = vi.fn(() => {
-        fetchCallCount++
         return Promise.resolve({
           status: 401,
           ok: false,
@@ -267,9 +265,10 @@ describe('Chat Message Authentication - Integration Test', () => {
       try {
         await sendChatMessage('test', undefined, 'invalid_token', mockRefresh)
         expect.fail('Should have thrown')
-      } catch (error: any) {
-        expect(error.message).toBe('Token has expired')
-        expect(error.status).toBe(401)
+      } catch (error: Error | unknown) {
+        const apiError = error as { message: string; status: number }
+        expect(apiError.message).toBe('Token has expired')
+        expect(apiError.status).toBe(401)
       }
     })
 
@@ -323,8 +322,9 @@ describe('Chat Message Authentication - Integration Test', () => {
       try {
         await sendChatMessage('test', undefined, 'token', mockRefresh)
         expect.fail('Should have thrown')
-      } catch (error: any) {
-        expect(error.message).toBe('Database connection failed')
+      } catch (error: Error | unknown) {
+        const apiError = error as { message: string }
+        expect(apiError.message).toBe('Database connection failed')
       }
     })
   })

@@ -56,7 +56,7 @@ const embeddingsClient: EmbeddingsClient = {
   },
 
   async deleteEmbedding(id: string, token: string, onRefresh: AuthRefresh): Promise<void> {
-    const response = await authorizedFetch(`/api/embeddings/${id}`, token, onRefresh, {
+    await authorizedFetch(`/api/embeddings/${id}`, token, onRefresh, {
       method: 'DELETE',
     })
   },
