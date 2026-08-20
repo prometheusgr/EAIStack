@@ -1,7 +1,7 @@
 # Architecture Improvement Opportunities
 
 **Generated:** August 18, 2026  
-**Based on:** Architecture Review (see `ARCHITECTURE_REVIEW.md`)
+**Based on:** Architecture Review (see `docs/archive/ARCHITECTURE_REVIEW.md` or current review in `ARCHITECTURE_REVIEW_2026-08-19.md`)
 
 ---
 
@@ -478,6 +478,7 @@ Use this checklist to track progress:
 
 ## Related Documents
 
-- `ARCHITECTURE_REVIEW.md` — Full architecture assessment
+- `ARCHITECTURE_REVIEW_2026-08-19.md` — Full architecture assessment (current)
+- `docs/archive/ARCHITECTURE_REVIEW.md` — Previous review (superseded, archived)
 - `AGENT_PROMPTS.md` — Copy/paste prompts for individual agents
 

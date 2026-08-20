@@ -248,39 +248,84 @@ describe('Chat Message Authentication - Integration Test', () => {
   })
 
   describe('Error Message Analysis', () => {
-    it('should have informative error message from agentsClient', () => {
-      const errorResponses = [
-        {
-          status: 401,
-          statusText: 'Unauthorized',
-          message: 'Chat request failed: Unauthorized',
-          cause: 'No valid auth token',
-        },
-        {
-          status: 403,
-          statusText: 'Forbidden',
-          message: 'Chat request failed: Forbidden',
-          cause: 'Token valid but insufficient permissions',
-        },
-        {
-          status: 500,
-          statusText: 'Internal Server Error',
-          message: 'Chat request failed: Internal Server Error',
-          cause: 'Backend error',
-        },
-      ]
+    it('should throw ApiError with detail message from backend on non-ok response', async () => {
+      const { sendChatMessage } = await import('@/api/agentsClient')
 
-      errorResponses.forEach((err) => {
-        expect(err.message).toContain('Chat request failed')
-        expect(err.message).toContain(err.statusText)
+      let fetchCallCount = 0
+      global.fetch = vi.fn(() => {
+        fetchCallCount++
+        return Promise.resolve({
+          status: 401,
+          ok: false,
+          statusText: 'Unauthorized',
+          json: async () => ({ detail: 'Token has expired' }),
+        } as Response)
       })
+
+      const mockRefresh = vi.fn(() => Promise.resolve(false))
+
+      try {
+        await sendChatMessage('test', undefined, 'invalid_token', mockRefresh)
+        expect.fail('Should have thrown')
+      } catch (error: any) {
+        expect(error.message).toBe('Token has expired')
+        expect(error.status).toBe(401)
+      }
     })
 
-    it('should show which endpoint returned error', () => {
-      const endpoint = '/api/agents/chat'
-      const error = `Failed to send message to ${endpoint}`
+    it('should retry on 401 with refreshed token', async () => {
+      const { sendChatMessage } = await import('@/api/agentsClient')
 
-      expect(error).toContain(endpoint)
+      let fetchCallCount = 0
+      global.fetch = vi.fn(() => {
+        fetchCallCount++
+        if (fetchCallCount === 1) {
+          return Promise.resolve({
+            status: 401,
+            ok: false,
+            json: async () => ({ detail: 'Unauthorized' }),
+          } as Response)
+        }
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          json: async () => ({
+            response: 'Agent response',
+            thread_id: 'thread-123',
+          }),
+        } as Response)
+      })
+
+      const mockRefresh = vi.fn(() => {
+        localStorage.setItem('access_token', 'refreshed_token')
+        return Promise.resolve(true)
+      })
+
+      const result = await sendChatMessage('test', undefined, 'original_token', mockRefresh)
+
+      expect(mockRefresh).toHaveBeenCalled()
+      expect(result.response).toBe('Agent response')
+    })
+
+    it('should include backend error detail in exception message', async () => {
+      const { sendChatMessage } = await import('@/api/agentsClient')
+
+      global.fetch = vi.fn(() =>
+        Promise.resolve({
+          status: 500,
+          ok: false,
+          json: async () => ({ detail: 'Database connection failed' }),
+        } as Response)
+      )
+
+      const mockRefresh = vi.fn(() => Promise.resolve(false))
+
+      try {
+        await sendChatMessage('test', undefined, 'token', mockRefresh)
+        expect.fail('Should have thrown')
+      } catch (error: any) {
+        expect(error.message).toBe('Database connection failed')
+      }
     })
   })
 })

@@ -26,6 +26,82 @@ This guide explains the authentication flow and how to debug login/token issues.
 
 ## Common Issues
 
+### Issue: After logout, clicking login doesn't require credentials
+
+**Symptoms:**
+- User logs in successfully
+- User clicks logout
+- Tokens are cleared from localStorage
+- User clicks login again
+- **Without** entering credentials, user is shown chat interface
+
+**Root Cause:**
+Keycloak's session cookie persists even after the logout endpoint is called. When the user clicks login again:
+1. Frontend redirects to Keycloak with `prompt=login` parameter
+2. Keycloak checks its session cookie
+3. If valid and without `prompt=login`, Keycloak auto-generates auth code (skips login form)
+4. Frontend exchanges code for token and shows chat
+5. User never entered credentials
+
+**Solution:**
+This is expected behavior if the `prompt=login` parameter was not being sent. The fix is to ensure login includes `prompt=login`:
+
+```typescript
+const login = () => {
+  const keycloakLoginUrl = new URL(`${baseUrl}/realms/eaistack/protocol/openid-connect/auth`)
+  // ... other params ...
+  keycloakLoginUrl.searchParams.set('prompt', 'login')  // ← CRITICAL
+  window.location.href = keycloakLoginUrl.href
+}
+```
+
+**What `prompt=login` does:**
+- Tells Keycloak to ignore existing session cookies
+- Forces login form display even if session exists
+- Requires fresh authentication every time
+
+**Verification in Browser:**
+1. Open DevTools → Network tab
+2. Click logout
+3. Click login
+4. Look for redirect to Keycloak
+5. URL should contain `prompt=login`
+6. Keycloak should show login form (not auto-login)
+
+---
+
+### Issue: Fresh instance shows "already logged in"
+
+**Symptoms:**
+- Fresh browser (no stored tokens)
+- Navigate to app homepage
+- User is shown chat interface (as if logged in)
+- Try to send message → "No auth token" error
+
+**Root Cause:**
+Keycloak's SSO behavior: When `keycloak.init()` runs, it checks for a valid Keycloak session cookie from prior browser sessions. If found, Keycloak returns `authenticated=true` even though the app has no stored token.
+
+**Solution:**
+Make localStorage the authoritative source of truth for authentication, independent of Keycloak's session cookie:
+
+```typescript
+const kcAuthenticated = await kc.init({ ... })
+const tokenFromStorage = localStorage.getItem('access_token')
+const appAuthenticated = !!tokenFromStorage || (kcAuthenticated && kc.token)
+setIsAuthenticated(appAuthenticated)
+```
+
+This ensures:
+- If token in localStorage → authenticated
+- OR if Keycloak says authenticated AND has token → authenticated
+- Otherwise → not authenticated
+
+**Result:**
+- Fresh instances always show login page (no stored token)
+- After logout, user sees login even if Keycloak session cookie exists
+
+---
+
 ### Issue: "invalid_user_credentials" error during login
 
 **Symptoms:**
@@ -125,6 +201,56 @@ This guide explains the authentication flow and how to debug login/token issues.
    docker exec backend curl -X POST http://localhost:8000/api/agents/chat
    # Should return 403 (missing auth header)
    ```
+
+## Debugging Logout Issues
+
+If logout isn't working (tokens not clearing, session not ending), use these diagnostic steps:
+
+### Step 1: Check Browser Console
+After clicking logout, open DevTools Console (F12 → Console) and verify logs:
+```
+[Auth] Logout called, keycloak: exists
+[Auth] Logged out, tokens cleared
+[Auth] Calling keycloak.logout() with redirectUri: http://localhost:3000/
+```
+
+**Check for:**
+- ✅ "keycloak: exists" — keycloak instance available
+- ✅ "Calling keycloak.logout()" — logout function executed
+- ❌ "keycloak: null" — instance was null, logout didn't run
+
+### Step 2: Check localStorage
+After logout, localStorage should be empty:
+```javascript
+// In browser console:
+localStorage.getItem('access_token')   // Should be null
+localStorage.getItem('token_type')     // Should be null
+localStorage.getItem('refresh_token')  // Should be null
+```
+
+### Step 3: Check Keycloak Session Cookie
+After logout, the Keycloak session should be cleared:
+```javascript
+// In browser console:
+document.cookie  // Should NOT contain "KEYCLOAK_SESSION"
+```
+
+If you still see `KEYCLOAK_SESSION`, the logout call didn't reach Keycloak's logout endpoint.
+
+### Step 4: Watch Network Tab
+1. Open Network tab (F12 → Network)
+2. Click logout
+3. Look for redirect requests (should see logout redirect)
+4. After logout, click login
+5. Should see redirect to Keycloak
+6. Keycloak should show login form
+
+### Step 5: Check Backend Logs
+```bash
+docker-compose logs backend | grep -i logout
+```
+
+---
 
 ## Testing
 

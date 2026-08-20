@@ -1,5 +1,32 @@
 export type AuthRefresh = () => Promise<boolean>
 
+export interface ApiError extends Error {
+  status: number
+  detail: string
+}
+
+export class ApiErrorImpl extends Error implements ApiError {
+  constructor(
+    public status: number,
+    public detail: string
+  ) {
+    super(detail)
+    this.name = 'ApiError'
+  }
+}
+
+async function parseErrorDetail(response: Response): Promise<string> {
+  try {
+    const data = await response.json()
+    if (data.detail) {
+      return data.detail
+    }
+  } catch {
+    // Response body isn't JSON; fall back to statusText.
+  }
+  return response.statusText
+}
+
 export async function authorizedFetch(
   url: string,
   token: string | null,
@@ -15,7 +42,7 @@ export async function authorizedFetch(
     Authorization: `Bearer ${token}`,
   } as Record<string, string>
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     ...options,
     headers,
   })
@@ -26,12 +53,17 @@ export async function authorizedFetch(
       const newToken = localStorage.getItem('access_token')
       if (newToken) {
         headers.Authorization = `Bearer ${newToken}`
-        return fetch(url, {
+        response = await fetch(url, {
           ...options,
           headers,
         })
       }
     }
+  }
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response)
+    throw new ApiErrorImpl(response.status, detail)
   }
 
   return response

@@ -16,6 +16,40 @@ EAIStack is a forkable template for building offline/air-gapped enterprise AI ap
 
 ## Key Architecture Decisions
 
+### Authentication & Token Management
+
+**Frontend auth state** is decoupled from Keycloak's session cookie. `localStorage` is the authoritative source of truth:
+
+```typescript
+const tokenFromStorage = localStorage.getItem('access_token')
+const appAuthenticated = !!tokenFromStorage || (kcAuthenticated && kc.token)
+setIsAuthenticated(appAuthenticated)
+```
+
+**Why this matters**:
+1. **Fresh instances show login**: Even if Keycloak has a cached session cookie, app requires explicit token in localStorage
+2. **Logout is decisive**: Clearing localStorage immediately unauthenticates, independent of Keycloak session state
+3. **Multiple users**: Each browser user has their own localStorage token
+4. **Resilience**: If Keycloak session dies, app still works (token persists)
+
+**Login flow** includes `prompt=login` in the OAuth2 authorization request to force Keycloak to show the login form and ignore existing session cookies:
+
+```typescript
+keycloakLoginUrl.searchParams.set('prompt', 'login')
+```
+
+**Token lifecycle**:
+1. User clicks login → redirected to Keycloak with `prompt=login`
+2. User enters credentials → Keycloak issues auth code
+3. Frontend exchanges code for token via backend `/api/auth/token`
+4. Token stored in localStorage + synced to keycloak.token instance
+5. Chat requests include token in `Authorization: Bearer <token>` header
+6. User logs out → localStorage cleared, app shows login page
+
+See [docs/AUTH_TROUBLESHOOTING.md](./AUTH_TROUBLESHOOTING.md) for debugging logout and fresh-instance issues.
+
+---
+
 ### Fully Air-Gapped
 
 No internet access at runtime. All dependencies (container images, Helm charts, models) are pre-fetched and mirrored into a private registry on the air-gapped network.
@@ -81,6 +115,14 @@ User (browser)
 7. **Phase 5**: Kubernetes + air-gap packaging + encryption
 
 See `/.claude/plans/indexed-tinkering-babbage.md` for detailed phase breakdown.
+
+## Known Inconsistencies
+
+### Frontend data-fetching: React Query vs. custom hooks
+
+`frontend/src/components/apikeys/APIKeys.tsx` (and `frontend/src/api/apiKeysClient.ts`) use `@tanstack/react-query` for data fetching and mutation state. Every other component uses the project's `useApiCall`/`useApiMutation` hooks (see [FRONTEND_ARCHITECTURE.md](./FRONTEND_ARCHITECTURE.md), "Frontend Custom Hooks for State & API Management"). This is the only place React Query is used in the codebase.
+
+This has not been unified: it's an open decision whether to adopt React Query project-wide (replacing `useApiCall`/`useApiMutation`) or migrate `APIKeys.tsx` to the custom-hook pattern for consistency. Until decided, treat React Query as scoped to the API keys feature only — don't introduce it elsewhere.
 
 ## Testing Standards
 

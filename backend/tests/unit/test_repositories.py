@@ -6,79 +6,9 @@ from uuid import uuid4
 import pytest
 
 from app.db.models import APIKey, Embedding, KnowledgeBase, ProviderEnum
-from app.repositories import APIKeyRepository, EmbeddingRepository
+from app.repositories import APIKeyRepository, EmbeddingRepository, KnowledgeBaseRepository
 
 # === EMBEDDING REPOSITORY TESTS ===
-
-
-@pytest.mark.unit
-def test_embedding_repository_search_by_user(db_session):
-    """Test: EmbeddingRepository.search_by_user returns active embeddings for user."""
-    # Setup: Create a KB and embeddings
-    kb = KnowledgeBase(
-        id=str(uuid4()),
-        user_id="user-a",
-        title="Test Doc",
-        content="Test content",
-    )
-    db_session.add(kb)
-    db_session.commit()
-
-    emb1 = Embedding(
-        id=str(uuid4()),
-        doc_id=kb.id,
-        embedding=[0.1] * 1536,
-    )
-    emb2 = Embedding(
-        id=str(uuid4()),
-        doc_id=kb.id,
-        embedding=[0.2] * 1536,
-    )
-    db_session.add_all([emb1, emb2])
-    db_session.commit()
-
-    # Execute
-    repo = EmbeddingRepository(db_session)
-    results = repo.search_by_user("user-a")
-
-    # Verify
-    assert len(results) == 2
-    assert all(e.doc_id == kb.id for e in results)
-
-
-@pytest.mark.unit
-def test_embedding_repository_search_by_user_filters_deleted(db_session):
-    """Test: EmbeddingRepository.search_by_user excludes soft-deleted embeddings."""
-    kb = KnowledgeBase(
-        id=str(uuid4()),
-        user_id="user-a",
-        title="Test Doc",
-        content="Test content",
-    )
-    db_session.add(kb)
-    db_session.commit()
-
-    active_emb = Embedding(
-        id=str(uuid4()),
-        doc_id=kb.id,
-        embedding=[0.1] * 1536,
-    )
-    deleted_emb = Embedding(
-        id=str(uuid4()),
-        doc_id=kb.id,
-        embedding=[0.2] * 1536,
-        deleted_at=datetime.now(timezone.utc),
-    )
-    db_session.add_all([active_emb, deleted_emb])
-    db_session.commit()
-
-    # Execute
-    repo = EmbeddingRepository(db_session)
-    results = repo.search_by_user("user-a")
-
-    # Verify
-    assert len(results) == 1
-    assert results[0].id == active_emb.id
 
 
 @pytest.mark.unit
@@ -254,7 +184,7 @@ def test_embedding_repository_search_similar(db_session):
 
     # Execute
     repo = EmbeddingRepository(db_session)
-    results = repo.search_similar("user-a", [0.1] * 1536)
+    results = repo.search_similar("user-a")
 
     # Verify
     assert len(results) == 2
@@ -262,6 +192,44 @@ def test_embedding_repository_search_similar(db_session):
     for emb, kb_result in results:
         assert kb_result.id == kb.id
         assert kb_result.title == "Test Doc"
+
+
+@pytest.mark.unit
+def test_embedding_repository_search_similar_filters_deleted(db_session):
+    """Test: EmbeddingRepository.search_similar excludes soft-deleted embeddings."""
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Test Doc",
+        content="Test content",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    active_emb = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.1] * 1536,
+    )
+    deleted_emb = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.2] * 1536,
+        deleted_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([active_emb, deleted_emb])
+    db_session.commit()
+
+    # Execute
+    repo = EmbeddingRepository(db_session)
+    results = repo.search_similar("user-a")
+
+    # Verify
+    assert len(results) == 1
+    emb, kb_result = results[0]
+    assert emb.id == active_emb.id
+    assert emb.deleted_at is None
+    assert kb_result.id == kb.id
 
 
 # === API KEY REPOSITORY TESTS ===
@@ -461,3 +429,198 @@ def test_apikey_repository_revoke(db_session):
     # Verify
     db_session.refresh(key)
     assert key.revoked_at is not None
+
+
+# === KNOWLEDGE BASE REPOSITORY TESTS ===
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_get_by_user(db_session):
+    """Test: KnowledgeBaseRepository.get_by_user returns active entries for user."""
+    kb1 = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Doc 1",
+        content="Content 1",
+    )
+    kb2 = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Doc 2",
+        content="Content 2",
+    )
+    db_session.add_all([kb1, kb2])
+    db_session.commit()
+
+    # Execute
+    repo = KnowledgeBaseRepository(db_session)
+    results = repo.get_by_user("user-a")
+
+    # Verify
+    assert len(results) == 2
+    assert all(kb.user_id == "user-a" for kb in results)
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_get_by_user_filters_deleted(db_session):
+    """Test: KnowledgeBaseRepository.get_by_user excludes soft-deleted entries."""
+    active_kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Active",
+        content="Active content",
+    )
+    deleted_kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Deleted",
+        content="Deleted content",
+        deleted_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([active_kb, deleted_kb])
+    db_session.commit()
+
+    # Execute
+    repo = KnowledgeBaseRepository(db_session)
+    results = repo.get_by_user("user-a")
+
+    # Verify
+    assert len(results) == 1
+    assert results[0].id == active_kb.id
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_get_by_id(db_session):
+    """Test: KnowledgeBaseRepository.get_by_id returns entry with ownership check."""
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Test Doc",
+        content="Test content",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    # Execute
+    repo = KnowledgeBaseRepository(db_session)
+    result = repo.get_by_id(kb.id, "user-a")
+
+    # Verify
+    assert result is not None
+    assert result.id == kb.id
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_get_by_id_wrong_user_returns_none(db_session):
+    """Test: KnowledgeBaseRepository.get_by_id returns None for wrong user."""
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Test Doc",
+        content="Test content",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    # Execute
+    repo = KnowledgeBaseRepository(db_session)
+    result = repo.get_by_id(kb.id, "user-b")
+
+    # Verify
+    assert result is None
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_get_by_id_soft_deleted_returns_none(db_session):
+    """Test: KnowledgeBaseRepository.get_by_id returns None for a soft-deleted entry."""
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Test Doc",
+        content="Test content",
+        deleted_at=datetime.now(timezone.utc),
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    # Execute
+    repo = KnowledgeBaseRepository(db_session)
+    result = repo.get_by_id(kb.id, "user-a")
+
+    # Verify
+    assert result is None
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_create(db_session):
+    """Test: KnowledgeBaseRepository.create persists and returns the entry."""
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="New Doc",
+        content="New content",
+    )
+
+    # Execute
+    repo = KnowledgeBaseRepository(db_session)
+    result = repo.create(kb)
+
+    # Verify
+    assert result.id == kb.id
+    retrieved = db_session.query(KnowledgeBase).filter_by(id=kb.id).first()
+    assert retrieved is not None
+    assert retrieved.title == "New Doc"
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_update(db_session):
+    """Test: KnowledgeBaseRepository.update modifies fields and commits."""
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Old Title",
+        content="Old content",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    # Execute
+    repo = KnowledgeBaseRepository(db_session)
+    repo.update(kb, "New Title", "New content", {"key": "value"})
+
+    # Verify
+    db_session.refresh(kb)
+    assert kb.title == "New Title"
+    assert kb.content == "New content"
+    assert kb.doc_metadata == {"key": "value"}
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_soft_delete_with_embeddings(db_session):
+    """Test: KnowledgeBaseRepository.soft_delete_with_embeddings deletes KB and its embeddings."""
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Test Doc",
+        content="Test content",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    emb = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.1] * 1536,
+    )
+    db_session.add(emb)
+    db_session.commit()
+
+    # Execute
+    repo = KnowledgeBaseRepository(db_session)
+    repo.soft_delete_with_embeddings(kb)
+
+    # Verify
+    db_session.refresh(kb)
+    db_session.refresh(emb)
+    assert kb.deleted_at is not None
+    assert emb.deleted_at is not None

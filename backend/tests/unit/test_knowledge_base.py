@@ -1,5 +1,6 @@
 """Unit tests for Knowledge Base API - TDD discipline."""
 
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -266,6 +267,96 @@ def test_delete_knowledge_base_soft_delete(client, db_session):
         db_session.refresh(embedding)
         assert kb.deleted_at is not None
         assert embedding.deleted_at is not None
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_get_knowledge_base_soft_deleted_returns_404(client, db_session):
+    """Test: GET /api/knowledge-base/{id} returns 404 for a soft-deleted entry."""
+    fake_user = {"user_id": "test-user-123", "token": {}}
+
+    def override_get_current_user():
+        return fake_user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Test Doc",
+            content="Test content",
+            deleted_at=datetime.now(timezone.utc),
+        )
+        db_session.add(kb)
+        db_session.commit()
+
+        response = client.get(f"/api/knowledge-base/{kb.id}")
+
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_update_knowledge_base_soft_deleted_returns_404(client, db_session):
+    """Test: PUT /api/knowledge-base/{id} returns 404 for a soft-deleted entry."""
+    fake_user = {"user_id": "test-user-123", "token": {}}
+
+    def override_get_current_user():
+        return fake_user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Test Doc",
+            content="Test content",
+            deleted_at=datetime.now(timezone.utc),
+        )
+        db_session.add(kb)
+        db_session.commit()
+
+        update_payload = {
+            "title": "New Title",
+            "content": "New content here",
+            "metadata": {},
+        }
+
+        response = client.put(f"/api/knowledge-base/{kb.id}", json=update_payload)
+
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_delete_knowledge_base_soft_deleted_returns_404(client, db_session):
+    """Test: DELETE /api/knowledge-base/{id} returns 404 for an already soft-deleted entry."""
+    fake_user = {"user_id": "test-user-123", "token": {}}
+
+    def override_get_current_user():
+        return fake_user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()),
+            user_id="test-user-123",
+            title="Test Doc",
+            content="Test content",
+            deleted_at=datetime.now(timezone.utc),
+        )
+        db_session.add(kb)
+        db_session.commit()
+
+        response = client.delete(f"/api/knowledge-base/{kb.id}")
+
+        assert response.status_code == 404
     finally:
         app.dependency_overrides.clear()
 

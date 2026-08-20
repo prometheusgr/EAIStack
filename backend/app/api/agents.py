@@ -1,6 +1,7 @@
 """Agent-related API endpoints."""
 
 import uuid
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends
 
@@ -10,11 +11,24 @@ from app.core.auth import get_current_user
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
-_agent = create_chat_agent()
+
+@lru_cache
+def get_chat_agent():
+    """Provide the compiled chat agent, built on first request.
+
+    Cached so the LangGraph graph (and any real LLM client it binds) is
+    constructed lazily rather than at module import time, and can be
+    overridden in tests via app.dependency_overrides.
+    """
+    return create_chat_agent()
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest, user: dict = Depends(get_current_user)) -> ChatResponse:
+async def chat(
+    request: ChatRequest,
+    user: dict = Depends(get_current_user),
+    agent=Depends(get_chat_agent),
+) -> ChatResponse:
     """Chat with the agent.
 
     Requires authentication via Keycloak bearer token.
@@ -29,6 +43,6 @@ async def chat(request: ChatRequest, user: dict = Depends(get_current_user)) -> 
         "response": None,
     }
 
-    result = _agent.invoke(state)
+    result = agent.invoke(state)
 
     return ChatResponse(response=result["response"], thread_id=result["thread_id"])

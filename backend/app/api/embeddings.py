@@ -43,7 +43,7 @@ async def search_embeddings(
     repo = EmbeddingRepository(db)
 
     # Get all user's embeddings with knowledge bases
-    embedding_kb_pairs = repo.search_similar(user["user_id"], query_embedding)
+    embedding_kb_pairs = repo.search_similar(user["user_id"])
 
     # Calculate similarity scores (dot product)
     results = []
@@ -83,14 +83,9 @@ async def list_embeddings(
 ):
     """List all embeddings for the current user."""
     repo = EmbeddingRepository(db)
-    embeddings = repo.search_by_user(user["user_id"])
+    embedding_kb_pairs = repo.search_similar(user["user_id"])
 
-    result = []
-    for embedding in embeddings:
-        kb = repo.get_knowledge_base_for_embedding(embedding.id)
-        result.append(_to_response(embedding, kb))
-
-    return result
+    return [_to_response(embedding, kb) for embedding, kb in embedding_kb_pairs]
 
 
 @router.get("/{embedding_id}", response_model=EmbeddingResponse)
@@ -126,6 +121,7 @@ async def update_embedding(
 
     if "metadata" in payload:
         repo.update_metadata(embedding_id, payload["metadata"])
+        db.commit()
         db.refresh(embedding)
 
     kb = repo.get_knowledge_base_for_embedding(embedding_id)
@@ -146,3 +142,4 @@ async def delete_embedding(
         raise HTTPException(status_code=404, detail="Embedding not found")
 
     repo.soft_delete(embedding_id)
+    db.commit()

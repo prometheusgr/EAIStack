@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { embeddingsClient } from '@/services/embeddingsClient'
-import type { EmbeddingResponse } from '@/types/embeddings'
+import { useEmbeddingsService } from '@/hooks/useEmbeddingsService'
 import { Button } from '@/components/ui/button'
 import { SimilarityScore } from './SimilarityScore'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,35 +11,28 @@ interface EmbeddingDetailProps {
 }
 
 export function EmbeddingDetail({ id, similarityScore, onBack }: EmbeddingDetailProps) {
-  const [embedding, setEmbedding] = useState<EmbeddingResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { getEmbedding, deleteDocument } = useEmbeddingsService(id)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
-    loadEmbedding()
+    getEmbedding.execute()
   }, [id])
 
-  async function loadEmbedding() {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const data = await embeddingsClient.getEmbedding(id)
-      setEmbedding(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load embedding')
-      setEmbedding(null)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const embedding = getEmbedding.data
+  const loading = getEmbedding.isLoading || (!embedding && !getEmbedding.error)
+  const error = getEmbedding.error?.message ?? null
 
   async function handleDelete() {
+    if (!window.confirm('This will delete the document and all its embeddings. Are you sure?')) {
+      return
+    }
     setDeleteError(null)
 
     try {
-      await embeddingsClient.deleteEmbedding(id)
+      if (!embedding) {
+        throw new Error('Embedding not loaded')
+      }
+      await deleteDocument.mutateAsync(embedding.doc_id)
       if (onBack) {
         onBack()
       }
@@ -154,7 +146,7 @@ export function EmbeddingDetail({ id, similarityScore, onBack }: EmbeddingDetail
 
       <div className="flex gap-2">
         <Button variant="destructive" onClick={handleDelete}>
-          Delete Embedding
+          Delete Document
         </Button>
       </div>
     </div>

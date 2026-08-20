@@ -43,7 +43,8 @@ class APIKeyRepository:
     def create(self, user_id: str, name: str, provider: str, secret_value: str) -> APIKey:
         """Create a new API key for the user.
 
-        Returns the newly created APIKey with committed state.
+        Flushes so the returned APIKey has its generated ID and defaults
+        populated. Does not commit; the caller owns the transaction.
         """
         key = APIKey(
             id=str(uuid4()),
@@ -53,14 +54,14 @@ class APIKeyRepository:
             secret_value=secret_value,
         )
         self.db.add(key)
-        self.db.commit()
-        self.db.refresh(key)
+        self.db.flush()
         return key
 
     def update(self, api_key_id: str, name: str, provider: str) -> None:
         """Update an API key's name and provider.
 
-        Only non-revoked keys can be updated.
+        Only non-revoked keys can be updated. Does not commit; the caller
+        owns the transaction.
         """
         key = self.db.query(APIKey).filter(APIKey.id == api_key_id).first()
 
@@ -68,12 +69,15 @@ class APIKeyRepository:
             key.name = name
             key.provider = provider
             key.updated_at = datetime.now(timezone.utc)
-            self.db.commit()
+            self.db.flush()
 
     def revoke(self, api_key_id: str) -> None:
-        """Soft-delete (revoke) an API key by setting revoked_at timestamp."""
+        """Soft-delete (revoke) an API key by setting revoked_at timestamp.
+
+        Does not commit; the caller owns the transaction.
+        """
         key = self.db.query(APIKey).filter(APIKey.id == api_key_id).first()
 
         if key:
             key.revoked_at = datetime.now(timezone.utc)
-            self.db.commit()
+            self.db.flush()

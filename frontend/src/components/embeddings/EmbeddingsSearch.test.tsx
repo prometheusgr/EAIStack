@@ -24,7 +24,7 @@ vi.mock('@/hooks/useEmbeddingsService', () => ({
       error: null,
       data: null,
     },
-    delete: {
+    deleteDocument: {
       mutateAsync: mockDelete,
       isPending: false,
       error: null,

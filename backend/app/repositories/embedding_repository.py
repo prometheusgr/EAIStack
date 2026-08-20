@@ -1,5 +1,7 @@
 """Repository for Embedding data access."""
 
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
 from app.db.models import Embedding, KnowledgeBase
@@ -12,46 +14,21 @@ class EmbeddingRepository:
         """Initialize with database session."""
         self.db = db
 
-    def search_by_user(self, user_id: str) -> list[Embedding]:
-        """Fetch all active embeddings for a user.
-
-        Returns embeddings that are not soft-deleted and belong to user's knowledge bases.
-        """
-        return (
-            self.db.query(Embedding)
-            .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)
-            .filter(
-                KnowledgeBase.user_id == user_id,
-                Embedding.deleted_at.is_(None),
-            )
-            .all()
-        )
-
-    def search_similar(
-        self, user_id: str, query_embedding: list[float]
-    ) -> list[tuple[Embedding, KnowledgeBase]]:
+    def search_similar(self, user_id: str) -> list[tuple[Embedding, KnowledgeBase]]:
         """Fetch all active embeddings for a user with their knowledge bases.
 
-        Returns tuples of (Embedding, KnowledgeBase) for similarity search processing.
-        Used for calculating similarity scores against a query embedding.
+        Returns tuples of (Embedding, KnowledgeBase) for similarity search or listing.
+        Similarity scoring is done at the endpoint level after fetching.
         """
-        embeddings = (
-            self.db.query(Embedding)
+        query = (
+            self.db.query(Embedding, KnowledgeBase)
             .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)
             .filter(
                 KnowledgeBase.user_id == user_id,
                 Embedding.deleted_at.is_(None),
             )
-            .all()
         )
-
-        results = []
-        for emb in embeddings:
-            kb = self.db.query(KnowledgeBase).filter(KnowledgeBase.id == emb.doc_id).first()
-            if kb:
-                results.append((emb, kb))
-
-        return results
+        return [(emb, kb) for emb, kb in query.all()]
 
     def get_by_id(self, embedding_id: str, user_id: str) -> Embedding | None:
         """Fetch a single embedding by ID, verifying user ownership.
@@ -78,22 +55,24 @@ class EmbeddingRepository:
         return self.db.query(KnowledgeBase).filter(KnowledgeBase.id == embedding.doc_id).first()
 
     def update_metadata(self, embedding_id: str, metadata: dict) -> None:
-        """Update embedding metadata and commit to database."""
-        from datetime import datetime, timezone
+        """Update embedding metadata.
 
+        Does not commit; the caller owns the transaction.
+        """
         embedding = self.db.query(Embedding).filter(Embedding.id == embedding_id).first()
 
         if embedding:
             embedding.embed_metadata = metadata
             embedding.updated_at = datetime.now(timezone.utc)
-            self.db.commit()
+            self.db.flush()
 
     def soft_delete(self, embedding_id: str) -> None:
-        """Soft-delete an embedding by setting deleted_at timestamp."""
-        from datetime import datetime, timezone
+        """Soft-delete an embedding by setting deleted_at timestamp.
 
+        Does not commit; the caller owns the transaction.
+        """
         embedding = self.db.query(Embedding).filter(Embedding.id == embedding_id).first()
 
         if embedding:
             embedding.deleted_at = datetime.now(timezone.utc)
-            self.db.commit()
+            self.db.flush()

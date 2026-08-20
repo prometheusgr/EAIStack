@@ -1,3 +1,5 @@
+import { authorizedFetch, type AuthRefresh } from './authorizedFetch'
+
 export interface KnowledgeBase {
   id: string
   user_id: string
@@ -8,25 +10,9 @@ export interface KnowledgeBase {
   updated_at: string
 }
 
-async function authorizedFetch(
-  url: string,
-  token: string,
-  options?: RequestInit
-): Promise<Response> {
-  const headers = {
-    ...options?.headers,
-    Authorization: `Bearer ${token}`,
-  } as Record<string, string>
-
-  return fetch(url, {
-    ...options,
-    headers,
-  })
-}
-
 export const knowledgeBaseClient = {
-  async create(title: string, content: string, token: string, metadata?: Record<string, unknown>): Promise<KnowledgeBase> {
-    const response = await authorizedFetch('/api/knowledge-base', token, {
+  async create(title: string, content: string, token: string, onRefresh: AuthRefresh, metadata?: Record<string, unknown>): Promise<KnowledgeBase> {
+    const response = await authorizedFetch('/api/knowledge-base', token, onRefresh, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -38,40 +24,28 @@ export const knowledgeBaseClient = {
       }),
     })
 
-    if (!response.ok) {
-      throw new Error(`Failed to create knowledge base: ${response.statusText}`)
-    }
-
     return response.json()
   },
 
-  async list(token: string): Promise<KnowledgeBase[]> {
-    const response = await authorizedFetch('/api/knowledge-base', token, {
+  async list(token: string, onRefresh: AuthRefresh): Promise<KnowledgeBase[]> {
+    const response = await authorizedFetch('/api/knowledge-base', token, onRefresh, {
       method: 'GET',
     })
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch knowledge base: ${response.statusText}`)
-    }
 
     const data = await response.json()
     return Array.isArray(data) ? data : []
   },
 
-  async get(id: string, token: string): Promise<KnowledgeBase> {
-    const response = await authorizedFetch(`/api/knowledge-base/${id}`, token, {
+  async get(id: string, token: string, onRefresh: AuthRefresh): Promise<KnowledgeBase> {
+    const response = await authorizedFetch(`/api/knowledge-base/${id}`, token, onRefresh, {
       method: 'GET',
     })
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch knowledge base: ${response.statusText}`)
-    }
 
     return response.json()
   },
 
-  async update(id: string, title: string, content: string, token: string, metadata?: Record<string, unknown>): Promise<KnowledgeBase> {
-    const response = await authorizedFetch(`/api/knowledge-base/${id}`, token, {
+  async update(id: string, title: string, content: string, token: string, onRefresh: AuthRefresh, metadata?: Record<string, unknown>): Promise<KnowledgeBase> {
+    const response = await authorizedFetch(`/api/knowledge-base/${id}`, token, onRefresh, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -83,20 +57,12 @@ export const knowledgeBaseClient = {
       }),
     })
 
-    if (!response.ok) {
-      throw new Error(`Failed to update knowledge base: ${response.statusText}`)
-    }
-
     return response.json()
   },
 
-  async delete(id: string, token: string): Promise<void> {
-    const response = await authorizedFetch(`/api/knowledge-base/${id}`, token, {
+  async delete(id: string, token: string, onRefresh: AuthRefresh): Promise<void> {
+    const response = await authorizedFetch(`/api/knowledge-base/${id}`, token, onRefresh, {
       method: 'DELETE',
     })
-
-    if (!response.ok) {
-      throw new Error(`Failed to delete knowledge base: ${response.statusText}`)
-    }
   },
 }

@@ -40,6 +40,8 @@ async def create_apikey(
         provider=payload.provider,
         secret_value=payload.secret_value,
     )
+    db.commit()
+    db.refresh(key)
     return _to_response(key)
 
 
@@ -87,6 +89,7 @@ async def update_apikey(
         raise HTTPException(status_code=410, detail="API key has been revoked")
 
     repo.update(key_id, payload.name, payload.provider)
+    db.commit()
     db.refresh(key)
     return _to_response(key)
 
@@ -105,5 +108,6 @@ async def revoke_apikey(
         raise HTTPException(status_code=404, detail="API key not found")
 
     repo.revoke(key_id)
+    db.commit()
     db.refresh(key)
     return _to_response(key)

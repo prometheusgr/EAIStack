@@ -14,7 +14,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 
 export function EmbeddingsList() {
-  const { list, delete: deleteEmbedding } = useEmbeddingsService()
+  const { list, deleteDocument } = useEmbeddingsService()
   const [deleting, setDeleting] = useState<string | null>(null)
   const [embeddings, setEmbeddings] = useState<EmbeddingResponse[]>([])
 
@@ -29,13 +29,13 @@ export function EmbeddingsList() {
   }, [list.data])
 
   async function handleDelete(docId: string, embeddingId: string) {
-    if (!window.confirm('Are you sure you want to delete this entry?')) {
+    if (!window.confirm('This will delete the document and all its embeddings. Are you sure?')) {
       return
     }
 
     setDeleting(embeddingId)
     try {
-      await deleteEmbedding.mutateAsync(docId)
+      await deleteDocument.mutateAsync(docId)
       setEmbeddings((prev) => prev.filter((e) => e.id !== embeddingId))
     } finally {
       setDeleting(null)
@@ -105,7 +105,7 @@ export function EmbeddingsList() {
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDelete(embedding.doc_id, embedding.id)}
-                    disabled={deleting === embedding.id || deleteEmbedding.isPending}
+                    disabled={deleting === embedding.id || deleteDocument.isPending}
                     className="text-red-600 hover:text-red-700 hover:bg-red-50"
                   >
                     {deleting === embedding.id ? 'Deleting...' : 'Delete'}
