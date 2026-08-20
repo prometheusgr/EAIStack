@@ -125,6 +125,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    env_file:
+      - path: .env.local
+        required: false
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/eaistack
     depends_on:
@@ -136,6 +139,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    env_file:
+      - path: .env.local
+        required: false
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/eaistack
       MINIO_URL: http://minio:9000
