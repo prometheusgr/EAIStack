@@ -26,7 +26,7 @@ def test_embedding_repository_get_by_id(db_session):
     emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
     )
     db_session.add(emb)
     db_session.commit()
@@ -55,7 +55,7 @@ def test_embedding_repository_get_by_id_wrong_user_returns_none(db_session):
     emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
     )
     db_session.add(emb)
     db_session.commit()
@@ -83,7 +83,7 @@ def test_embedding_repository_get_knowledge_base(db_session):
     emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
     )
     db_session.add(emb)
     db_session.commit()
@@ -113,7 +113,7 @@ def test_embedding_repository_update_metadata(db_session):
     emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
         embed_metadata={"old": "value"},
     )
     db_session.add(emb)
@@ -143,7 +143,7 @@ def test_embedding_repository_soft_delete(db_session):
     emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
     )
     db_session.add(emb)
     db_session.commit()
@@ -172,12 +172,12 @@ def test_embedding_repository_list_for_user(db_session):
     emb1 = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
     )
     emb2 = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.2] * 1536,
+        embedding=[0.2] * 768,
     )
     db_session.add_all([emb1, emb2])
     db_session.commit()
@@ -209,12 +209,12 @@ def test_embedding_repository_list_for_user_filters_deleted(db_session):
     active_emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
     )
     deleted_emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.2] * 1536,
+        embedding=[0.2] * 768,
         deleted_at=datetime.now(timezone.utc),
     )
     db_session.add_all([active_emb, deleted_emb])
@@ -610,7 +610,7 @@ def test_knowledge_base_repository_soft_delete_with_embeddings(db_session):
     emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
     )
     db_session.add(emb)
     db_session.commit()

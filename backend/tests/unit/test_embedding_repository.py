@@ -27,7 +27,7 @@ def _make_embedding(doc_id: str, vector: list[float]) -> Embedding:
     return Embedding(id=str(uuid4()), doc_id=doc_id, embedding=vector)
 
 
-def _unit_vector(dominant_index: int, dimensions: int = 1536) -> list[float]:
+def _unit_vector(dominant_index: int, dimensions: int = 768) -> list[float]:
     """A one-hot vector, so cosine distance between two of these is easy to reason about."""
     vector = [0.0] * dimensions
     vector[dominant_index] = 1.0

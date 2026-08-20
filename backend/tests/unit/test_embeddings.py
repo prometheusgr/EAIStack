@@ -25,14 +25,14 @@ def test_embedding_model_creation(db_session):
     embedding = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,  # Standard OpenAI embedding dimension
+        embedding=[0.1] * 768,  # nomic-embed-text-v1.5 dimension
     )
     db_session.add(embedding)
     db_session.commit()
 
     retrieved = db_session.query(Embedding).filter_by(doc_id=kb.id).first()
     assert retrieved is not None
-    assert len(retrieved.embedding) == 1536
+    assert len(retrieved.embedding) == 768
     assert retrieved.doc_id == kb.id
 
 
@@ -57,12 +57,12 @@ def test_embedding_user_isolation(db_session):
     emb_a = Embedding(
         id=str(uuid4()),
         doc_id=kb_a.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
     )
     emb_b = Embedding(
         id=str(uuid4()),
         doc_id=kb_b.id,
-        embedding=[0.2] * 1536,
+        embedding=[0.2] * 768,
     )
     db_session.add_all([emb_a, emb_b])
     db_session.commit()
@@ -102,13 +102,13 @@ def test_embedding_soft_delete_excludes_deleted(db_session):
     active_emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.1] * 1536,
+        embedding=[0.1] * 768,
         deleted_at=None,
     )
     deleted_emb = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=[0.2] * 1536,
+        embedding=[0.2] * 768,
         deleted_at=datetime.now(timezone.utc),
     )
     db_session.add_all([active_emb, deleted_emb])
@@ -146,12 +146,12 @@ def test_list_embeddings_success(client, db_session):
         emb1 = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.1] * 1536,
+            embedding=[0.1] * 768,
         )
         emb2 = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.2] * 1536,
+            embedding=[0.2] * 768,
         )
         db_session.add_all([emb1, emb2])
         db_session.commit()
@@ -209,7 +209,7 @@ def test_get_embedding_detail(client, db_session):
         emb = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.1] * 1536,
+            embedding=[0.1] * 768,
         )
         db_session.add(emb)
         db_session.commit()
@@ -266,7 +266,7 @@ def test_update_embedding_metadata(client, db_session):
         emb = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.1] * 1536,
+            embedding=[0.1] * 768,
             embed_metadata={"key": "old_value"},
         )
         db_session.add(emb)
@@ -307,7 +307,7 @@ def test_delete_embedding_soft_delete(client, db_session):
         emb = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.1] * 1536,
+            embedding=[0.1] * 768,
         )
         db_session.add(emb)
         db_session.commit()
@@ -346,12 +346,12 @@ def test_delete_embedding_excludes_from_list(client, db_session):
         active_emb = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.1] * 1536,
+            embedding=[0.1] * 768,
         )
         deleted_emb = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.2] * 1536,
+            embedding=[0.2] * 768,
             deleted_at=datetime.now(timezone.utc),
         )
         db_session.add_all([active_emb, deleted_emb])

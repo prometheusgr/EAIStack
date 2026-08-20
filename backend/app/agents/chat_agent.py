@@ -19,7 +19,7 @@ MAX_TOOL_CALL_ROUNDS = 5
 # stored in state, so it isn't duplicated across tool-call rounds.
 SYSTEM_PROMPT = SystemMessage(
     content=(
-        "You are a helpful assistant. When a tool returns results, use that "
+        "You are a helpful assistant. Be brief and direct. When a tool returns results, use that "
         "information directly to answer the user's question in plain language. "
         "Do not describe the tool call itself."
     )

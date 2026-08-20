@@ -87,7 +87,7 @@ def test_create_knowledge_base_success(client, db_session):
         # Verify embedding was created
         emb = db_session.query(Embedding).filter_by(doc_id=kb.id).first()
         assert emb is not None
-        assert len(emb.embedding) == 1536
+        assert len(emb.embedding) == 768
     finally:
         app.dependency_overrides.clear()
 
@@ -202,7 +202,7 @@ def test_update_knowledge_base_success(client, db_session):
         embedding = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.1] * 1536,
+            embedding=[0.1] * 768,
         )
         db_session.add(embedding)
         db_session.commit()
@@ -253,7 +253,7 @@ def test_delete_knowledge_base_soft_delete(client, db_session):
         embedding = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
-            embedding=[0.1] * 1536,
+            embedding=[0.1] * 768,
         )
         db_session.add(embedding)
         db_session.commit()
@@ -402,7 +402,7 @@ def test_mock_embedding_deterministic(db_session):
     emb2 = generate_embedding(text)
 
     assert emb1 == emb2
-    assert len(emb1) == 1536
+    assert len(emb1) == 768
 
 
 @pytest.mark.unit

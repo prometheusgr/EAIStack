@@ -85,7 +85,7 @@ class Embedding(Base):
         nullable=False,
         index=True,
     )
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
     embed_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(

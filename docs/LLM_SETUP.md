@@ -93,6 +93,7 @@ with `docker compose --profile llm up -d --force-recreate backend`.
 | Service | Host port | In-cluster address |
 |---|---|---|
 | `llama-server` | 8000 | `http://llama-server:8000` |
+| `embedding-server` | 8002 | `http://embedding-server:8000` |
 | `backend` | **8001** | `http://backend:8000` |
 | `keycloak` | 8080 | `http://keycloak:8080` |
 | `frontend` | 3000 | — |
@@ -216,14 +217,88 @@ reflects that content.
   `MAX_TOOL_CALL_ROUNDS` guard in `chat_agent.py` bounds the worst case, but this
   is a real behavior to be aware of, not a bug in the graph.
 
-### Retrieval quality caveat
+## Real embeddings (retrieval quality)
 
-Retrieval quality is limited by `generate_embedding` (`app/services/embedding_service.py`),
-which is a **deterministic mock** (seeded RNG over the query text), not a real
-embedding model — this is intentional for Phase 3a (keeps tests deterministic)
-and is a known Phase 4 item. If a live query returns weak or irrelevant matches,
-that's the mock embedding, not a tool-calling failure — the pgvector ranking and
-tool-call plumbing around it are real.
+By default `generate_embedding` (`app/services/embedding_service.py`) is a
+**deterministic mock** (seeded RNG over the query text) — real vectors, same
+provider-switch pattern as the chat LLM above (`embedding_provider` in
+`app/core/config.py`, defaulting to `"fake"`). Unit tests always use the fake
+path and are unaffected by everything in this section.
+
+### 1. Download an embedding model
+
+```bash
+curl -L --fail -o models/nomic-embed-text-v1.5.Q4_K_M.gguf \
+  "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
+```
+
+This is **nomic-embed-text-v1.5** at Q4_K_M quantization (~80 MB), Apache-2.0
+licensed. It was chosen over smaller sentence-embedding models (e.g.
+all-MiniLM-L6-v2) because knowledge-base entries are multi-paragraph
+documents, not short sentences: nomic-embed supports an 8192-token context
+(vs. MiniLM's 256) and was trained for passage-level retrieval, which matters
+more here than raw model size. Output dimension is **768**, matching the
+`embeddings.embedding` column (`vector(768)` — see
+`alembic/versions/002_embedding_dimension_768.py`).
+
+Nomic's training convention prefixes input text with a task instruction:
+`search_document: ` for text being indexed, `search_query: ` for search
+queries. `generate_embedding` does not add this prefix automatically —
+callers that care about retrieval quality should include it in the text they
+pass in.
+
+### 2. Configure the backend
+
+In `.env.local` (see `.env.local.example`):
+
+```bash
+EMBEDDING_PROVIDER=llama-cpp   # "fake" uses the mocked embedder
+EMBEDDING_URL=http://embedding-server:8000/v1
+EMBEDDING_MODEL=nomic-embed-text-v1.5.Q4_K_M.gguf
+```
+
+`EMBEDDING_URL` runs on a **separate llama-server instance/port** from the
+chat model (`embedding-server`, published on host port **8002**) — embedding
+and chat are different model weights, loaded by different processes.
+
+### 3. Start the stack
+
+```bash
+docker compose --profile llm up -d
+```
+
+`embedding-server` starts under the same `llm` profile as `llama-server`.
+Wait for readiness:
+
+```bash
+curl -f http://localhost:8002/health
+```
+
+### 4. Verify inference
+
+```bash
+curl -X POST http://localhost:8002/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model": "nomic-embed-text-v1.5.Q4_K_M.gguf",
+       "input": "search_document: The office serves pretzels on Fridays."}'
+```
+
+A response with a 768-element `data[0].embedding` array confirms the model is
+live. `tests/integration/test_embedding_client.py` covers this same check,
+plus a semantic-similarity sanity check, against a real running server.
+
+### Reverting to the mock
+
+```bash
+# In .env.local
+EMBEDDING_PROVIDER=fake
+```
+
+Then `docker compose up -d --force-recreate backend`. If a live query
+returns weak or irrelevant matches while `EMBEDDING_PROVIDER=fake`, that's
+expected — the mock has no semantic meaning. The pgvector ranking and
+tool-call plumbing around it (`embedding_repository.py`,
+`agents/tools.py`) are real regardless of which provider is active.
 
 ## Air-gapped deployment
 

@@ -87,6 +87,33 @@ services:
     profiles:
       - llm  # Only start with --profile llm flag
 
+  embedding-server:
+    # Requires a GGUF embedding model on the host at ./models/ before starting.
+    # See docs/LLM_SETUP.md for the download command. Runs as a separate
+    # llama-server instance/port from the chat model above, since embedding
+    # and chat are different model weights loaded by different processes.
+    image: ghcr.io/ggml-org/llama.cpp:server
+    ports:
+      # Published on 8002 for host access. The containerized backend reaches
+      # it as http://embedding-server:8000.
+      - "8002:8000"
+    volumes:
+      - ./models:/models:ro
+    command: >
+      -m /models/nomic-embed-text-v1.5.Q4_K_M.gguf
+      --host 0.0.0.0
+      --port 8000
+      --embedding
+      --ctx-size 8192
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    profiles:
+      - llm  # Only start with --profile llm flag
+
   # One-shot job: applies Alembic migrations, then exits. `backend` waits for
   # this to succeed before it starts, so the app schema always matches the
   # code it's running — no manual "did you remember to migrate?" step.
@@ -119,6 +146,11 @@ services:
       LLM_URL: ${LLM_URL:-http://llama-server:8000/v1}
       LLM_MODEL: ${LLM_MODEL:-Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
+      # Defaults to the mocked embedder. Override to "llama-cpp" (see
+      # docs/LLM_SETUP.md) to route embeddings through the embedding-server container.
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fake}
+      EMBEDDING_URL: ${EMBEDDING_URL:-http://embedding-server:8000/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text-v1.5.Q4_K_M.gguf}
     ports:
       - "8001:8000"
     depends_on:

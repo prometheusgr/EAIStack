@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     enable_streaming: bool = True
     llm_timeout: int = 120
 
+    # Embedding provider. Runs as a separate llama-server instance/port from
+    # the chat LLM above, since embedding and chat models are different
+    # weights loaded by different server processes.
+    embedding_provider: str = "fake"  # "fake" | "llama-cpp"
+    embedding_url: str = "http://localhost:8002/v1"
+    embedding_model: str = "nomic-embed-text-v1.5.Q4_K_M.gguf"
+    embedding_timeout: int = 60
+
     # Keycloak (OIDC)
     keycloak_url: str = "http://localhost:8080"
     keycloak_realm: str = "eaistack"
