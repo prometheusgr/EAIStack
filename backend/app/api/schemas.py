@@ -111,3 +111,49 @@ class KnowledgeBaseResponse(BaseModel):
     doc_metadata: Optional[dict] = None
     created_at: str
     updated_at: str
+
+
+class ProviderOption(BaseModel):
+    """One entry in a settings-screen provider dropdown."""
+
+    provider: str
+    url: str
+    label: str
+
+
+class SystemSettingsResponse(BaseModel):
+    """Response body for GET /api/settings.
+
+    Never includes llm_api_key: it stays env-only, never persisted to the
+    DB or returned over the API, so the settings screen can pick a
+    provider/url/model but never inject credentials.
+    """
+
+    llm_provider: str
+    llm_url: str
+    llm_model: str
+    llm_provider_is_db_override: bool
+    llm_url_is_db_override: bool
+    llm_model_is_db_override: bool
+    embedding_provider: str
+    embedding_url: str
+    embedding_model: str
+    embedding_provider_is_db_override: bool
+    embedding_url_is_db_override: bool
+    embedding_model_is_db_override: bool
+    available_providers: dict[str, list[ProviderOption]]
+
+
+class UpdateSettingsRequest(BaseModel):
+    """Request body for PUT /api/settings.
+
+    Any field omitted (or explicitly null) clears back to the env-var
+    default, matching the nullable-column semantics of SystemSettings.
+    """
+
+    llm_provider: Optional[str] = None
+    llm_url: Optional[str] = None
+    llm_model: Optional[str] = None
+    embedding_provider: Optional[str] = None
+    embedding_url: Optional[str] = None
+    embedding_model: Optional[str] = None

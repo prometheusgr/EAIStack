@@ -120,7 +120,9 @@ class SystemSettings(Base):
     embedding_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     embedding_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
     updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
 
     def __repr__(self):

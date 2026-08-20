@@ -74,7 +74,9 @@ def test_get_llm_client_invocable(db_session):
 
 @pytest.mark.unit
 @pytest.mark.parametrize("provider", ["llama-cpp", "openai-compatible"])
-def test_get_llm_client_returns_real_client_for_openai_providers(llm_provider, provider, db_session):
+def test_get_llm_client_returns_real_client_for_openai_providers(
+    llm_provider, provider, db_session
+):
     """Non-fake providers should build a ChatOpenAI client, not the fake model."""
     from langchain_openai import ChatOpenAI
 

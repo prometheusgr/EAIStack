@@ -19,7 +19,9 @@ def _seed_document(db_session, user_id: str, title: str, content: str) -> None:
     db_session.add(kb)
     db_session.commit()
 
-    embedding = Embedding(id=str(uuid4()), doc_id=kb.id, embedding=generate_embedding(db_session, content))
+    embedding = Embedding(
+        id=str(uuid4()), doc_id=kb.id, embedding=generate_embedding(db_session, content)
+    )
     db_session.add(embedding)
     db_session.commit()
 

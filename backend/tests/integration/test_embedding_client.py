@@ -46,9 +46,7 @@ def test_generate_embedding_similar_text_produces_similar_vectors(db_session):
     snack_policy = generate_embedding(
         db_session, "search_document: The office serves pretzels on Fridays."
     )
-    snack_query = generate_embedding(
-        db_session, "search_query: What snack is served on Fridays?"
-    )
+    snack_query = generate_embedding(db_session, "search_query: What snack is served on Fridays?")
     unrelated = generate_embedding(
         db_session, "search_document: The quarterly tax filing deadline is April 15."
     )

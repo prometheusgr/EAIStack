@@ -70,10 +70,11 @@ def get_llm_client(db: Session):
         return FakeChatModel()
     elif config.provider in ("llama-cpp", "openai-compatible"):
         from langchain_openai import ChatOpenAI
+        from pydantic import SecretStr
 
         return ChatOpenAI(
             base_url=config.url,
-            api_key=config.api_key or "not-needed",
+            api_key=SecretStr(config.api_key or "not-needed"),
             model=config.model,
             temperature=0.7,
             timeout=config.timeout,

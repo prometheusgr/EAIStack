@@ -90,7 +90,9 @@ def test_generate_embedding_llama_cpp_calls_embeddings_endpoint(
 
 
 @pytest.mark.unit
-def test_generate_embedding_llama_cpp_raises_on_http_error(embedding_provider, monkeypatch, db_session):
+def test_generate_embedding_llama_cpp_raises_on_http_error(
+    embedding_provider, monkeypatch, db_session
+):
     """An HTTP error from the embedding server should propagate, not be swallowed."""
     import httpx
 
