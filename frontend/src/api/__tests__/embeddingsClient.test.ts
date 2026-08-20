@@ -60,10 +60,11 @@ describe('embeddingsClient', () => {
       try {
         await embeddingsClient.getEmbedding('emb-1', mockToken, mockRefresh)
         expect.fail('Should have thrown')
-      } catch (error: any) {
-        expect(error.status).toBe(401)
-        expect(error.detail).toBe('Invalid credentials')
-        expect(error.message).toBe('Invalid credentials')
+      } catch (error: Error | unknown) {
+        const apiError = error as { status: number; detail: string; message: string }
+        expect(apiError.status).toBe(401)
+        expect(apiError.detail).toBe('Invalid credentials')
+        expect(apiError.message).toBe('Invalid credentials')
       }
     })
 
@@ -78,9 +79,10 @@ describe('embeddingsClient', () => {
       try {
         await embeddingsClient.semanticSearch('query', mockToken, mockRefresh, 10)
         expect.fail('Should have thrown')
-      } catch (error: any) {
-        expect(error.status).toBe(500)
-        expect(error.detail).toBe('Server error occurred')
+      } catch (error: Error | unknown) {
+        const apiError = error as { status: number; detail: string }
+        expect(apiError.status).toBe(500)
+        expect(apiError.detail).toBe('Server error occurred')
       }
     })
 
@@ -94,8 +96,9 @@ describe('embeddingsClient', () => {
       try {
         await embeddingsClient.listEmbeddings(mockToken, mockRefresh)
         expect.fail('Should have thrown')
-      } catch (error: any) {
-        expect(error.detail).toBe('Invalid query format')
+      } catch (error: Error | unknown) {
+        const apiError = error as { detail: string }
+        expect(apiError.detail).toBe('Invalid query format')
       }
     })
   })

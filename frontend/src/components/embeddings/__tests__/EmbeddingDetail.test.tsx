@@ -26,7 +26,7 @@ describe('EmbeddingDetail', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(useEmbeddingsService as any).mockReturnValue({
+    const mockService = {
       getEmbedding: {
         execute: vi.fn(),
         data: mockEmbedding,
@@ -34,7 +34,8 @@ describe('EmbeddingDetail', () => {
         error: null,
       },
       deleteDocument: mockDeleteDocumentMutation,
-    })
+    }
+    ;(useEmbeddingsService as unknown as ReturnType<typeof vi.fn>).mockReturnValue(mockService)
   })
 
   afterEach(() => {

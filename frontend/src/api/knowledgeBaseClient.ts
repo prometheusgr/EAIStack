@@ -61,7 +61,7 @@ export const knowledgeBaseClient = {
   },
 
   async delete(id: string, token: string, onRefresh: AuthRefresh): Promise<void> {
-    const response = await authorizedFetch(`/api/knowledge-base/${id}`, token, onRefresh, {
+    await authorizedFetch(`/api/knowledge-base/${id}`, token, onRefresh, {
       method: 'DELETE',
     })
   },
