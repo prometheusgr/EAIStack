@@ -2,19 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-white text-black;
-}
+@layer base {
+  body {
+    @apply bg-white text-black;
+  }
 
-.dark body {
-  @apply bg-slate-950 text-slate-50;
-}
+  :is(.dark body) {
+    @apply bg-slate-950 text-slate-50;
+  }
 
-a {
-  font-weight: 500;
-  text-decoration: inherit;
-}
+  a {
+    font-weight: 500;
+    text-decoration: inherit;
+  }
 
-a:hover {
-  opacity: 0.8;
+  a:hover {
+    opacity: 0.8;
+  }
 }
