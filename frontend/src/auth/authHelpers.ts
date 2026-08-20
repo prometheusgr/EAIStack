@@ -6,6 +6,7 @@ export interface AuthTokenPayload {
   exp: number
   aud?: string | string[]
   iss?: string
+  realm_access?: { roles: string[] }
 }
 
 export interface AuthUser {
