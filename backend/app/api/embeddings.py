@@ -4,7 +4,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.schemas import EmbeddingResponse, SemanticSearchRequest, SemanticSearchResponse
+from app.api.schemas import (
+    EmbeddingResponse,
+    SemanticSearchRequest,
+    SemanticSearchResponse,
+    SemanticSearchResult,
+)
 from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.db.models import Embedding, KnowledgeBase
@@ -46,7 +51,7 @@ async def search_embeddings(
     embedding_kb_pairs = repo.search_similar(user["user_id"])
 
     # Calculate similarity scores (dot product)
-    results = []
+    results: list[SemanticSearchResult] = []
     for emb, kb in embedding_kb_pairs:
         # Dot product similarity
         similarity = sum(a * b for a, b in zip(query_embedding, emb.embedding))
@@ -55,21 +60,21 @@ async def search_embeddings(
         preview = kb.content[:150] + "..." if len(kb.content) > 150 else kb.content
 
         results.append(
-            {
-                "id": emb.id,
-                "doc_id": kb.id,
-                "title": kb.title,
-                "content": kb.content,
-                "preview": preview,
-                "similarity_score": max(0, similarity),  # Clamp to 0 minimum
-                "created_at": emb.created_at.isoformat(),
-                "embed_metadata": emb.embed_metadata or {},
-                "doc_metadata": kb.doc_metadata or {},
-            }
+            SemanticSearchResult(
+                id=emb.id,
+                doc_id=kb.id,
+                title=kb.title,
+                content=kb.content,
+                preview=preview,
+                similarity_score=max(0, similarity),  # Clamp to 0 minimum
+                created_at=emb.created_at.isoformat(),
+                embed_metadata=emb.embed_metadata or {},
+                doc_metadata=kb.doc_metadata or {},
+            )
         )
 
     # Sort by similarity (descending)
-    results.sort(key=lambda x: x["similarity_score"], reverse=True)
+    results.sort(key=lambda result: result.similarity_score, reverse=True)
 
     # Return top_k results
     top_results = results[: payload.top_k]

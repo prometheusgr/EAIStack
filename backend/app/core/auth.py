@@ -2,6 +2,7 @@
 
 import logging
 import time
+from typing import Any
 
 import httpx
 import jwt
@@ -13,12 +14,12 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 security = HTTPBearer()
 
-_jwks_cache: dict | None = None
+_jwks_cache: dict[Any, Any] | None = None
 _jwks_cache_expiry: float = 0.0
 _JWKS_CACHE_TTL: int = 600  # 10 minutes
 
 
-async def get_keycloak_public_key() -> dict:
+async def get_keycloak_public_key() -> dict[Any, Any]:
     """Fetch Keycloak realm's public key with TTL caching."""
     global _jwks_cache, _jwks_cache_expiry
 
@@ -34,7 +35,7 @@ async def get_keycloak_public_key() -> dict:
     async with httpx.AsyncClient() as client:
         response = await client.get(jwks_url)
         response.raise_for_status()
-        jwks = response.json()
+        jwks: dict[Any, Any] = response.json()
 
     _jwks_cache = jwks
     _jwks_cache_expiry = current_time + _JWKS_CACHE_TTL

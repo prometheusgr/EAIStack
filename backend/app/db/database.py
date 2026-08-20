@@ -1,6 +1,6 @@
 """Database initialization and session management."""
 
-from sqlalchemy import create_engine, create_mock_engine
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
@@ -12,13 +12,12 @@ try:
     engine = create_engine(settings.database_url)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 except Exception:
-    # If DB connection fails at import time, create a dummy SessionLocal
-    # Tests will override this via dependency injection
-    def dump(sql, *multiparams, **params):
-        pass
-
-    engine = create_mock_engine(lambda: None, dump)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    # If DB connection fails at import time, create an unbound SessionLocal so
+    # import doesn't crash when no DB is reachable (e.g. running the test suite
+    # without a live Postgres). Sessions created from it raise only if actually
+    # used to run a query; production and tests both override get_db with a
+    # real, bound session before any query executes.
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False)
 
 
 def get_db():

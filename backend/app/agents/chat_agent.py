@@ -27,15 +27,22 @@ def call_agent(state: ChatState) -> ChatState:
 
 def call_tool(state: ChatState) -> ChatState:
     """Call a mocked tool based on the LLM response."""
+    # call_agent always runs before call_tool (see the graph edges in
+    # create_chat_agent) and unconditionally sets "response", so it is never
+    # None here. ChatState declares it Optional because that's its shape
+    # before call_agent runs, not because call_tool can observe a None value.
+    response = state["response"]
+    assert response is not None, "call_tool requires call_agent to have set a response first"
+
     # For now, a simple mocked tool that echoes information
-    if "time" in state["response"].lower():
+    if "time" in response.lower():
         tool_result = "The current time is 3:45 PM."
-    elif "date" in state["response"].lower():
+    elif "date" in response.lower():
         tool_result = "Today is December 15, 2024."
-    elif "weather" in state["response"].lower():
+    elif "weather" in response.lower():
         tool_result = "The weather is sunny and 72°F."
     else:
-        tool_result = f"Tool executed based on: {state['response'][:50]}"
+        tool_result = f"Tool executed based on: {response[:50]}"
 
     return {**state, "tool_result": tool_result}
 

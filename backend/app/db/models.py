@@ -5,10 +5,12 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Declarative base for all ORM models."""
 
 
 def utc_now() -> datetime:
@@ -30,16 +32,17 @@ class APIKey(Base):
 
     __tablename__ = "api_keys"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(255), nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    provider = Column(
-        String(50), nullable=False
-    )  # Store as string: openai, anthropic, huggingface, custom
-    secret_value = Column(String(512), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=utc_now)
-    updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
-    revoked_at = Column(DateTime, nullable=True, default=None)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Store as string: openai, anthropic, huggingface, custom
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    secret_value: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     def __repr__(self):
         return f"<APIKey(id={self.id}, name={self.name}, provider={self.provider}, user_id={self.user_id})>"
@@ -50,19 +53,19 @@ class KnowledgeBase(Base):
 
     __tablename__ = "knowledge_base"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(255), nullable=False, index=True)
-    title = Column(String(500), nullable=False)
-    content = Column(Text, nullable=False)
-    doc_metadata = Column(JSON, nullable=True, default={})
-    created_at = Column(DateTime, nullable=False, default=utc_now)
-    updated_at = Column(
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    doc_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True, default={})
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
     )
-    deleted_at = Column(DateTime, nullable=True, default=None)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     embeddings = relationship("Embedding", back_populates="knowledge_base")
 
@@ -75,23 +78,23 @@ class Embedding(Base):
 
     __tablename__ = "embeddings"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    doc_id = Column(
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    doc_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("knowledge_base.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    embedding = Column(Vector(1536), nullable=False)
-    embed_metadata = Column(JSON, nullable=True, default={})
-    created_at = Column(DateTime, nullable=False, default=utc_now)
-    updated_at = Column(
+    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    embed_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True, default={})
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
     )
-    deleted_at = Column(DateTime, nullable=True, default=None)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     knowledge_base = relationship("KnowledgeBase", back_populates="embeddings")
 
