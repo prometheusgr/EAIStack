@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 export function EmbeddingsSearch() {
-  const { search, delete: deleteEmbedding } = useEmbeddingsService()
+  const { search, deleteDocument } = useEmbeddingsService()
   const [query, setQuery] = useState('')
   const [hasSearched, setHasSearched] = useState(false)
   const [results, setResults] = useState<typeof search.data>([])
@@ -24,12 +24,12 @@ export function EmbeddingsSearch() {
   }
 
   async function handleDelete(docId: string, embeddingId: string) {
-    if (!window.confirm('Are you sure you want to delete this entry?')) {
+    if (!window.confirm('This will delete the document and all its embeddings. Are you sure?')) {
       return
     }
 
     try {
-      await deleteEmbedding.mutateAsync(docId)
+      await deleteDocument.mutateAsync(docId)
       setResults((prev) => prev?.filter((r) => r.id !== embeddingId) || [])
     } catch {
       // Error is handled by hook
@@ -91,10 +91,10 @@ export function EmbeddingsSearch() {
                 variant="ghost"
                 size="sm"
                 onClick={() => handleDelete(result.doc_id, result.id)}
-                disabled={deleteEmbedding.isPending}
+                disabled={deleteDocument.isPending}
                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
               >
-                {deleteEmbedding.isPending ? 'Deleting...' : 'Delete'}
+                {deleteDocument.isPending ? 'Deleting...' : 'Delete'}
               </Button>
             </div>
           </div>

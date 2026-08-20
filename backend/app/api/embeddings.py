@@ -43,7 +43,7 @@ async def search_embeddings(
     repo = EmbeddingRepository(db)
 
     # Get all user's embeddings with knowledge bases
-    embedding_kb_pairs = repo.search_similar(user["user_id"], query_embedding)
+    embedding_kb_pairs = repo.search_similar(user["user_id"])
 
     # Calculate similarity scores (dot product)
     results = []
@@ -83,7 +83,7 @@ async def list_embeddings(
 ):
     """List all embeddings for the current user."""
     repo = EmbeddingRepository(db)
-    embedding_kb_pairs = repo.search_by_user_with_knowledge_base(user["user_id"])
+    embedding_kb_pairs = repo.search_similar(user["user_id"])
 
     return [_to_response(embedding, kb) for embedding, kb in embedding_kb_pairs]
 

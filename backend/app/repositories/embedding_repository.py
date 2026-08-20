@@ -14,14 +14,11 @@ class EmbeddingRepository:
         """Initialize with database session."""
         self.db = db
 
-    def search_similar(
-        self, user_id: str, query_embedding: list[float] | None = None
-    ) -> list[tuple[Embedding, KnowledgeBase]]:
+    def search_similar(self, user_id: str) -> list[tuple[Embedding, KnowledgeBase]]:
         """Fetch all active embeddings for a user with their knowledge bases.
 
         Returns tuples of (Embedding, KnowledgeBase) for similarity search or listing.
-        The query_embedding parameter is unused by the repository and exists for
-        API-layer compatibility; similarity scoring is done at the endpoint level.
+        Similarity scoring is done at the endpoint level after fetching.
         """
         query = (
             self.db.query(Embedding, KnowledgeBase)
@@ -32,15 +29,6 @@ class EmbeddingRepository:
             )
         )
         return [(emb, kb) for emb, kb in query.all()]
-
-    def search_by_user_with_knowledge_base(
-        self, user_id: str
-    ) -> list[tuple[Embedding, KnowledgeBase]]:
-        """Fetch all active embeddings for a user along with their knowledge bases.
-
-        Alias for search_similar; delegates for backward compatibility.
-        """
-        return self.search_similar(user_id)
 
     def get_by_id(self, embedding_id: str, user_id: str) -> Embedding | None:
         """Fetch a single embedding by ID, verifying user ownership.

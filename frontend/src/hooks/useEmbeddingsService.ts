@@ -42,7 +42,7 @@ export function useEmbeddingsService(embeddingId?: string) {
     }
   )
 
-  const delete_ = useApiMutation<string, void>(
+  const deleteDocument = useApiMutation<string, void>(
     async (docId) => {
       if (!token) throw new Error('No auth token available')
       return knowledgeBaseClient.delete(docId, token, refreshAccessToken)
@@ -61,7 +61,7 @@ export function useEmbeddingsService(embeddingId?: string) {
     getEmbedding,
     search,
     upload,
-    delete: delete_,
+    deleteDocument,
     update,
   }
 }

@@ -19,7 +19,7 @@ describe('EmbeddingDetail', () => {
     deleted_at: null,
   }
 
-  const mockDeleteMutation = {
+  const mockDeleteDocumentMutation = {
     mutateAsync: vi.fn(),
     isPending: false,
   }
@@ -33,7 +33,7 @@ describe('EmbeddingDetail', () => {
         isLoading: false,
         error: null,
       },
-      delete: mockDeleteMutation,
+      deleteDocument: mockDeleteDocumentMutation,
     })
   })
 
@@ -42,58 +42,77 @@ describe('EmbeddingDetail', () => {
   })
 
   it('should call delete mutation with doc_id (knowledge base id), not embedding id', async () => {
-    mockDeleteMutation.mutateAsync.mockResolvedValue(undefined)
+    mockDeleteDocumentMutation.mutateAsync.mockResolvedValue(undefined)
     global.confirm = vi.fn(() => true)
 
     render(<EmbeddingDetail id={mockEmbedding.id} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Delete Embedding')).toBeInTheDocument()
+      expect(screen.getByText('Delete Document')).toBeInTheDocument()
     })
 
-    const deleteButton = screen.getByText('Delete Embedding')
+    const deleteButton = screen.getByText('Delete Document')
     fireEvent.click(deleteButton)
 
     await waitFor(() => {
       // The mutation should be called with doc_id (knowledge base id), not embedding id
-      expect(mockDeleteMutation.mutateAsync).toHaveBeenCalledWith(mockEmbedding.doc_id)
-      expect(mockDeleteMutation.mutateAsync).not.toHaveBeenCalledWith(mockEmbedding.id)
+      expect(mockDeleteDocumentMutation.mutateAsync).toHaveBeenCalledWith(mockEmbedding.doc_id)
+      expect(mockDeleteDocumentMutation.mutateAsync).not.toHaveBeenCalledWith(mockEmbedding.id)
     })
   })
 
-  it('should not delete if user cancels confirmation', async () => {
+  it('should display error message if document delete fails', async () => {
+    const errorMessage = 'Failed to delete document'
+    mockDeleteDocumentMutation.mutateAsync.mockRejectedValue(new Error(errorMessage))
+    global.confirm = vi.fn(() => true)
+
+    render(<EmbeddingDetail id={mockEmbedding.id} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Document')).toBeInTheDocument()
+    })
+
+    const deleteButton = screen.getByText('Delete Document')
+    fireEvent.click(deleteButton)
+
+    await waitFor(() => {
+      expect(screen.getByText(errorMessage)).toBeInTheDocument()
+    })
+  })
+
+  it('should call onBack callback after successful deletion', async () => {
+    mockDeleteDocumentMutation.mutateAsync.mockResolvedValue(undefined)
+    global.confirm = vi.fn(() => true)
+    const onBack = vi.fn()
+
+    render(<EmbeddingDetail id={mockEmbedding.id} onBack={onBack} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Document')).toBeInTheDocument()
+    })
+
+    const deleteButton = screen.getByText('Delete Document')
+    fireEvent.click(deleteButton)
+
+    await waitFor(() => {
+      expect(onBack).toHaveBeenCalled()
+    })
+  })
+
+  it('should not call delete mutation when user cancels confirmation', async () => {
     global.confirm = vi.fn(() => false)
 
     render(<EmbeddingDetail id={mockEmbedding.id} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Delete Embedding')).toBeInTheDocument()
+      expect(screen.getByText('Delete Document')).toBeInTheDocument()
     })
 
-    const deleteButton = screen.getByText('Delete Embedding')
+    const deleteButton = screen.getByText('Delete Document')
     fireEvent.click(deleteButton)
 
     await waitFor(() => {
-      expect(mockDeleteMutation.mutateAsync).not.toHaveBeenCalled()
-    })
-  })
-
-  it('should display error message if delete fails', async () => {
-    const errorMessage = 'Failed to delete embedding'
-    mockDeleteMutation.mutateAsync.mockRejectedValue(new Error(errorMessage))
-    global.confirm = vi.fn(() => true)
-
-    render(<EmbeddingDetail id={mockEmbedding.id} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Delete Embedding')).toBeInTheDocument()
-    })
-
-    const deleteButton = screen.getByText('Delete Embedding')
-    fireEvent.click(deleteButton)
-
-    await waitFor(() => {
-      expect(screen.getByText(errorMessage)).toBeInTheDocument()
+      expect(mockDeleteDocumentMutation.mutateAsync).not.toHaveBeenCalled()
     })
   })
 })

@@ -11,7 +11,7 @@ interface EmbeddingDetailProps {
 }
 
 export function EmbeddingDetail({ id, similarityScore, onBack }: EmbeddingDetailProps) {
-  const { getEmbedding, delete: deleteEmbedding } = useEmbeddingsService(id)
+  const { getEmbedding, deleteDocument } = useEmbeddingsService(id)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -23,13 +23,16 @@ export function EmbeddingDetail({ id, similarityScore, onBack }: EmbeddingDetail
   const error = getEmbedding.error?.message ?? null
 
   async function handleDelete() {
+    if (!window.confirm('This will delete the document and all its embeddings. Are you sure?')) {
+      return
+    }
     setDeleteError(null)
 
     try {
       if (!embedding) {
         throw new Error('Embedding not loaded')
       }
-      await deleteEmbedding.mutateAsync(embedding.doc_id)
+      await deleteDocument.mutateAsync(embedding.doc_id)
       if (onBack) {
         onBack()
       }
@@ -143,7 +146,7 @@ export function EmbeddingDetail({ id, similarityScore, onBack }: EmbeddingDetail
 
       <div className="flex gap-2">
         <Button variant="destructive" onClick={handleDelete}>
-          Delete Embedding
+          Delete Document
         </Button>
       </div>
     </div>

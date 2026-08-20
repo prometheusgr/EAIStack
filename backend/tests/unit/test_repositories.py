@@ -184,7 +184,7 @@ def test_embedding_repository_search_similar(db_session):
 
     # Execute
     repo = EmbeddingRepository(db_session)
-    results = repo.search_similar("user-a", [0.1] * 1536)
+    results = repo.search_similar("user-a")
 
     # Verify
     assert len(results) == 2
@@ -192,6 +192,44 @@ def test_embedding_repository_search_similar(db_session):
     for emb, kb_result in results:
         assert kb_result.id == kb.id
         assert kb_result.title == "Test Doc"
+
+
+@pytest.mark.unit
+def test_embedding_repository_search_similar_filters_deleted(db_session):
+    """Test: EmbeddingRepository.search_similar excludes soft-deleted embeddings."""
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-a",
+        title="Test Doc",
+        content="Test content",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    active_emb = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.1] * 1536,
+    )
+    deleted_emb = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.2] * 1536,
+        deleted_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([active_emb, deleted_emb])
+    db_session.commit()
+
+    # Execute
+    repo = EmbeddingRepository(db_session)
+    results = repo.search_similar("user-a")
+
+    # Verify
+    assert len(results) == 1
+    emb, kb_result = results[0]
+    assert emb.id == active_emb.id
+    assert emb.deleted_at is None
+    assert kb_result.id == kb.id
 
 
 # === API KEY REPOSITORY TESTS ===
