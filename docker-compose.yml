@@ -86,6 +86,24 @@ services:
     profiles:
       - llm  # Only start with --profile llm flag
 
+  # One-shot job: applies Alembic migrations, then exits. `backend` waits for
+  # this to succeed before it starts, so the app schema always matches the
+  # code it's running — no manual "did you remember to migrate?" step.
+  #
+  # This is a docker-compose stand-in for the Helm pre-upgrade hook Job that
+  # will do the same thing in the K3s deployment (Phase 5+): a Job that runs
+  # migrations to completion before the Deployment rolls out new pods.
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/eaistack
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic upgrade head
+
   backend:
     build:
       context: ./backend
@@ -109,6 +127,8 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_started
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
