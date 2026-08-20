@@ -24,7 +24,7 @@ def test_chat_agent_invoke_with_message(db_session, monkeypatch):
     """Agent should accept a user message and return a response, with no tool calls."""
     monkeypatch.setattr(
         "app.agents.chat_agent.get_llm_client",
-        lambda: FakeChatModel(response="4"),
+        lambda db: FakeChatModel(response="4"),
     )
     graph = create_chat_agent(db=db_session, user_id="test-user")
 
@@ -47,7 +47,7 @@ def test_chat_agent_invoke_passes_through_thread_id(db_session, monkeypatch):
     """Agent should pass through the thread_id unchanged."""
     monkeypatch.setattr(
         "app.agents.chat_agent.get_llm_client",
-        lambda: FakeChatModel(),
+        lambda db: FakeChatModel(),
     )
     graph = create_chat_agent(db=db_session, user_id="test-user")
 
@@ -67,7 +67,7 @@ def test_chat_agent_invoke_passes_through_thread_id(db_session, monkeypatch):
 def test_chat_agent_plain_response_skips_tool_node(db_session, monkeypatch):
     """A response with no tool_calls routes straight to END without invoking the tool."""
     fake_llm = FakeChatModel(response="No tool needed here.")
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda: fake_llm)
+    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
     graph = create_chat_agent(db=db_session, user_id="test-user")
 
     state = {
@@ -100,7 +100,7 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(db_session
     embedding = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=generate_embedding(kb.content),
+        embedding=generate_embedding(db_session, kb.content),
     )
     db_session.add(embedding)
     db_session.commit()
@@ -113,7 +113,7 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(db_session
     )
     final_message = AIMessage(content="You get 25 days of paid vacation per year.")
     fake_llm = FakeChatModel(responses=[tool_call_message, final_message])
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda: fake_llm)
+    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
 
     graph = create_chat_agent(db=db_session, user_id="test-user")
     state = {
@@ -148,7 +148,7 @@ def test_chat_agent_stops_after_max_tool_iterations(db_session, monkeypatch):
         ],
     )
     fake_llm = FakeChatModel(responses=[looping_tool_call])
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda: fake_llm)
+    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
 
     graph = create_chat_agent(db=db_session, user_id="test-user")
     state = {

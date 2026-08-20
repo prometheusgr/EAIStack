@@ -51,7 +51,7 @@ async def create_knowledge_base(
     )
 
     # Generate and store embedding
-    embedding_vector = generate_embedding(payload.content)
+    embedding_vector = generate_embedding(db, payload.content)
     embedding = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
@@ -120,7 +120,7 @@ async def update_knowledge_base(
     )
 
     if embedding:
-        embedding.embedding = generate_embedding(payload.content)
+        embedding.embedding = generate_embedding(db, payload.content)
         embedding.updated_at = datetime.now(timezone.utc)
 
     db.commit()

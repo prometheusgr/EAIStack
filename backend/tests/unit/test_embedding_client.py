@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.core.config import settings
+from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services.embedding_service import generate_embedding
 
 
@@ -25,39 +26,41 @@ def embedding_provider(monkeypatch):
 
 
 @pytest.mark.unit
-def test_generate_embedding_fake_provider_is_deterministic(embedding_provider):
+def test_generate_embedding_fake_provider_is_deterministic(embedding_provider, db_session):
     """The fake provider should return the same vector for the same text."""
     embedding_provider("fake")
 
-    first = generate_embedding("What snacks does the office serve?")
-    second = generate_embedding("What snacks does the office serve?")
+    first = generate_embedding(db_session, "What snacks does the office serve?")
+    second = generate_embedding(db_session, "What snacks does the office serve?")
 
     assert first == second
 
 
 @pytest.mark.unit
-def test_generate_embedding_fake_provider_differs_by_text(embedding_provider):
+def test_generate_embedding_fake_provider_differs_by_text(embedding_provider, db_session):
     """Different input text should produce different fake vectors."""
     embedding_provider("fake")
 
-    first = generate_embedding("alpha")
-    second = generate_embedding("beta")
+    first = generate_embedding(db_session, "alpha")
+    second = generate_embedding(db_session, "beta")
 
     assert first != second
 
 
 @pytest.mark.unit
-def test_generate_embedding_fake_provider_dimension(embedding_provider):
+def test_generate_embedding_fake_provider_dimension(embedding_provider, db_session):
     """The fake provider's output dimension must match the pgvector column (768)."""
     embedding_provider("fake")
 
-    result = generate_embedding("some text")
+    result = generate_embedding(db_session, "some text")
 
     assert len(result) == 768
 
 
 @pytest.mark.unit
-def test_generate_embedding_llama_cpp_calls_embeddings_endpoint(embedding_provider, monkeypatch):
+def test_generate_embedding_llama_cpp_calls_embeddings_endpoint(
+    embedding_provider, monkeypatch, db_session
+):
     """The llama-cpp provider should POST to {embedding_url}/embeddings with the text."""
     embedding_provider("llama-cpp")
     monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
@@ -76,7 +79,7 @@ def test_generate_embedding_llama_cpp_calls_embeddings_endpoint(embedding_provid
         mock_client_instance.__exit__ = MagicMock(return_value=None)
         mock_client_class.return_value = mock_client_instance
 
-        result = generate_embedding("search_document: office snack policy")
+        result = generate_embedding(db_session, "search_document: office snack policy")
 
         assert result == fake_vector
         mock_client_instance.post.assert_called_once()
@@ -87,7 +90,7 @@ def test_generate_embedding_llama_cpp_calls_embeddings_endpoint(embedding_provid
 
 
 @pytest.mark.unit
-def test_generate_embedding_llama_cpp_raises_on_http_error(embedding_provider, monkeypatch):
+def test_generate_embedding_llama_cpp_raises_on_http_error(embedding_provider, monkeypatch, db_session):
     """An HTTP error from the embedding server should propagate, not be swallowed."""
     import httpx
 
@@ -110,13 +113,54 @@ def test_generate_embedding_llama_cpp_raises_on_http_error(embedding_provider, m
         mock_client_class.return_value = mock_client_instance
 
         with pytest.raises(httpx.HTTPStatusError):
-            generate_embedding("some text")
+            generate_embedding(db_session, "some text")
 
 
 @pytest.mark.unit
-def test_generate_embedding_rejects_unknown_provider(embedding_provider):
+def test_generate_embedding_rejects_unknown_provider(embedding_provider, db_session):
     """An unrecognized provider should fail loudly, naming the bad value."""
     embedding_provider("not-a-real-provider")
 
     with pytest.raises(ValueError, match="not-a-real-provider"):
-        generate_embedding("some text")
+        generate_embedding(db_session, "some text")
+
+
+@pytest.mark.unit
+def test_generate_embedding_uses_db_override_over_env_default(db_session, monkeypatch):
+    """A DB-stored provider override changes which embedding backend
+    generate_embedding() calls, without any change to settings.embedding_provider —
+    the DB row is read fresh on every call, matching the LLM client's behavior.
+    """
+    assert settings.embedding_provider == "fake"
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    SystemSettingsRepository(db_session).upsert(
+        llm_provider=None,
+        llm_url=None,
+        llm_model=None,
+        embedding_provider="llama-cpp",
+        embedding_url="http://embedding-server:8000/v1",
+        embedding_model="nomic-embed-text-v1.5.Q4_K_M.gguf",
+        updated_by="admin-1",
+    )
+    db_session.commit()
+
+    fake_vector = [0.02 * i for i in range(768)]
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(return_value={"data": [{"embedding": fake_vector, "index": 0}]})
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+        mock_client_instance = MagicMock()
+        mock_client_instance.post = MagicMock(return_value=mock_response)
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        result = generate_embedding(db_session, "search_document: office snack policy")
+
+        assert result == fake_vector
+        call_args = mock_client_instance.post.call_args
+        assert call_args.args[0] == "http://embedding-server:8000/v1/embeddings"

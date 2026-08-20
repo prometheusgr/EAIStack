@@ -12,21 +12,23 @@ from app.services.embedding_service import generate_embedding
 
 
 @pytest.mark.integration
-def test_generate_embedding_against_real_llama_server():
+def test_generate_embedding_against_real_llama_server(db_session):
     """A real embedding server should return a 768-dim vector for real text."""
     assert settings.embedding_provider == "llama-cpp", (
         "Set EMBEDDING_PROVIDER=llama-cpp to run this test against a real "
         "llama-server instance (see docs/LLM_SETUP.md)."
     )
 
-    result = generate_embedding("search_document: The office serves pretzels on Fridays.")
+    result = generate_embedding(
+        db_session, "search_document: The office serves pretzels on Fridays."
+    )
 
     assert len(result) == 768
     assert all(isinstance(value, float) for value in result)
 
 
 @pytest.mark.integration
-def test_generate_embedding_similar_text_produces_similar_vectors():
+def test_generate_embedding_similar_text_produces_similar_vectors(db_session):
     """A real embedding model should place semantically similar text closer
     together than unrelated text, unlike the fake hash-based provider.
     """
@@ -41,10 +43,14 @@ def test_generate_embedding_similar_text_produces_similar_vectors():
         norm_b = sum(y * y for y in b) ** 0.5
         return dot / (norm_a * norm_b)
 
-    snack_policy = generate_embedding("search_document: The office serves pretzels on Fridays.")
-    snack_query = generate_embedding("search_query: What snack is served on Fridays?")
+    snack_policy = generate_embedding(
+        db_session, "search_document: The office serves pretzels on Fridays."
+    )
+    snack_query = generate_embedding(
+        db_session, "search_query: What snack is served on Fridays?"
+    )
     unrelated = generate_embedding(
-        "search_document: The quarterly tax filing deadline is April 15."
+        db_session, "search_document: The quarterly tax filing deadline is April 15."
     )
 
     related_similarity = cosine_similarity(snack_policy, snack_query)
