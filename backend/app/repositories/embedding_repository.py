@@ -14,12 +14,33 @@ class EmbeddingRepository:
         """Initialize with database session."""
         self.db = db
 
-    def search_similar(self, user_id: str) -> list[tuple[Embedding, KnowledgeBase]]:
-        """Fetch all active embeddings for a user with their knowledge bases.
+    def search_similar(
+        self, user_id: str, query_embedding: list[float], top_k: int
+    ) -> list[tuple[Embedding, KnowledgeBase, float]]:
+        """Return the top_k most similar embeddings for a user, nearest first.
 
-        Returns tuples of (Embedding, KnowledgeBase) for similarity search or listing.
-        Similarity scoring is done at the endpoint level after fetching.
+        Ranking is done in Postgres via pgvector's cosine distance operator.
+        The third tuple element is the cosine distance (0 = identical,
+        2 = opposite); lower is more similar.
         """
+        query = (
+            self.db.query(
+                Embedding,
+                KnowledgeBase,
+                Embedding.embedding.cosine_distance(query_embedding).label("distance"),
+            )
+            .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)
+            .filter(
+                KnowledgeBase.user_id == user_id,
+                Embedding.deleted_at.is_(None),
+            )
+            .order_by("distance")
+            .limit(top_k)
+        )
+        return [(emb, kb, distance) for emb, kb, distance in query.all()]
+
+    def list_for_user(self, user_id: str) -> list[tuple[Embedding, KnowledgeBase]]:
+        """Fetch all active embeddings for a user with their knowledge bases."""
         query = (
             self.db.query(Embedding, KnowledgeBase)
             .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)

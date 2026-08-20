@@ -71,10 +71,11 @@ services:
     volumes:
       - ./models:/models:ro
     command: >
-      -m /models/mistral-7b-instruct-v0.2.Q4_K_M.gguf
+      -m /models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
       --host 0.0.0.0
       --port 8000
       --ctx-size 4096
+      --jinja
     healthcheck:
       # Model load takes ~30s on CPU; start_period keeps the container from
       # being reported unhealthy while weights are still being read.
@@ -116,7 +117,7 @@ services:
       # to route chat through the llama-server container.
       LLM_PROVIDER: ${LLM_PROVIDER:-fake}
       LLM_URL: ${LLM_URL:-http://llama-server:8000/v1}
-      LLM_MODEL: ${LLM_MODEL:-mistral-7b-instruct-v0.2.Q4_K_M.gguf}
+      LLM_MODEL: ${LLM_MODEL:-Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
     ports:
       - "8001:8000"

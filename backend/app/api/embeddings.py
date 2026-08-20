@@ -42,21 +42,16 @@ async def search_embeddings(
     db: Session = Depends(get_db),
 ):
     """Perform semantic search using pgvector similarity."""
-    # Generate embedding for query
     query_embedding = generate_embedding(payload.query_text)
 
     repo = EmbeddingRepository(db)
+    matches = repo.search_similar(user["user_id"], query_embedding, payload.top_k)
 
-    # Get all user's embeddings with knowledge bases
-    embedding_kb_pairs = repo.search_similar(user["user_id"])
-
-    # Calculate similarity scores (dot product)
     results: list[SemanticSearchResult] = []
-    for emb, kb in embedding_kb_pairs:
-        # Dot product similarity
-        similarity = sum(a * b for a, b in zip(query_embedding, emb.embedding))
+    for emb, kb, distance in matches:
+        # Cosine distance is in [0, 2]; convert to a similarity score in [0, 1].
+        similarity = 1 - (distance / 2)
 
-        # Create preview (first 150 chars of content)
         preview = kb.content[:150] + "..." if len(kb.content) > 150 else kb.content
 
         results.append(
@@ -66,19 +61,14 @@ async def search_embeddings(
                 title=kb.title,
                 content=kb.content,
                 preview=preview,
-                similarity_score=max(0, similarity),  # Clamp to 0 minimum
+                similarity_score=similarity,
                 created_at=emb.created_at.isoformat(),
                 embed_metadata=emb.embed_metadata or {},
                 doc_metadata=kb.doc_metadata or {},
             )
         )
 
-    # Sort by similarity (descending)
-    results.sort(key=lambda result: result.similarity_score, reverse=True)
-
-    # Return top_k results
-    top_results = results[: payload.top_k]
-    return SemanticSearchResponse(results=top_results, query_count=len(results))
+    return SemanticSearchResponse(results=results, query_count=len(results))
 
 
 @router.get("", response_model=list[EmbeddingResponse])
@@ -88,7 +78,7 @@ async def list_embeddings(
 ):
     """List all embeddings for the current user."""
     repo = EmbeddingRepository(db)
-    embedding_kb_pairs = repo.search_similar(user["user_id"])
+    embedding_kb_pairs = repo.list_for_user(user["user_id"])
 
     return [_to_response(embedding, kb) for embedding, kb in embedding_kb_pairs]
 

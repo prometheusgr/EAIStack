@@ -1,6 +1,7 @@
 """Tests for the LLM client and FakeChatModel."""
 
 import pytest
+from langchain_core.messages import AIMessage
 
 from app.core.config import settings
 from app.core.llm_client import FakeChatModel, get_llm_client
@@ -24,10 +25,13 @@ def test_fake_chat_model_import():
 
 @pytest.mark.unit
 def test_fake_chat_model_invoke_returns_canned_response():
-    """FakeChatModel.invoke() should return the canned response string."""
+    """FakeChatModel.invoke() should return an AIMessage with the canned content,
+    matching ChatOpenAI's response shape so agent code can treat both identically.
+    """
     model = FakeChatModel(response="Test response")
     result = model.invoke("What is 2+2?")
-    assert result == "Test response"
+    assert isinstance(result, AIMessage)
+    assert result.content == "Test response"
 
 
 @pytest.mark.unit
@@ -35,7 +39,7 @@ def test_fake_chat_model_invoke_default_response():
     """FakeChatModel should have a default response."""
     model = FakeChatModel()
     result = model.invoke("Any prompt")
-    assert result == "This is a fake response from the mocked LLM."
+    assert result.content == "This is a fake response from the mocked LLM."
 
 
 @pytest.mark.unit
@@ -60,11 +64,11 @@ def test_get_llm_client_returns_fake_model():
 
 @pytest.mark.unit
 def test_get_llm_client_invocable():
-    """get_llm_client() result should be invocable."""
+    """get_llm_client() result should be invocable and return an AIMessage."""
     client = get_llm_client()
     result = client.invoke("Any prompt")
-    assert isinstance(result, str)
-    assert len(result) > 0
+    assert isinstance(result, AIMessage)
+    assert len(result.content) > 0
 
 
 @pytest.mark.unit

@@ -1,13 +1,21 @@
 """Pytest configuration and shared fixtures."""
 
+import os
 from typing import Generator
 
 # Patch httpx.Client to work with Starlette TestClient
 # This is a workaround for Starlette/httpx version incompatibility
 import httpx
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+
+# testcontainers 3.7.1 misdetects the Docker host as the literal string
+# "localnpipe" when the Docker daemon is reached over a Windows named pipe
+# (e.g. Docker Desktop/Rancher Desktop), because its scheme-sniffing treats
+# "http+docker" as an http(s) URL instead of a pipe URL. TC_HOST is
+# testcontainers' documented override for this exact detection step.
+os.environ.setdefault("TC_HOST", "localhost")
 
 _original_httpx_init = httpx.Client.__init__
 
@@ -35,7 +43,7 @@ def postgres_container() -> Generator:
         yield None
         return
 
-    container = PostgresContainer("pgvector/pgvector:0.5.1")
+    container = PostgresContainer("pgvector/pgvector:pg16")
     container.start()
     yield container
     container.stop()
@@ -53,7 +61,7 @@ def test_db_url(request, tmp_path) -> str:
         if not HAS_TESTCONTAINERS:
             pytest.skip("testcontainers not installed")
 
-        container = PostgresContainer("pgvector/pgvector:0.5.1")
+        container = PostgresContainer("pgvector/pgvector:pg16")
         container.start()
         url = container.get_connection_url()
         yield url
@@ -77,7 +85,7 @@ def db_session(test_db_url):
     # Create tables, handling PostgreSQL-specific types
     if "postgres" in test_db_url:
         with engine.connect() as conn:
-            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             conn.commit()
 
     Base.metadata.drop_all(engine)  # Clean up from previous tests

@@ -1,33 +1,24 @@
 """Agent-related API endpoints."""
 
 import uuid
-from functools import lru_cache
 
 from fastapi import APIRouter, Depends
+from langchain_core.messages import HumanMessage
+from sqlalchemy.orm import Session
 
 from app.agents.chat_agent import create_chat_agent
 from app.api.schemas import ChatRequest, ChatResponse
 from app.core.auth import get_current_user
+from app.db.database import get_db
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
-
-
-@lru_cache
-def get_chat_agent():
-    """Provide the compiled chat agent, built on first request.
-
-    Cached so the LangGraph graph (and any real LLM client it binds) is
-    constructed lazily rather than at module import time, and can be
-    overridden in tests via app.dependency_overrides.
-    """
-    return create_chat_agent()
 
 
 @router.post("/chat")
 async def chat(
     request: ChatRequest,
     user: dict = Depends(get_current_user),
-    agent=Depends(get_chat_agent),
+    db: Session = Depends(get_db),
 ) -> ChatResponse:
     """Chat with the agent.
 
@@ -36,13 +27,14 @@ async def chat(
     """
     thread_id = request.thread_id or str(uuid.uuid4())
 
+    agent = create_chat_agent(db=db, user_id=user["user_id"])
     state = {
-        "user_message": request.message,
+        "messages": [HumanMessage(content=request.message)],
         "thread_id": thread_id,
-        "tool_result": None,
-        "response": None,
+        "user_id": user["user_id"],
     }
 
     result = agent.invoke(state)
+    final_message = result["messages"][-1]
 
-    return ChatResponse(response=result["response"], thread_id=result["thread_id"])
+    return ChatResponse(response=final_message.content, thread_id=result["thread_id"])

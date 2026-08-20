@@ -367,9 +367,14 @@ def test_delete_embedding_excludes_from_list(client, db_session):
         app.dependency_overrides.clear()
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 def test_semantic_search_endpoint_exists(client):
-    """Test: POST /api/embeddings/search endpoint responds."""
+    """Test: POST /api/embeddings/search endpoint responds.
+
+    Marked integration: search_similar ranks results using pgvector's
+    cosine distance operator, which only real Postgres can execute (the
+    unit-test SQLite fallback cannot compile it).
+    """
     fake_user = {"user_id": "test-user-123", "token": {}}
 
     def override_get_current_user():
@@ -384,7 +389,7 @@ def test_semantic_search_endpoint_exists(client):
         }
         response = client.post("/api/embeddings/search", json=search_request)
 
-        # Should return 200 even if results are empty (placeholder implementation)
+        # Should return 200 even if results are empty
         assert response.status_code == 200
         data = response.json()
         assert "results" in data

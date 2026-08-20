@@ -22,13 +22,14 @@ From the repository root:
 
 ```bash
 mkdir -p models
-curl -L --fail -o models/mistral-7b-instruct-v0.2.Q4_K_M.gguf \
-  "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+curl -L --fail -o models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
+  "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
 ```
 
-This is Mistral 7B Instruct at Q4_K_M quantization (~4.1 GB) — a reasonable balance
-of quality and CPU speed. `models/` and `*.gguf` are gitignored; model weights are
-never committed.
+This is Meta Llama 3.1 8B Instruct at Q4_K_M quantization (~4.9 GB). It's the
+default because it has llama.cpp's *native* tool-calling template support — see
+[Tool-calling support](#tool-calling-support) below for why that matters and what
+else was tried.
 
 To use a different model, change the filename in **both** `docker-compose.yml`
 (the `-m` flag on `llama-server`) and `LLM_MODEL` in your `.env.local`. The two
@@ -72,7 +73,7 @@ Hit `llama-server` directly, bypassing the backend:
 ```bash
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "mistral-7b-instruct-v0.2.Q4_K_M.gguf",
+  -d '{"model": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
        "messages": [{"role": "user", "content": "What is the capital of France?"}]}'
 ```
 
@@ -133,6 +134,96 @@ memory footprint.
 
 **Responses are still the canned fake string.** `LLM_PROVIDER` is not reaching the
 backend process. Verify with the `docker compose exec` check in step 4.
+
+## Tool-calling support
+
+The chat agent (`app/agents/chat_agent.py`) binds a `search_knowledge_base` tool
+to the LLM via `bind_tools` and expects the model to emit `tool_calls`, not just
+prose. Not every GGUF chat template supports this, and llama.cpp needs the
+`--jinja` flag (already set in `docker-compose.yml`) to use a template's native
+tool-calling format at all. This was tested directly against `llama-server`,
+outside the test suite (which always uses `FakeChatModel` and never depends on
+this).
+
+### Models tested
+
+| Model | Native tool_calls via `--jinja`? | Notes |
+|---|---|---|
+| Mistral 7B Instruct v0.2 (Q4_K_M) | **No** | `bind_tools(...).invoke(...)` always returns `tool_calls: []`, even with `--jinja`. The v0.2 chat template has no tool-call syntax. The model instead answers in prose, confidently and plausibly, with no indication it should have deferred to a tool. This is the failure mode CLAUDE.md's "known rough edge" note refers to — it fails silently, not loudly. |
+| **Meta Llama 3.1 8B Instruct (Q4_K_M), `bartowski/Meta-Llama-3.1-8B-Instruct-GGUF`** | **Yes** | Current default. Emits real `tool_calls` out of the box with just `--jinja` — no `--chat-template-file` override needed, unlike Hermes-family models, which use an XML-tagged `<tool_call>` format that needs an external template file most quantizers don't bundle in the GGUF. |
+
+Hermes 2/3 Pro (also acceptable under the no-Chinese-origin constraint) was not
+downloaded or tested — Llama 3.1 8B Instruct's *native*, no-extra-file template
+support was preferred for a smaller air-gap vendoring footprint (one file, no
+companion Jinja template to also mirror into the offline model bundle).
+
+**Follow-up to try**: `Llama-3-Groq-8B-Tool-Use` (Groq/Meta-Llama-3-based,
+purpose-tuned for tool calling) — not yet evaluated, noted for a future pass.
+
+### What "working" looks like
+
+With Llama 3.1 8B Instruct, a question that can only be answered from a seeded
+knowledge-base document produces a message trace like:
+
+```
+HumanMessage:  "What snack does the office serve on Friday afternoons?"
+AIMessage:     tool_calls=[{"name": "search_knowledge_base", "args": {"query": "..."}}]
+ToolMessage:   "Title: EAIStack Office Snack Policy\n...verbatim seeded content..."
+AIMessage:     "According to the EAIStack Office Snack Policy, the office serves ..."
+```
+
+The final answer contains facts only present in the seeded document (verified
+manually; there's no automated end-to-end test against a real model — the graph
+logic itself is covered by `tests/unit/test_chat_agent.py` against
+`FakeChatModel` with scripted tool-call responses).
+
+### Verification command
+
+From inside the `backend` container, with `LLM_PROVIDER=llama-cpp` and a
+knowledge-base document seeded for some `user_id`:
+
+```python
+from app.db.database import SessionLocal
+from app.agents.chat_agent import create_chat_agent
+from langchain_core.messages import HumanMessage
+
+db = SessionLocal()
+agent = create_chat_agent(db=db, user_id="<seeded-user-id>")
+result = agent.invoke({
+    "messages": [HumanMessage(content="<a question only the seeded doc can answer>")],
+    "thread_id": "verify",
+    "user_id": "<seeded-user-id>",
+})
+for m in result["messages"]:
+    print(type(m).__name__, getattr(m, "tool_calls", None), m.content[:200])
+```
+
+Look for an `AIMessage` with a non-empty `tool_calls` list, a `ToolMessage`
+containing the seeded document's content, and a final `AIMessage` whose answer
+reflects that content.
+
+### Two follow-up findings from live testing (not blockers, but worth knowing)
+
+- **Without a system prompt, Llama 3.1 8B sometimes describes the tool call
+  instead of answering from its result** — e.g. "This response is a JSON object
+  with the function name and its parameters..." instead of the actual answer.
+  `chat_agent.py` now prepends a short `SystemMessage` (`SYSTEM_PROMPT` in that
+  file) on every `call_agent` invocation specifically to prevent this. This was
+  necessary for reliable grounding, not optional polish.
+- **The model can be tool-happy**: with only one tool available, it sometimes
+  calls `search_knowledge_base` even for questions the tool can't help with
+  (e.g. "What is 7 times 8?"). It still answered correctly in testing, and the
+  `MAX_TOOL_CALL_ROUNDS` guard in `chat_agent.py` bounds the worst case, but this
+  is a real behavior to be aware of, not a bug in the graph.
+
+### Retrieval quality caveat
+
+Retrieval quality is limited by `generate_embedding` (`app/services/embedding_service.py`),
+which is a **deterministic mock** (seeded RNG over the query text), not a real
+embedding model — this is intentional for Phase 3a (keeps tests deterministic)
+and is a known Phase 4 item. If a live query returns weak or irrelevant matches,
+that's the mock embedding, not a tool-calling failure — the pgvector ranking and
+tool-call plumbing around it are real.
 
 ## Air-gapped deployment
 

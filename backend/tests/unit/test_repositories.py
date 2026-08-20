@@ -158,8 +158,8 @@ def test_embedding_repository_soft_delete(db_session):
 
 
 @pytest.mark.unit
-def test_embedding_repository_search_similar(db_session):
-    """Test: EmbeddingRepository.search_similar returns embedding-KB pairs."""
+def test_embedding_repository_list_for_user(db_session):
+    """Test: EmbeddingRepository.list_for_user returns embedding-KB pairs."""
     kb = KnowledgeBase(
         id=str(uuid4()),
         user_id="user-a",
@@ -184,7 +184,7 @@ def test_embedding_repository_search_similar(db_session):
 
     # Execute
     repo = EmbeddingRepository(db_session)
-    results = repo.search_similar("user-a")
+    results = repo.list_for_user("user-a")
 
     # Verify
     assert len(results) == 2
@@ -195,8 +195,8 @@ def test_embedding_repository_search_similar(db_session):
 
 
 @pytest.mark.unit
-def test_embedding_repository_search_similar_filters_deleted(db_session):
-    """Test: EmbeddingRepository.search_similar excludes soft-deleted embeddings."""
+def test_embedding_repository_list_for_user_filters_deleted(db_session):
+    """Test: EmbeddingRepository.list_for_user excludes soft-deleted embeddings."""
     kb = KnowledgeBase(
         id=str(uuid4()),
         user_id="user-a",
@@ -222,7 +222,7 @@ def test_embedding_repository_search_similar_filters_deleted(db_session):
 
     # Execute
     repo = EmbeddingRepository(db_session)
-    results = repo.search_similar("user-a")
+    results = repo.list_for_user("user-a")
 
     # Verify
     assert len(results) == 1
