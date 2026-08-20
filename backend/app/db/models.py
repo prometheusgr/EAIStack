@@ -100,3 +100,28 @@ class Embedding(Base):
 
     def __repr__(self):
         return f"<Embedding(id={self.id}, doc_id={self.doc_id})>"
+
+
+class SystemSettings(Base):
+    """Singleton row holding runtime-mutable LLM/embedding provider config.
+
+    Exactly one row is expected to exist (id="default"). Unlike other models
+    here, this is deliberately NOT user-scoped — it's a system-wide setting,
+    not per-tenant data — so it has no user_id and the repository pattern's
+    usual per-user filtering does not apply.
+    """
+
+    __tablename__ = "system_settings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default="default")
+    llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    llm_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    llm_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    embedding_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    embedding_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    def __repr__(self):
+        return f"<SystemSettings(id={self.id}, llm_provider={self.llm_provider}, embedding_provider={self.embedding_provider})>"
