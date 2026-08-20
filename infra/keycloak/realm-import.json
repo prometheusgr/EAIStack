@@ -16,6 +16,19 @@
       "serviceAccountsEnabled": true,
       "clientAuthenticatorType": "client-secret",
       "secret": "eaistack-api-secret",
+      "protocolMappers": [
+        {
+          "name": "audience-eaistack-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "eaistack-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ],
       "access": {
         "view": true,
         "configure": true,

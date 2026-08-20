@@ -120,3 +120,111 @@ async def test_audience_validation_rejects_invalid_audience():
         assert (
             "Invalid audience" in exc_info.value.detail or "Invalid token" in exc_info.value.detail
         )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_audience_validation_accepts_eaistack_api_audience():
+    """Token minted for the eaistack-api client (aud: eaistack-api) should be accepted.
+
+    This is the service-account / client-credentials flow used by curl and CI,
+    once the realm stamps the audience claim via the audience protocol mapper.
+    """
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from jwt.utils import to_base64url_uint
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key = private_key.public_key()
+
+    token_data = {
+        "sub": "test-service-account",
+        "preferred_username": "service-account-eaistack-api",
+        "aud": "eaistack-api",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+    }
+
+    token = jwt.encode(token_data, private_key, algorithm="RS256", headers={"kid": "test-key"})
+
+    public_numbers = public_key.public_numbers()
+    mock_jwks = {
+        "keys": [
+            {
+                "kid": "test-key",
+                "kty": "RSA",
+                "use": "sig",
+                "n": to_base64url_uint(public_numbers.n).decode("utf-8"),
+                "e": to_base64url_uint(public_numbers.e).decode("utf-8"),
+            }
+        ]
+    }
+
+    fake_credentials = AsyncMock()
+    fake_credentials.credentials = token
+
+    with patch("app.core.auth.get_keycloak_public_key") as mock_get_key:
+
+        async def mock_async_get_key():
+            return mock_jwks
+
+        mock_get_key.side_effect = mock_async_get_key
+
+        result = await verify_token(fake_credentials)
+
+        assert result["sub"] == "test-service-account"
+        assert result["aud"] == "eaistack-api"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_audience_validation_rejects_account_only_audience():
+    """Token bearing only the default Keycloak 'account' audience should be rejected.
+
+    This reproduces the pre-fix service-account token: Keycloak stamps 'account'
+    as the audience by default when a client has no audience protocol mapper.
+    """
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from jwt.utils import to_base64url_uint
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key = private_key.public_key()
+
+    token_data = {
+        "sub": "test-service-account",
+        "preferred_username": "service-account-eaistack-api",
+        "aud": "account",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+    }
+
+    token = jwt.encode(token_data, private_key, algorithm="RS256", headers={"kid": "test-key"})
+
+    public_numbers = public_key.public_numbers()
+    mock_jwks = {
+        "keys": [
+            {
+                "kid": "test-key",
+                "kty": "RSA",
+                "n": to_base64url_uint(public_numbers.n).decode("utf-8"),
+                "e": to_base64url_uint(public_numbers.e).decode("utf-8"),
+            }
+        ]
+    }
+
+    fake_credentials = AsyncMock()
+    fake_credentials.credentials = token
+
+    with patch("app.core.auth.get_keycloak_public_key") as mock_get_key:
+
+        async def mock_async_get_key():
+            return mock_jwks
+
+        mock_get_key.side_effect = mock_async_get_key
+
+        with pytest.raises(HTTPException) as exc_info:
+            await verify_token(fake_credentials)
+
+        assert exc_info.value.status_code == 401
+        assert "Invalid audience" in exc_info.value.detail
