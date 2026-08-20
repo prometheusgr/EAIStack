@@ -5,14 +5,17 @@ import { ChatWindow } from './components/ChatWindow'
 import { APIKeys } from './components/APIKeys'
 import { EmbeddingsList } from '@/components/embeddings/EmbeddingsList'
 import { EmbeddingsSearch } from '@/components/embeddings/EmbeddingsSearch'
+import { Settings } from './components/Settings'
 import { Button } from './components/ui/button'
 import { MainLayout } from './components/layout/MainLayout'
 import { ToastProvider } from './components/ui/toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AppContent() {
-  const { isAuthenticated, isLoading, login } = useAuth()
-  const [currentView, setCurrentView] = useState<'chat' | 'apikeys' | 'embeddings' | 'embeddings-search'>('chat')
+  const { isAuthenticated, isLoading, login, isAdmin } = useAuth()
+  const [currentView, setCurrentView] = useState<
+    'chat' | 'apikeys' | 'embeddings' | 'embeddings-search' | 'settings'
+  >('chat')
 
   if (isLoading) {
     return (
@@ -64,6 +67,7 @@ function AppContent() {
           <EmbeddingsSearch />
         </>
       )}
+      {currentView === 'settings' && isAdmin && <Settings />}
     </MainLayout>
   )
 }
