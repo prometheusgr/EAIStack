@@ -61,19 +61,28 @@ services:
       retries: 5
 
   llama-server:
-    # TODO: Build custom image with a default model
-    # For now, use a placeholder that starts but requires model injection
-    image: ghcr.io/ggml-org/llama.cpp:server-latest
-    environment:
-      MODEL: /models/model.gguf
+    # Requires a GGUF model on the host at ./models/ before starting.
+    # See docs/LLM_SETUP.md for the download command.
+    image: ghcr.io/ggml-org/llama.cpp:server
     ports:
+      # Published on 8000 for host access (curl, a locally-run backend).
+      # The containerized backend reaches it as http://llama-server:8000.
       - "8000:8000"
     volumes:
-      - ./models:/models
-    # Dummy command that exits - real model needed in Phase 2
+      - ./models:/models:ro
     command: >
-      -m /models/dummy.gguf
+      -m /models/mistral-7b-instruct-v0.2.Q4_K_M.gguf
+      --host 0.0.0.0
       --port 8000
+      --ctx-size 4096
+    healthcheck:
+      # Model load takes ~30s on CPU; start_period keeps the container from
+      # being reported unhealthy while weights are still being read.
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
     profiles:
       - llm  # Only start with --profile llm flag
 
@@ -85,7 +94,12 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/eaistack
       MINIO_URL: http://minio:9000
       KEYCLOAK_URL: http://keycloak:8080
-      LLM_URL: http://llama-server:8000
+      # Defaults to the mocked LLM. Override to "llama-cpp" (see docs/LLM_SETUP.md)
+      # to route chat through the llama-server container.
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      LLM_URL: ${LLM_URL:-http://llama-server:8000/v1}
+      LLM_MODEL: ${LLM_MODEL:-mistral-7b-instruct-v0.2.Q4_K_M.gguf}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
     ports:
       - "8001:8000"
     depends_on:

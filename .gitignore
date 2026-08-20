@@ -66,6 +66,10 @@ charts/*/charts/
 # Docker
 .docker/
 
+# LLM model weights (multi-GB; vendored at image build time for air-gapped deploys)
+models/
+*.gguf
+
 # Misc
 *.log
 .cache/
