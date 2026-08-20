@@ -6,7 +6,7 @@ import jwt
 import pytest
 from fastapi import HTTPException
 
-from app.core.auth import extract_user_from_payload, verify_token
+from app.core.auth import extract_user_from_payload, require_admin, verify_token
 
 
 @pytest.mark.unit
@@ -163,3 +163,59 @@ async def test_verify_token_accepts_api_client_audience():
 
         result = await verify_token(fake_credentials)
         assert result["sub"] == "service-account"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_require_admin_passes_with_admin_realm_role():
+    """A user whose token carries the admin realm role should pass through unchanged."""
+    user = {
+        "user_id": "user-123",
+        "username": "testuser",
+        "token": {
+            "sub": "user-123",
+            "realm_access": {"roles": ["admin", "offline_access"]},
+        },
+    }
+
+    result = await require_admin(user)
+
+    assert result == user
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_require_admin_rejects_user_without_admin_role():
+    """A user whose token lacks the admin realm role should get a 403."""
+    user = {
+        "user_id": "user-456",
+        "username": "regular_user",
+        "token": {
+            "sub": "user-456",
+            "realm_access": {"roles": ["offline_access"]},
+        },
+    }
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_admin(user)
+
+    assert exc_info.value.status_code == 403
+    assert "admin" in exc_info.value.detail.lower()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_require_admin_rejects_token_with_no_realm_access_claim():
+    """A token with no realm_access claim at all (e.g. no realm roles configured)
+    should be rejected, not crash on a missing key.
+    """
+    user = {
+        "user_id": "user-789",
+        "username": "no_roles_user",
+        "token": {"sub": "user-789"},
+    }
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_admin(user)
+
+    assert exc_info.value.status_code == 403

@@ -173,3 +173,20 @@ async def extract_user_from_payload(payload: dict) -> dict:
 async def get_current_user(payload: dict = Depends(verify_token)) -> dict:
     """Extract current user from verified token payload (dependency-injected)."""
     return await extract_user_from_payload(payload)
+
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    """Require the admin Keycloak realm role (dependency-injected).
+
+    Reads roles from the token's realm_access.roles claim, the standard
+    location Keycloak places realm roles in a JWT. Raises 403 if the
+    admin role is absent, whether because the user lacks it or the token
+    has no realm_access claim at all.
+    """
+    roles = user["token"].get("realm_access", {}).get("roles", [])
+    if "admin" not in roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return user
