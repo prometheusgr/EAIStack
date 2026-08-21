@@ -6,8 +6,9 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.services.system_settings_service import resolve_llm_config
 
 
 class FakeChatModel(BaseChatModel):
@@ -51,24 +52,32 @@ class FakeChatModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=message)])
 
 
-def get_llm_client():
+def get_llm_client(db: Session):
     """
-    Factory returning the appropriate LLM client based on config.
+    Factory returning the appropriate LLM client based on the resolved config.
+
+    Config is resolved fresh on every call via resolve_llm_config(db) — a
+    DB-stored admin override (if any) wins over the env-var default, with no
+    caching, so a change made through the settings screen takes effect on
+    the next call without a backend restart.
 
     Returns:
         Either FakeChatModel for testing, or ChatOpenAI for real inference.
     """
-    if settings.llm_provider == "fake":
+    config = resolve_llm_config(db)
+
+    if config.provider == "fake":
         return FakeChatModel()
-    elif settings.llm_provider in ("llama-cpp", "openai-compatible"):
+    elif config.provider in ("llama-cpp", "openai-compatible"):
         from langchain_openai import ChatOpenAI
+        from pydantic import SecretStr
 
         return ChatOpenAI(
-            base_url=settings.llm_url,
-            api_key=settings.llm_api_key or "not-needed",
-            model=settings.llm_model,
+            base_url=config.url,
+            api_key=SecretStr(config.api_key or "not-needed"),
+            model=config.model,
             temperature=0.7,
-            timeout=settings.llm_timeout,
+            timeout=config.timeout,
         )
     else:
-        raise ValueError(f"Unknown llm_provider: {settings.llm_provider}")
+        raise ValueError(f"Unknown llm_provider: {config.provider}")

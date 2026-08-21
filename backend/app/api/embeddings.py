@@ -42,7 +42,7 @@ async def search_embeddings(
     db: Session = Depends(get_db),
 ):
     """Perform semantic search using pgvector similarity."""
-    query_embedding = generate_embedding(payload.query_text)
+    query_embedding = generate_embedding(db, payload.query_text)
 
     repo = EmbeddingRepository(db)
     matches = repo.search_similar(user["user_id"], query_embedding, payload.top_k)

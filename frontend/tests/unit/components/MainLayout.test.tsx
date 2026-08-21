@@ -1,9 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MainLayout } from '../../../src/components/layout/MainLayout'
 import { AuthProvider } from '../../../src/context/AuthContext'
 import { ToastProvider } from '../../../src/components/ui/toast'
+
+function buildToken(payload: Record<string, unknown>): string {
+  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const body = btoa(JSON.stringify(payload))
+  return `${header}.${body}.invalid_sig`
+}
 
 describe('MainLayout', () => {
   const defaultProps = {
@@ -93,5 +99,61 @@ describe('MainLayout', () => {
 
     const apiKeysButton = screen.getByRole('button', { name: /API Keys/i })
     expect(apiKeysButton).toHaveAttribute('data-active', 'true')
+  })
+
+  it('hides the Settings nav item for a non-admin user', async () => {
+    localStorage.setItem(
+      'access_token',
+      buildToken({
+        sub: 'user-1',
+        preferred_username: 'regular',
+        exp: 9999999999,
+        realm_access: { roles: ['offline_access'] },
+      })
+    )
+
+    renderWithProviders(<MainLayout {...defaultProps} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Chat/i })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: /Settings/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the Settings nav item for an admin user', async () => {
+    localStorage.setItem(
+      'access_token',
+      buildToken({
+        sub: 'admin-1',
+        preferred_username: 'admin',
+        exp: 9999999999,
+        realm_access: { roles: ['admin'] },
+      })
+    )
+
+    renderWithProviders(<MainLayout {...defaultProps} />)
+
+    expect(await screen.findByRole('button', { name: /Settings/i })).toBeInTheDocument()
+  })
+
+  it('calls onViewChange with settings when the Settings tab is clicked', async () => {
+    localStorage.setItem(
+      'access_token',
+      buildToken({
+        sub: 'admin-1',
+        preferred_username: 'admin',
+        exp: 9999999999,
+        realm_access: { roles: ['admin'] },
+      })
+    )
+    const onViewChange = vi.fn()
+    const user = userEvent.setup()
+
+    renderWithProviders(<MainLayout {...defaultProps} onViewChange={onViewChange} />)
+
+    const settingsButton = await screen.findByRole('button', { name: /Settings/i })
+    await user.click(settingsButton)
+
+    expect(onViewChange).toHaveBeenCalledWith('settings')
   })
 })

@@ -14,6 +14,8 @@ interface AuthContextType {
   logout: () => void
   refreshAccessToken: () => Promise<boolean>
   user: AuthUser | null
+  roles: string[]
+  isAdmin: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -23,6 +25,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [user, setUser] = useState<AuthUser | null>(null)
+  const [roles, setRoles] = useState<string[]>([])
   const [keycloakUrl, setKeycloakUrl] = useState<string>('http://localhost:8080/')
 
   useEffect(() => {
@@ -74,6 +77,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     email: payload.email,
                     name: payload.name,
                   })
+                  setRoles(payload.realm_access?.roles || [])
                 } catch {
                   localStorage.removeItem('access_token')
                   localStorage.removeItem('refresh_token')
@@ -107,6 +111,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               email: payload.email,
               name: payload.name,
             })
+            setRoles(payload.realm_access?.roles || [])
             setIsLoading(false)
             return
           } catch {
@@ -165,6 +170,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsAuthenticated(false)
         setUser(null)
         setToken(null)
+        setRoles([])
         return false
       }
 
@@ -187,6 +193,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             email: payload.email,
             name: payload.name,
           })
+          setRoles(payload.realm_access?.roles || [])
           return true
         } catch {
           localStorage.removeItem('access_token')
@@ -196,6 +203,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setIsAuthenticated(false)
           setUser(null)
           setToken(null)
+          setRoles([])
           return false
         }
       }
@@ -208,6 +216,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsAuthenticated(false)
       setUser(null)
       setToken(null)
+      setRoles([])
       return false
     }
   }
@@ -222,6 +231,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsAuthenticated(false)
     setUser(null)
     setToken(null)
+    setRoles([])
 
     try {
       const logoutUrl = buildKeycloakLogoutUrl(keycloakUrl, window.location.origin + '/', idToken || undefined)
@@ -231,8 +241,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }
 
+  const isAdmin = roles.includes('admin')
+
   return (
-    <AuthContext.Provider value={{ token, isAuthenticated, isLoading, login, logout, refreshAccessToken, user }}>
+    <AuthContext.Provider
+      value={{ token, isAuthenticated, isLoading, login, logout, refreshAccessToken, user, roles, isAdmin }}
+    >
       {children}
     </AuthContext.Provider>
   )

@@ -55,7 +55,7 @@ def create_chat_agent(db: Session, user_id: str):
     """
     search_tool = make_search_knowledge_base_tool(user_id=user_id, db=db)
     tools = [search_tool]
-    llm = get_llm_client().bind_tools(tools)
+    llm = get_llm_client(db).bind_tools(tools)
 
     def call_agent(state: ChatState) -> ChatState:
         response = llm.invoke([SYSTEM_PROMPT, *state["messages"]])

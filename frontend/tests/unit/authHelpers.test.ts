@@ -29,6 +29,28 @@ describe('authHelpers', () => {
       expect(payload.name).toBeUndefined()
     })
 
+    it('decodes realm_access.roles when present', () => {
+      const payloadJson = JSON.stringify({
+        sub: 'user-123',
+        preferred_username: 'testuser',
+        exp: 9999999999,
+        realm_access: { roles: ['admin', 'offline_access'] },
+      })
+      const token = `eyJhbGciOiJIUzI1NiJ9.${btoa(payloadJson)}.invalid_sig`
+
+      const payload = decodeJwt(token)
+
+      expect(payload.realm_access?.roles).toEqual(['admin', 'offline_access'])
+    })
+
+    it('leaves realm_access undefined when the claim is absent', () => {
+      const token = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInByZWZlcnJlZF91c2VybmFtZSI6InRlc3R1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.invalid_sig'
+
+      const payload = decodeJwt(token)
+
+      expect(payload.realm_access).toBeUndefined()
+    })
+
     it('throws on malformed input', () => {
       expect(() => decodeJwt('not.a.token')).toThrow()
       expect(() => decodeJwt('invalid')).toThrow()

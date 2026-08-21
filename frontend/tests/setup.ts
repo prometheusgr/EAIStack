@@ -1,5 +1,22 @@
 import '@testing-library/jest-dom'
 
+// jsdom doesn't implement these pointer-capture / scroll APIs, but Radix UI's
+// Select (and other popover-based primitives) call them during pointer
+// interactions. Without these no-op polyfills, clicking a Radix Select in
+// tests throws "target.hasPointerCapture is not a function".
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {}
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => {}
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {}
+}
+
 interface MockKeycloakInstance {
   init: () => Promise<boolean>
   login: () => void

@@ -4,6 +4,14 @@
   "displayName": "EAIStack Realm",
   "displayNameHtml": "<b>Enterprise AI Stack</b>",
   "sslRequired": "none",
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Grants access to admin-only screens (e.g. runtime LLM/embedding provider settings)"
+      }
+    ]
+  },
   "clients": [
     {
       "clientId": "eaistack-api",
@@ -88,7 +96,8 @@
           "userLabel": "password"
         }
       ],
-      "requiredActions": []
+      "requiredActions": [],
+      "realmRoles": ["admin"]
     }
   ]
 }

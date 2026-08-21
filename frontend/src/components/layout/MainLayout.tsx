@@ -4,12 +4,14 @@ import { Button } from '../ui/button'
 
 interface MainLayoutProps {
   children: ReactNode
-  currentView: 'chat' | 'apikeys' | 'embeddings' | 'embeddings-search'
-  onViewChange: (view: 'chat' | 'apikeys' | 'embeddings' | 'embeddings-search') => void
+  currentView: 'chat' | 'apikeys' | 'embeddings' | 'embeddings-search' | 'settings'
+  onViewChange: (
+    view: 'chat' | 'apikeys' | 'embeddings' | 'embeddings-search' | 'settings'
+  ) => void
 }
 
 export function MainLayout({ children, currentView, onViewChange }: MainLayoutProps) {
-  const { logout, user } = useAuth()
+  const { logout, user, isAdmin } = useAuth()
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -64,6 +66,16 @@ export function MainLayout({ children, currentView, onViewChange }: MainLayoutPr
           >
             Search
           </Button>
+          {isAdmin && (
+            <Button
+              variant={currentView === 'settings' ? 'default' : 'ghost'}
+              onClick={() => onViewChange('settings')}
+              className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary text-xs md:text-sm"
+              data-active={currentView === 'settings'}
+            >
+              Settings
+            </Button>
+          )}
         </div>
       </nav>
 

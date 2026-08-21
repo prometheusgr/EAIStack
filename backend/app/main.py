@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import agents, apikeys, auth, embeddings, knowledge_base
+from app.api import settings as settings_api
 from app.core.auth import get_current_user
 from app.core.config import settings
 
@@ -30,6 +31,7 @@ app.include_router(auth.router)
 app.include_router(apikeys.router)
 app.include_router(embeddings.router)
 app.include_router(knowledge_base.router)
+app.include_router(settings_api.router)
 
 
 @app.get("/health")
