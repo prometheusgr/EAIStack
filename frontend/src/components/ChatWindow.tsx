@@ -1,14 +1,51 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useChatService } from "../hooks/useChatService";
+import { useThreadsService } from "../hooks/useThreadsService";
 import { ChatMessage } from "../types/chat";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export function ChatWindow() {
   const { mutateAsync: sendMessage, isPending, error: apiError } = useChatService();
+  const { listThreads, getThreadHistory } = useThreadsService();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [threadId, setThreadId] = useState<string>("");
+  const [hasLoadedInitialThread, setHasLoadedInitialThread] = useState(false);
+
+  useEffect(() => {
+    listThreads.execute();
+  }, []);
+
+  useEffect(() => {
+    if (hasLoadedInitialThread || !listThreads.data) {
+      return;
+    }
+    setHasLoadedInitialThread(true);
+
+    const mostRecentThread = listThreads.data.threads[0];
+    if (mostRecentThread) {
+      loadThread(mostRecentThread.id);
+    }
+  }, [listThreads.data, hasLoadedInitialThread]);
+
+  const loadThread = async (id: string) => {
+    const history = await getThreadHistory.mutateAsync(id);
+    setThreadId(history.id);
+    setMessages(history.messages);
+  };
+
+  const handleSelectThread = (id: string) => {
+    if (id === threadId) {
+      return;
+    }
+    if (!id) {
+      setThreadId("");
+      setMessages([]);
+      return;
+    }
+    loadThread(id);
+  };
 
   const handleSend = async () => {
     if (!inputValue.trim() || isPending) {
@@ -25,6 +62,7 @@ export function ChatWindow() {
       const result = await sendMessage({ message: userMessage, threadId: currentThreadId });
       setThreadId(result.threadId);
       setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
+      listThreads.execute();
     } catch {
       setMessages((prev) => prev.slice(0, -1));
     }
@@ -32,8 +70,26 @@ export function ChatWindow() {
 
   return (
     <Card className="flex flex-col h-96">
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle>Chat</CardTitle>
+        <div className="flex items-center gap-2">
+          <select
+            aria-label="Select conversation"
+            value={threadId}
+            onChange={(e) => handleSelectThread(e.target.value)}
+            className="text-sm border border-input rounded-md bg-background text-foreground px-2 py-1"
+          >
+            <option value="">New chat</option>
+            {listThreads.data?.threads.map((thread) => (
+              <option key={thread.id} value={thread.id}>
+                {new Date(thread.updatedAt).toLocaleString()}
+              </option>
+            ))}
+          </select>
+          <Button variant="outline" size="sm" onClick={() => handleSelectThread("")}>
+            New chat
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col flex-1 gap-4">
         <div className="flex-1 overflow-y-auto space-y-3 border border-border rounded-md p-4 bg-muted">

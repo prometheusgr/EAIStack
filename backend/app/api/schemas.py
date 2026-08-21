@@ -20,6 +20,34 @@ class ChatResponse(BaseModel):
     thread_id: str
 
 
+class ThreadSummary(BaseModel):
+    """One entry in a user's thread list."""
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ThreadListResponse(BaseModel):
+    """Response body for GET /api/agents/threads."""
+
+    threads: list[ThreadSummary]
+
+
+class ThreadMessage(BaseModel):
+    """One rendered message in a thread's history."""
+
+    role: str
+    text: str
+
+
+class ThreadHistoryResponse(BaseModel):
+    """Response body for GET /api/agents/threads/{thread_id}."""
+
+    id: str
+    messages: list[ThreadMessage]
+
+
 class APIKeyCreate(BaseModel):
     """Request body for creating an API key."""
 

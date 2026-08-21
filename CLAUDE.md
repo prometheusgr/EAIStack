@@ -19,16 +19,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Phase 1 Complete ✓**: Authentication & local dev loop (Keycloak OIDC + JWT validation + protected endpoints)
 
 **Phase 2 Complete ✓**: Agent Orchestration & LLM Integration
-- Backend: `POST /api/agents/chat` endpoint + LangGraph agent with mocked LLM
+- Backend: `POST /api/agents/chat` endpoint + LangGraph agent
 - Frontend: Chat UI component with message display and form handling
-- Testing: Complete unit and component test coverage with deterministic mocked responses
-- Tool-calling: Mocked tool calls working; real MCP integration is Phase 3
+- Testing: Complete unit and component test coverage
+- Tool-calling: real, via `search_knowledge_base` against pgvector (mocked only at the LLM boundary in unit tests)
 
-**Phase 2b Complete ✓**: Real LLM + Streaming Foundation (Deferred to Phase 3+)
-- Config infrastructure: LLM provider switch (fake/llama-cpp/openai-compatible) via environment variables
-- `ChatOpenAI` integration ready: factory function supports real LLM clients
-- Streaming architecture: identified, designed, deferred (tool-calling + streaming has known rough edges in llama.cpp)
-- Dependencies upgraded: LangChain ecosystem to v1.x stable (langchain, langchain-core, langgraph, langchain-openai)
+**Phase 2b Complete ✓**: Real LLM Integration
+- Config infrastructure: LLM/embedding provider switch (fake/llama-cpp/openai-compatible) via environment variables, with runtime DB overrides through the Settings UI (`SystemSettings`, admin-only via `require_admin`/realm-role RBAC)
+- Real LLM (llama-server via `ChatOpenAI`) and real embeddings (nomic-embed, 768-dim) wired end-to-end
+- Real pgvector cosine-similarity search backing `search_knowledge_base`
+- Streaming: deferred (tool-calling + streaming has known rough edges in llama.cpp)
+
+**Phase 4a Complete ✓**: Conversation Persistence & Session Isolation
+- Backend: LangGraph state persists to Postgres via `SqlAlchemyCheckpointSaver`, a custom `BaseCheckpointSaver` over two Alembic-owned tables (`conversation_threads`, `conversation_checkpoints`) — not `langgraph-checkpoint-postgres`, to keep a single DB driver, Alembic as sole schema authority, and fast SQLite-backed unit tests. Stores only the latest checkpoint per thread (conversation resume, not time-travel/replay).
+- Isolation: `(user_id, thread_id)` ownership is enforced structurally by `ThreadRepository`, never by a checkpointer or per-endpoint filter. A client-supplied `thread_id` not owned by the caller is silently replaced with a fresh thread on `POST /api/agents/chat`; the new `GET /api/agents/threads` and `GET /api/agents/threads/{thread_id}` endpoints return 404 (never 403) for threads that don't exist or aren't the caller's.
+- Frontend: `ChatWindow` restores the user's most recently updated thread on mount and lets them switch or start a new conversation, via a proper client → service → hook layer (`threadsClient` → `ThreadsService` → `useThreadsService`).
+- Out of scope (deferred): retention/TTL enforcement (`session_ttl_hours`, `session_cleanup_on_logout` in `config.py` exist but aren't enforced yet).
 
 ## Common Development Commands
 

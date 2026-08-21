@@ -1,0 +1,114 @@
+"""LangGraph checkpointer backed by the project's own SQLAlchemy tables.
+
+A custom BaseCheckpointSaver rather than langgraph-checkpoint-postgres:
+that package owns its schema outside Alembic, requires a second Postgres
+driver (psycopg v3) alongside this project's psycopg2/SQLAlchemy stack,
+and only runs against real Postgres - this project's fast unit tests run
+against SQLite. See docs/DATABASE_MODELS.md and docs/REPOSITORY_PATTERN.md
+for the schema/repository conventions this follows instead.
+
+Stores only the latest checkpoint per thread (upserted), not full
+checkpoint history - Phase 4a's scope is resuming a conversation, not
+LangGraph time-travel/replay. put_writes is a no-op for the same reason:
+pending-writes tracking exists to resume mid-superstep after a crash or
+an interrupt(), neither of which this graph uses.
+"""
+
+from typing import Any, Iterator, Sequence
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import (
+    BaseCheckpointSaver,
+    ChannelVersions,
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointTuple,
+)
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from sqlalchemy.orm import Session
+
+from app.repositories import CheckpointRepository
+
+
+class SqlAlchemyCheckpointSaver(BaseCheckpointSaver):
+    """Checkpoint saver storing one row per thread via CheckpointRepository.
+
+    Built fresh per request from the same db session already threaded
+    through create_chat_agent - never a global/cached instance, matching
+    the per-request lifecycle of make_search_knowledge_base_tool in
+    app.agents.tools and for the same reason (session/lifecycle safety).
+
+    Isolation is NOT enforced here: like LangGraph's own checkpointers,
+    this saver is keyed purely by thread_id, with no concept of a user.
+    The (user_id, thread_id) ownership check happens one layer up, in
+    ThreadRepository, before a thread_id ever reaches this class.
+    """
+
+    def __init__(self, db: Session):
+        super().__init__(serde=JsonPlusSerializer())
+        self._repo = CheckpointRepository(db)
+
+    def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        thread_id = config["configurable"]["thread_id"]
+        row = self._repo.get(thread_id)
+        if row is None:
+            return None
+
+        checkpoint = self.serde.loads_typed(("msgpack", row.checkpoint))
+        metadata = self.serde.loads_typed(("msgpack", row.checkpoint_metadata))
+
+        return CheckpointTuple(
+            config={
+                "configurable": {
+                    "thread_id": thread_id,
+                    "checkpoint_ns": config["configurable"].get("checkpoint_ns", ""),
+                    "checkpoint_id": checkpoint["id"],
+                }
+            },
+            checkpoint=checkpoint,
+            metadata=metadata,
+            parent_config=None,
+            pending_writes=[],
+        )
+
+    def list(
+        self,
+        config: RunnableConfig | None,
+        *,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
+    ) -> Iterator[CheckpointTuple]:
+        if config is None:
+            return
+        result = self.get_tuple(config)
+        if result is not None:
+            yield result
+
+    def put(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> RunnableConfig:
+        thread_id = config["configurable"]["thread_id"]
+        _, checkpoint_bytes = self.serde.dumps_typed(checkpoint)
+        _, metadata_bytes = self.serde.dumps_typed(metadata)
+        self._repo.upsert(thread_id, checkpoint=checkpoint_bytes, metadata=metadata_bytes)
+        return {
+            "configurable": {
+                "thread_id": thread_id,
+                "checkpoint_ns": config["configurable"].get("checkpoint_ns", ""),
+                "checkpoint_id": checkpoint["id"],
+            }
+        }
+
+    def put_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """No-op: this saver does not support mid-superstep resume (see module docstring)."""

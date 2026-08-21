@@ -8,6 +8,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from sqlalchemy.orm import Session
 
+from app.agents.checkpointer import SqlAlchemyCheckpointSaver
 from app.agents.tools import make_search_knowledge_base_tool
 from app.core.llm_client import get_llm_client
 
@@ -51,7 +52,10 @@ def create_chat_agent(db: Session, user_id: str):
     Built per-request (not cached) because the search_knowledge_base tool is
     bound to this specific db session and user_id — the model can never
     supply its own user_id, which keeps knowledge-base search scoped to the
-    authenticated user.
+    authenticated user. The checkpointer is built the same way and for the
+    same reason: it's bound to this db session, and thread ownership must
+    already have been verified by the caller (see ThreadRepository) before
+    a thread_id ever reaches it.
     """
     search_tool = make_search_knowledge_base_tool(user_id=user_id, db=db)
     tools = [search_tool]
@@ -80,4 +84,4 @@ def create_chat_agent(db: Session, user_id: str):
     )
     graph.add_edge("call_tool", "call_agent")
 
-    return graph.compile()
+    return graph.compile(checkpointer=SqlAlchemyCheckpointSaver(db))

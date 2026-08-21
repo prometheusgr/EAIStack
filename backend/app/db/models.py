@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, LargeBinary, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -100,6 +100,70 @@ class Embedding(Base):
 
     def __repr__(self):
         return f"<Embedding(id={self.id}, doc_id={self.doc_id})>"
+
+
+class ConversationThread(Base):
+    """Ownership record for one chat conversation.
+
+    This table's id doubles as the LangGraph thread_id. It exists
+    separately from ConversationCheckpoint so that authorization
+    (does this thread belong to this user?) can be checked without
+    ever touching checkpoint state, and so ThreadRepository is the
+    single structural place that check happens - no endpoint or
+    agent code may resolve a thread_id to state without going
+    through it first.
+    """
+
+    __tablename__ = "conversation_threads"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    def __repr__(self):
+        return f"<ConversationThread(id={self.id}, user_id={self.user_id})>"
+
+
+class ConversationCheckpoint(Base):
+    """Latest LangGraph checkpoint state for one conversation thread.
+
+    Stores only the most recent checkpoint per thread (upserted), not
+    full checkpoint history - Phase 4a's scope is resuming a
+    conversation, not time-travel/replay. No user_id column: isolation
+    is enforced one layer up by ThreadRepository, the same way Embedding
+    has no user_id and is only ever reached through KnowledgeBase.
+
+    checkpoint/checkpoint_metadata are opaque serialized bytes (msgpack,
+    via LangGraph's own JsonPlusSerializer - see
+    app.agents.checkpointer.SqlAlchemyCheckpointSaver) rather than JSON
+    columns: LangGraph checkpoints contain LangChain message objects and
+    other non-JSON-native types that the serializer already knows how to
+    encode, so this table stores its output as-is instead of duplicating
+    that logic.
+    """
+
+    __tablename__ = "conversation_checkpoints"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    thread_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("conversation_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    checkpoint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    checkpoint_metadata: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    def __repr__(self):
+        return f"<ConversationCheckpoint(id={self.id}, thread_id={self.thread_id})>"
 
 
 class SystemSettings(Base):
