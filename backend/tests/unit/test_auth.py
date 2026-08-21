@@ -54,12 +54,13 @@ async def test_extract_user_from_payload_success():
         "name": "Test User",
     }
 
-    user = await extract_user_from_payload(payload)
+    user = await extract_user_from_payload(payload, access_token="raw.jwt.string")
 
     assert user["user_id"] == "user-123"
     assert user["username"] == "testuser"
     assert user["email"] == "test@example.com"
     assert user["name"] == "Test User"
+    assert user["access_token"] == "raw.jwt.string"
 
 
 @pytest.mark.unit
@@ -201,6 +202,26 @@ async def test_require_admin_rejects_user_without_admin_role():
 
     assert exc_info.value.status_code == 403
     assert "admin" in exc_info.value.detail.lower()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_current_user_includes_raw_access_token():
+    """get_current_user must expose the raw bearer token string (not just the
+    decoded payload), so callers (e.g. the /chat endpoint, for forwarding to
+    the doc-search MCP server) can forward it onward without re-encoding it.
+    """
+    from app.core.auth import get_current_user
+
+    fake_credentials = AsyncMock()
+    fake_credentials.credentials = "the.raw.jwt"
+
+    payload = {"sub": "user-123", "preferred_username": "testuser"}
+
+    user = await get_current_user(payload=payload, credentials=fake_credentials)
+
+    assert user["access_token"] == "the.raw.jwt"
+    assert user["user_id"] == "user-123"
 
 
 @pytest.mark.unit

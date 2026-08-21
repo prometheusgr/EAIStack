@@ -150,8 +150,15 @@ async def verify_token(credentials=Depends(security)) -> dict:
         ) from e
 
 
-async def extract_user_from_payload(payload: dict) -> dict:
-    """Extract current user from verified token payload."""
+async def extract_user_from_payload(payload: dict, access_token: str | None = None) -> dict:
+    """Extract current user from verified token payload.
+
+    access_token carries the raw JWT string (not the decoded payload) so
+    callers that need to forward the caller's own credentials to another
+    service — e.g. the doc-search MCP server, which independently verifies it
+    against Keycloak's JWKS rather than trusting a bare user_id — can do so
+    without re-encoding a token from the decoded payload.
+    """
     user_id = payload.get("sub")
     username = payload.get("preferred_username")
 
@@ -167,12 +174,23 @@ async def extract_user_from_payload(payload: dict) -> dict:
         "email": payload.get("email"),
         "name": payload.get("name"),
         "token": payload,
+        "access_token": access_token,
     }
 
 
-async def get_current_user(payload: dict = Depends(verify_token)) -> dict:
-    """Extract current user from verified token payload (dependency-injected)."""
-    return await extract_user_from_payload(payload)
+async def get_current_user(
+    payload: dict = Depends(verify_token),
+    credentials=Depends(security),
+) -> dict:
+    """Extract current user from verified token payload (dependency-injected).
+
+    Takes its own Depends(security) (the same HTTPBearer instance verify_token
+    uses) purely to recover the raw token string — verify_token only returns
+    the decoded payload, never the string it decoded, and changing that return
+    shape would break every existing caller that treats its result as the
+    payload dict directly.
+    """
+    return await extract_user_from_payload(payload, access_token=credentials.credentials)
 
 
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:

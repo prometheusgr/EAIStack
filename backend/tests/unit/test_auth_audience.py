@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.core.auth import verify_token
+from app.core.auth import extract_user_from_payload, get_current_user, verify_token
 
 
 @pytest.mark.unit

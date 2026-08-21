@@ -152,7 +152,7 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(db_session
     embedding = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=generate_embedding(db_session, kb.content),
+        embedding=generate_embedding(db_session, kb.content).vector,
     )
     db_session.add(embedding)
     db_session.commit()

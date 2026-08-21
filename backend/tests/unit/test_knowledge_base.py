@@ -401,8 +401,8 @@ def test_mock_embedding_deterministic(db_session):
     emb1 = generate_embedding(db_session, text)
     emb2 = generate_embedding(db_session, text)
 
-    assert emb1 == emb2
-    assert len(emb1) == 768
+    assert emb1.vector == emb2.vector
+    assert len(emb1.vector) == 768
 
 
 @pytest.mark.unit
@@ -413,4 +413,4 @@ def test_mock_embedding_different_for_different_text(db_session):
     emb1 = generate_embedding(db_session, "Text A")
     emb2 = generate_embedding(db_session, "Text B")
 
-    assert emb1 != emb2
+    assert emb1.vector != emb2.vector

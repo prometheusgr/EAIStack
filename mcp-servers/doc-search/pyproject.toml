@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eaistack-doc-search"
+version = "0.1.0"
+description = "EAIStack MCP server: pgvector-backed knowledge base search"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "mcp==1.29.0",
+    "pydantic>=2.7.4,<3.0.0",
+    "pydantic-settings>=2.0,<3.0",
+    "sqlalchemy==2.0.23",
+    "psycopg2-binary==2.9.9",
+    "pgvector==0.2.4",
+    "httpx>=0.25.2",
+    "pyjwt==2.13.0",
+    "uvicorn[standard]>=0.31.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.3",
+    "pytest-cov==4.1.0",
+    "pytest-asyncio==0.21.1",
+    "testcontainers[postgres]==3.7.1",
+    "cryptography>=42.0",
+    "black==23.12.0",
+    "ruff==0.1.8",
+    "mypy==1.7.1",
+]
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "--cov=app --cov-report=term-missing --strict-markers"
+markers = [
+    "unit: Unit tests (fast, no real Postgres)",
+    "integration: Integration tests (real Postgres, slower)",
+]
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true

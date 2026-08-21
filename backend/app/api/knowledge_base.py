@@ -50,12 +50,18 @@ async def create_knowledge_base(
         doc_metadata=payload.metadata or {},
     )
 
-    # Generate and store embedding
-    embedding_vector = generate_embedding(db, payload.content)
+    # Generate and store embedding, tagged with the provider/model that
+    # produced it so a later runtime provider switch (Settings screen) is
+    # detectable instead of silently mixing incompatible vectors.
+    embedding_result = generate_embedding(db, payload.content)
     embedding = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
-        embedding=embedding_vector,
+        embedding=embedding_result.vector,
+        embed_metadata={
+            "embedding_provider": embedding_result.provider,
+            "embedding_model": embedding_result.model,
+        },
     )
     db.add(embedding)
 
@@ -120,7 +126,12 @@ async def update_knowledge_base(
     )
 
     if embedding:
-        embedding.embedding = generate_embedding(db, payload.content)
+        embedding_result = generate_embedding(db, payload.content)
+        embedding.embedding = embedding_result.vector
+        embedding.embed_metadata = {
+            "embedding_provider": embedding_result.provider,
+            "embedding_model": embedding_result.model,
+        }
         embedding.updated_at = datetime.now(timezone.utc)
 
     db.commit()

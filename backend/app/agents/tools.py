@@ -30,7 +30,7 @@ def make_search_knowledge_base_tool(user_id: str, db: Session) -> StructuredTool
     repo = EmbeddingRepository(db)
 
     def search_knowledge_base(query: str, top_k: int = 5) -> str:
-        query_embedding = generate_embedding(db, query)
+        query_embedding = generate_embedding(db, query).vector
         matches = repo.search_similar(user_id, query_embedding, top_k)
 
         if not matches:

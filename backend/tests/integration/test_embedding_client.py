@@ -23,8 +23,9 @@ def test_generate_embedding_against_real_llama_server(db_session):
         db_session, "search_document: The office serves pretzels on Fridays."
     )
 
-    assert len(result) == 768
-    assert all(isinstance(value, float) for value in result)
+    assert len(result.vector) == 768
+    assert all(isinstance(value, float) for value in result.vector)
+    assert result.provider == "llama-cpp"
 
 
 @pytest.mark.integration
@@ -51,7 +52,7 @@ def test_generate_embedding_similar_text_produces_similar_vectors(db_session):
         db_session, "search_document: The quarterly tax filing deadline is April 15."
     )
 
-    related_similarity = cosine_similarity(snack_policy, snack_query)
-    unrelated_similarity = cosine_similarity(snack_policy, unrelated)
+    related_similarity = cosine_similarity(snack_policy.vector, snack_query.vector)
+    unrelated_similarity = cosine_similarity(snack_policy.vector, unrelated.vector)
 
     assert related_similarity > unrelated_similarity

@@ -1,6 +1,7 @@
 """Service for embedding generation and management."""
 
 import random
+from dataclasses import dataclass
 
 import httpx
 from sqlalchemy.orm import Session
@@ -10,7 +11,22 @@ from app.services.system_settings_service import EmbeddingConfig, resolve_embedd
 EMBEDDING_DIMENSION = 768
 
 
-def generate_embedding(db: Session, text: str) -> list[float]:
+@dataclass(frozen=True)
+class EmbeddingResult:
+    """A generated embedding plus the provider/model that produced it.
+
+    Callers that persist the vector (knowledge_base.py) store provider/model
+    into Embedding.embed_metadata alongside it. Without this, a runtime
+    provider switch (via the Settings screen) would silently mix vectors from
+    incompatible models in the same knowledge base with no way to detect it.
+    """
+
+    vector: list[float]
+    provider: str
+    model: str
+
+
+def generate_embedding(db: Session, text: str) -> EmbeddingResult:
     """Generate an embedding vector for text, via the configured provider.
 
     Mirrors the chat LLM's provider switch (see app.core.llm_client): the
@@ -28,17 +44,20 @@ def generate_embedding(db: Session, text: str) -> list[float]:
         text: The text to generate an embedding for.
 
     Returns:
-        A list of 768 floating point values representing the embedding
-        (nomic-embed-text-v1.5's output dimension; see docs/LLM_SETUP.md).
+        An EmbeddingResult carrying a 768-dimensional vector (nomic-embed-text-v1.5's
+        output dimension; see docs/LLM_SETUP.md) plus the provider/model that
+        produced it.
     """
     config = resolve_embedding_config(db)
 
     if config.provider == "fake":
-        return _generate_fake_embedding(text)
+        vector = _generate_fake_embedding(text)
     elif config.provider == "llama-cpp":
-        return _generate_llama_cpp_embedding(config, text)
+        vector = _generate_llama_cpp_embedding(config, text)
     else:
         raise ValueError(f"Unknown embedding_provider: {config.provider}")
+
+    return EmbeddingResult(vector=vector, provider=config.provider, model=config.model)
 
 
 def _generate_fake_embedding(text: str) -> list[float]:
