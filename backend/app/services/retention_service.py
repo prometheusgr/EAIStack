@@ -18,6 +18,7 @@ method. See docs/SECURITY.md's retention policy table.
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TypeVar, overload
 
 from sqlalchemy.orm import Session
 
@@ -58,7 +59,32 @@ class RetentionConfig:
     api_key_purge_days: int | None
 
 
-def _resolve_field(db_value: int | bool | None, env_default: int | bool | None):
+_ResolvableField = TypeVar("_ResolvableField", int, bool)
+
+
+# Overloaded rather than a single `env_default: T | None -> T | None` signature:
+# cleanup_on_logout's env default (Settings.session_cleanup_on_logout) is always
+# a real bool, never None, so that call site can return a plain `bool` - the
+# other three retention fields' env defaults are themselves `int | None`
+# ("keep forever" is a legitimate default), so those call sites must stay
+# `int | None`. A single un-overloaded signature can't express both shapes,
+# which is what previously forced resolve_retention_config to paper over the
+# mismatch with a `bool(...)` wrapper at the cleanup_on_logout call site.
+@overload
+def _resolve_field(
+    db_value: _ResolvableField | None, env_default: _ResolvableField
+) -> _ResolvableField:
+    ...
+
+
+@overload
+def _resolve_field(
+    db_value: _ResolvableField | None, env_default: _ResolvableField | None
+) -> _ResolvableField | None:
+    ...
+
+
+def _resolve_field(db_value, env_default):
     """Resolve one overridable retention field: the DB value if a row set it,
     else the env default.
 
@@ -94,11 +120,9 @@ def resolve_retention_config(
             db_settings.conversation_retention_hours if db_settings else None,
             settings.session_ttl_hours,
         ),
-        cleanup_on_logout=bool(
-            _resolve_field(
-                db_settings.cleanup_on_logout if db_settings else None,
-                settings.session_cleanup_on_logout,
-            )
+        cleanup_on_logout=_resolve_field(
+            db_settings.cleanup_on_logout if db_settings else None,
+            settings.session_cleanup_on_logout,
         ),
         knowledge_base_purge_days=_resolve_field(
             db_settings.knowledge_base_purge_days if db_settings else None,

@@ -92,3 +92,35 @@ def test_list_yields_nothing_for_thread_with_no_checkpoint(db_session):
     results = list(saver.list(config))
 
     assert results == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"filter": {"source": "loop"}}, id="filter"),
+        pytest.param({"before": {"configurable": {"thread_id": "t"}}}, id="before"),
+        pytest.param({"limit": 5}, id="limit"),
+    ],
+)
+def test_list_raises_for_unsupported_filtering_arguments(db_session, kwargs):
+    """Test: list() raises NotImplementedError rather than silently ignoring
+    filter/before/limit.
+
+    This saver stores only the latest checkpoint per thread (see the module
+    docstring), so it structurally cannot honor any of these - there is at
+    most one checkpoint to return, and neither "filter it out" nor "list
+    checkpoints before X" nor "cap at N" is a meaningful operation on a
+    single-item result. Silently ignoring the argument and returning the
+    one checkpoint anyway would be wrong in a way a caller could not detect;
+    raising surfaces the mismatch immediately, matching
+    BaseCheckpointSaver.list's own documented default of NotImplementedError
+    for anything a subclass can't actually support.
+    """
+    thread = ThreadRepository(db_session).get_or_create_owned(None, "user-a")
+    db_session.commit()
+    saver = SqlAlchemyCheckpointSaver(db_session)
+    config = {"configurable": {"thread_id": thread.id, "checkpoint_ns": ""}}
+
+    with pytest.raises(NotImplementedError):
+        list(saver.list(config, **kwargs))

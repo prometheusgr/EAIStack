@@ -79,6 +79,23 @@ class SqlAlchemyCheckpointSaver(BaseCheckpointSaver):
         before: RunnableConfig | None = None,
         limit: int | None = None,
     ) -> Iterator[CheckpointTuple]:
+        """Yield the thread's single stored checkpoint, if any.
+
+        filter/before/limit are unsupported and raise NotImplementedError
+        rather than being silently ignored: this saver keeps at most one
+        checkpoint per thread (see the module docstring), so none of them is
+        a meaningful operation on a result that is already 0-or-1 items -
+        returning the one checkpoint anyway regardless of what was asked for
+        would be silently wrong in a way the caller has no way to detect.
+        Matches BaseCheckpointSaver.list's own default of NotImplementedError
+        for behavior a subclass doesn't actually provide.
+        """
+        if filter is not None or before is not None or limit is not None:
+            raise NotImplementedError(
+                "SqlAlchemyCheckpointSaver.list() does not support filter/before/limit: "
+                "it stores only the latest checkpoint per thread, so none of these "
+                "arguments has a meaningful result to return."
+            )
         if config is None:
             return
         result = self.get_tuple(config)

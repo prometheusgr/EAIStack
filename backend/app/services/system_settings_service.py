@@ -82,6 +82,15 @@ def _resolve_field(db_value: str | None, env_default: str) -> str:
     would silently discard an empty-string override, which would make this
     resolver disagree with `_to_response`'s `is_db_override` computation in
     app.api.settings (also an `is not None` check).
+
+    app.services.retention_service defines its own `_resolve_field` rather
+    than reusing this one (though it does import this module's NOT_PROVIDED
+    sentinel): that resolver is `int | bool`-typed and overloaded to keep
+    its env-default parameter's optionality precise per call site, which a
+    shared `str`-typed function couldn't express without widening this one's
+    signature too. If a third resolver with a different type ever shows up,
+    that's the point to generalize both into one generic function — not
+    before, per this repo's no-premature-abstraction convention (AGENTS.md).
     """
     return db_value if db_value is not None else env_default
 
