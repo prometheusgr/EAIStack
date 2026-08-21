@@ -1,5 +1,7 @@
 """Unit tests for ThreadRepository - TDD discipline."""
 
+from datetime import datetime
+
 import pytest
 
 from app.db.models import ConversationThread
@@ -107,11 +109,13 @@ def test_list_for_user_excludes_other_users_threads(db_session):
 def test_list_for_user_orders_by_most_recently_updated_first(db_session):
     """Test: list_for_user returns threads ordered by updated_at descending."""
     repo = ThreadRepository(db_session)
-    older = ConversationThread(user_id="user-a")
-    db_session.add(older)
-    db_session.flush()
-    newer = ConversationThread(user_id="user-a")
-    db_session.add(newer)
+    # updated_at is set explicitly rather than relying on the gap between two
+    # inserts: the system clock's resolution is coarser (~15ms on Windows) than
+    # the time it takes to create two rows, so both would otherwise share a
+    # timestamp and the ordering under test would be an arbitrary tie-break.
+    older = ConversationThread(user_id="user-a", updated_at=datetime(2026, 1, 1, 12, 0, 0))
+    newer = ConversationThread(user_id="user-a", updated_at=datetime(2026, 1, 1, 13, 0, 0))
+    db_session.add_all([older, newer])
     db_session.commit()
 
     result = repo.list_for_user("user-a")
