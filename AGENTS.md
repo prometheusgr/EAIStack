@@ -137,6 +137,35 @@ def test_retention_hours_edge_cases(retention_hours):
 
 **Linter:** `python tools/lint_edge_case_truthiness.py` flags `if <name>:` / `if not <name>:` where `<name>` is a parameter or attribute annotated `int | None` / `Optional[int]` (warning mode; parse errors gate CI). Runs automatically in CI, alongside `lint_time_injection.py`.
 
+### Repository Checklist (Structural Enforcement, Not Policy)
+
+A repository's public surface is the enforcement mechanism, not a comment or a code review note. Two constraints are enforced this way today:
+
+1. **User isolation** (`ThreadRepository`, `APIKeyRepository`): every read/write method takes `user_id` and filters on it. There is no method that returns or mutates a row without proving ownership first. See [docs/REPOSITORY_PATTERN.md](../docs/REPOSITORY_PATTERN.md).
+2. **Append-only audit/log stores** (`AuditLogRepository`): the class defines no `update`, `delete`, `remove`, or `purge` method. A purge path or bugfix literally cannot call a method that doesn't exist.
+
+**Pattern for a new append-only store:**
+```python
+class WidgetAuditRepository:
+    """Append-only. No update/delete/remove/purge method by design."""
+
+    def record(self, *, now: datetime, ...) -> WidgetAuditEntry:
+        ...  # only ever inserts
+
+    def list_recent(self, limit: int = 100) -> list[WidgetAuditEntry]:
+        ...  # read-only
+```
+
+**Checklist:**
+```
+- [ ] Does this repository back an audit trail, log, or other store that must never be mutated or purged?
+- [ ] If so, does its class name contain "Audit" or "Log" (so the linter covers it)?
+- [ ] Does the class define only insert/read methods — no update, delete, remove, or purge?
+- [ ] Is there a test asserting the class's public method set, so an accidental addition fails a test even before the linter runs?
+```
+
+**Linter:** `python tools/lint_repositories.py` flags any `*Repository` class whose name contains `Audit` or `Log` if it defines a method named (or prefixed) `update`, `delete`, `remove`, or `purge` (error severity; gates CI). Naming-convention scoped — a new append-only store is covered automatically as long as its class name says so. Runs automatically in CI, alongside `lint_time_injection.py` and `lint_edge_case_truthiness.py`.
+
 ### Frontend (React/TypeScript)
 
 - React Testing Library + Vitest

@@ -124,6 +124,7 @@ def lint_app(app_dir: Path) -> list[LintViolation]:
 
 def main():
     """Run the time injection linter."""
+    sys.stdout.reconfigure(encoding="utf-8")
     app_dir = Path(__file__).parent.parent / "app"
 
     if not app_dir.exists():

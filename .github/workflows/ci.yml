@@ -63,6 +63,10 @@ jobs:
         working-directory: ./backend
         run: python tools/lint_edge_case_truthiness.py
 
+      - name: Lint append-only repositories
+        working-directory: ./backend
+        run: python tools/lint_repositories.py
+
   frontend-tests:
     runs-on: ubuntu-latest
 

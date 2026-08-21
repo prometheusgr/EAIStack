@@ -165,6 +165,7 @@ def lint_app(app_dir: Path) -> list[LintViolation]:
 
 def main():
     """Run the edge-case truthiness linter."""
+    sys.stdout.reconfigure(encoding="utf-8")
     app_dir = Path(__file__).parent.parent / "app"
 
     if not app_dir.exists():
