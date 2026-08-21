@@ -1,6 +1,15 @@
 """Backend service layer for business logic."""
 
 from app.services.embedding_service import generate_embedding
+from app.services.retention_service import (
+    RetentionConfig,
+    purge_expired_api_keys,
+    purge_expired_conversations,
+    purge_expired_knowledge_base,
+    purge_user_conversations,
+    resolve_retention_config,
+    run_retention_sweep,
+)
 from app.services.system_settings_service import (
     EmbeddingConfig,
     LLMConfig,
@@ -11,6 +20,13 @@ from app.services.system_settings_service import (
 
 __all__ = [
     "generate_embedding",
+    "RetentionConfig",
+    "purge_expired_api_keys",
+    "purge_expired_conversations",
+    "purge_expired_knowledge_base",
+    "purge_user_conversations",
+    "resolve_retention_config",
+    "run_retention_sweep",
     "EmbeddingConfig",
     "LLMConfig",
     "available_provider_options",

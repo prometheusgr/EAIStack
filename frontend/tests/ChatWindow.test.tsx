@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ChatWindow } from "../src/components/ChatWindow";
 import * as agentsClient from "../src/api/agentsClient";
+import { threadsClient } from "../src/api/threadsClient";
 
 vi.mock("../src/context/AuthContext", () => ({
   useAuth: () => ({
@@ -16,9 +17,17 @@ vi.mock("../src/context/AuthContext", () => ({
 
 vi.mock("../src/api/agentsClient");
 
+vi.mock("../src/api/threadsClient", () => ({
+  threadsClient: {
+    listThreads: vi.fn(),
+    getThreadHistory: vi.fn(),
+  },
+}));
+
 describe("ChatWindow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({ threads: [] });
   });
 
   it("should render input field and send button", () => {
@@ -131,5 +140,112 @@ describe("ChatWindow", () => {
     await waitFor(() => {
       expect(screen.getByText(/error|failed/i)).toBeInTheDocument();
     });
+  });
+
+  it("should list the user's threads in the selector", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({
+      threads: [
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
+        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z" },
+      ],
+    });
+    vi.mocked(threadsClient.getThreadHistory).mockResolvedValue({
+      id: "thread-1",
+      messages: [],
+    });
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: /select conversation/i })).toBeInTheDocument();
+    });
+    expect(screen.getAllByRole("option")).toHaveLength(3); // "New chat" + 2 threads
+  });
+
+  it("should auto-load the most recently updated thread on mount", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({
+      threads: [
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
+      ],
+    });
+    vi.mocked(threadsClient.getThreadHistory).mockResolvedValue({
+      id: "thread-1",
+      messages: [
+        { role: "user", text: "Earlier question" },
+        { role: "agent", text: "Earlier answer" },
+      ],
+    });
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(threadsClient.getThreadHistory).toHaveBeenCalledWith(
+        "thread-1",
+        "fake-token-123",
+        expect.any(Function)
+      );
+    });
+    expect(await screen.findByText("Earlier question")).toBeInTheDocument();
+    expect(screen.getByText("Earlier answer")).toBeInTheDocument();
+  });
+
+  it("should not auto-load any thread when the user has none yet", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({ threads: [] });
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(threadsClient.listThreads).toHaveBeenCalled();
+    });
+    expect(threadsClient.getThreadHistory).not.toHaveBeenCalled();
+    expect(screen.getByText(/start a conversation/i)).toBeInTheDocument();
+  });
+
+  it("should load a different thread's history when selected from the dropdown", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({
+      threads: [
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
+        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z" },
+      ],
+    });
+    vi.mocked(threadsClient.getThreadHistory).mockImplementation(async (threadId) => ({
+      id: threadId,
+      messages: [{ role: "user", text: `Message from ${threadId}` }],
+    }));
+
+    render(<ChatWindow />);
+
+    await screen.findByText("Message from thread-1");
+
+    const select = screen.getByRole("combobox", { name: /select conversation/i });
+    fireEvent.change(select, { target: { value: "thread-2" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("Message from thread-2")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Message from thread-1")).not.toBeInTheDocument();
+  });
+
+  it("should clear messages and start a new thread when New chat is clicked", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({
+      threads: [
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
+      ],
+    });
+    vi.mocked(threadsClient.getThreadHistory).mockResolvedValue({
+      id: "thread-1",
+      messages: [{ role: "user", text: "Old message" }],
+    });
+
+    render(<ChatWindow />);
+
+    await screen.findByText("Old message");
+
+    fireEvent.click(screen.getByRole("button", { name: /new chat/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Old message")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText(/start a conversation/i)).toBeInTheDocument();
   });
 });

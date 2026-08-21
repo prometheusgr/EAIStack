@@ -8,7 +8,21 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolCall
 from app.agents.chat_agent import create_chat_agent
 from app.core.llm_client import FakeChatModel
 from app.db.models import Embedding, KnowledgeBase
+from app.repositories import ThreadRepository
 from app.services import generate_embedding
+
+
+def _new_thread(db_session, user_id: str = "test-user") -> str:
+    """Create a real ConversationThread row and return its id.
+
+    The checkpointer's conversation_checkpoints table has a foreign key
+    to conversation_threads, matching how the API layer always creates a
+    thread via ThreadRepository before invoking the graph - tests must
+    do the same rather than inventing arbitrary thread_id strings.
+    """
+    thread = ThreadRepository(db_session).get_or_create_owned(None, user_id)
+    db_session.commit()
+    return thread.id
 
 
 @pytest.mark.unit
@@ -27,19 +41,56 @@ def test_chat_agent_invoke_with_message(db_session, monkeypatch):
         lambda db: FakeChatModel(response="4"),
     )
     graph = create_chat_agent(db=db_session, user_id="test-user")
+    thread_id = _new_thread(db_session)
 
     state = {
         "messages": [HumanMessage(content="What is 2+2?")],
-        "thread_id": "test-thread-123",
+        "thread_id": thread_id,
         "user_id": "test-user",
     }
 
-    result = graph.invoke(state)
+    result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
 
     final_message = result["messages"][-1]
     assert isinstance(final_message, AIMessage)
     assert final_message.content == "4"
-    assert result["thread_id"] == "test-thread-123"
+    assert result["thread_id"] == thread_id
+
+
+@pytest.mark.unit
+def test_conversation_persists_across_two_invokes_same_thread_same_user(db_session, monkeypatch):
+    """A second invoke on the same thread_id sees the first turn's messages."""
+    fake_llm = FakeChatModel(responses=[AIMessage(content="4"), AIMessage(content="Yes, 2+2=4.")])
+    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    thread_id = _new_thread(db_session)
+    config = {"configurable": {"thread_id": thread_id}}
+
+    first_graph = create_chat_agent(db=db_session, user_id="test-user")
+    first_graph.invoke(
+        {
+            "messages": [HumanMessage(content="What is 2+2?")],
+            "thread_id": thread_id,
+            "user_id": "test-user",
+        },
+        config=config,
+    )
+    db_session.commit()
+
+    second_graph = create_chat_agent(db=db_session, user_id="test-user")
+    result = second_graph.invoke(
+        {
+            "messages": [HumanMessage(content="Are you sure?")],
+            "thread_id": thread_id,
+            "user_id": "test-user",
+        },
+        config=config,
+    )
+
+    contents = [m.content for m in result["messages"]]
+    assert "What is 2+2?" in contents
+    assert "4" in contents
+    assert "Are you sure?" in contents
+    assert contents[-1] == "Yes, 2+2=4."
 
 
 @pytest.mark.unit
@@ -50,15 +101,15 @@ def test_chat_agent_invoke_passes_through_thread_id(db_session, monkeypatch):
         lambda db: FakeChatModel(),
     )
     graph = create_chat_agent(db=db_session, user_id="test-user")
+    thread_id = _new_thread(db_session)
 
-    thread_id = "my-conversation-456"
     state = {
         "messages": [HumanMessage(content="Hello")],
         "thread_id": thread_id,
         "user_id": "test-user",
     }
 
-    result = graph.invoke(state)
+    result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
 
     assert result["thread_id"] == thread_id
 
@@ -69,14 +120,15 @@ def test_chat_agent_plain_response_skips_tool_node(db_session, monkeypatch):
     fake_llm = FakeChatModel(response="No tool needed here.")
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
     graph = create_chat_agent(db=db_session, user_id="test-user")
+    thread_id = _new_thread(db_session)
 
     state = {
         "messages": [HumanMessage(content="Hello")],
-        "thread_id": "test-123",
+        "thread_id": thread_id,
         "user_id": "test-user",
     }
 
-    result = graph.invoke(state)
+    result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
 
     assert fake_llm.call_count == 1
     messages = result["messages"]
@@ -116,13 +168,14 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(db_session
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
 
     graph = create_chat_agent(db=db_session, user_id="test-user")
+    thread_id = _new_thread(db_session)
     state = {
         "messages": [HumanMessage(content="How many vacation days do I get?")],
-        "thread_id": "test-123",
+        "thread_id": thread_id,
         "user_id": "test-user",
     }
 
-    result = graph.invoke(state)
+    result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
 
     assert fake_llm.call_count == 2
     messages = result["messages"]
@@ -151,13 +204,14 @@ def test_chat_agent_stops_after_max_tool_iterations(db_session, monkeypatch):
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
 
     graph = create_chat_agent(db=db_session, user_id="test-user")
+    thread_id = _new_thread(db_session)
     state = {
         "messages": [HumanMessage(content="Loop forever?")],
-        "thread_id": "test-123",
+        "thread_id": thread_id,
         "user_id": "test-user",
     }
 
-    result = graph.invoke(state)
+    result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
 
     assert result is not None
     assert fake_llm.call_count <= 6

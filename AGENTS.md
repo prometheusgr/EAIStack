@@ -103,8 +103,8 @@ npm test -- filename.test.ts  # Single test file
 ### CI Pipeline
 
 GitHub Actions (see `.github/workflows/ci.yml`) runs on every PR:
-- **Backend**: `pytest tests/unit/` + `ruff check` + `black --check`
-- **Frontend**: `npm test` + `npm run lint`
+- **Backend**: `pytest tests/unit/` + `ruff check` + `black --check` + `mypy app/`
+- **Frontend**: `npm test` + `npm run lint` + `npm run build`
 - Coverage enforced on changed code (baseline exists in Phase 1)
 
 ## Coding Standards

@@ -34,8 +34,17 @@ class SystemSettingsRepository:
         embedding_url: str | None,
         embedding_model: str | None,
         updated_by: str,
+        conversation_retention_hours: int | None = None,
+        cleanup_on_logout: bool | None = None,
+        knowledge_base_purge_days: int | None = None,
+        api_key_purge_days: int | None = None,
     ) -> SystemSettings:
         """Create or update the singleton settings row.
+
+        Every field is written on every call: None means "no override, fall
+        back to the env default", so omitting one clears it rather than
+        leaving the previous value in place. The retention fields default to
+        None so a caller changing only provider config need not name them.
 
         Does not commit; the caller owns the transaction.
         """
@@ -51,6 +60,10 @@ class SystemSettingsRepository:
         settings_row.embedding_provider = embedding_provider
         settings_row.embedding_url = embedding_url
         settings_row.embedding_model = embedding_model
+        settings_row.conversation_retention_hours = conversation_retention_hours
+        settings_row.cleanup_on_logout = cleanup_on_logout
+        settings_row.knowledge_base_purge_days = knowledge_base_purge_days
+        settings_row.api_key_purge_days = api_key_purge_days
         settings_row.updated_by = updated_by
 
         self.db.flush()

@@ -9,6 +9,8 @@ a value cached at process start.
 """
 
 from dataclasses import dataclass
+from enum import Enum
+from typing import TypedDict
 
 from sqlalchemy.orm import Session
 
@@ -16,10 +18,38 @@ from app.core.config import settings
 from app.db.models import SystemSettings
 from app.repositories.system_settings_repository import SystemSettingsRepository
 
+
+class NotProvided(Enum):
+    """Type for the "argument omitted" sentinel below.
+
+    A single-member Enum rather than object() so the sentinel has a type
+    mypy can narrow on: SystemSettings | None | NotProvided states the
+    three real cases, and the `is NOT_PROVIDED` checks narrow the sentinel
+    away. A bare object() forces the annotation to widen to object, which
+    loses that distinction.
+    """
+
+    token = 0
+
+
 # Sentinel distinguishing "caller didn't pass db_settings" from "caller
 # passed the real value None" (which happens whenever no SystemSettings row
 # has been created yet — a legitimate, common case, not an absent argument).
-_NOT_PROVIDED = object()
+NOT_PROVIDED = NotProvided.token
+
+
+class ProviderOptionDict(TypedDict):
+    """One provider-picker entry as returned by available_provider_options.
+
+    A TypedDict rather than dict[str, str | bool] so each key keeps its own
+    type, which is what lets ProviderOption(**option) typecheck at the call
+    site in app.api.settings; a union-valued dict cannot express that.
+    """
+
+    provider: str
+    url: str
+    label: str
+    requires_manual_entry: bool
 
 
 @dataclass(frozen=True)
@@ -52,12 +82,21 @@ def _resolve_field(db_value: str | None, env_default: str) -> str:
     would silently discard an empty-string override, which would make this
     resolver disagree with `_to_response`'s `is_db_override` computation in
     app.api.settings (also an `is not None` check).
+
+    app.services.retention_service defines its own `_resolve_field` rather
+    than reusing this one (though it does import this module's NOT_PROVIDED
+    sentinel): that resolver is `int | bool`-typed and overloaded to keep
+    its env-default parameter's optionality precise per call site, which a
+    shared `str`-typed function couldn't express without widening this one's
+    signature too. If a third resolver with a different type ever shows up,
+    that's the point to generalize both into one generic function — not
+    before, per this repo's no-premature-abstraction convention (AGENTS.md).
     """
     return db_value if db_value is not None else env_default
 
 
 def resolve_llm_config(
-    db: Session, db_settings: SystemSettings | None = _NOT_PROVIDED
+    db: Session, db_settings: SystemSettings | None | NotProvided = NOT_PROVIDED
 ) -> LLMConfig:
     """Resolve the effective LLM config: DB value if set, else env default.
 
@@ -75,7 +114,7 @@ def resolve_llm_config(
     default to a sentinel, not None, because None is also the legitimate
     value of db_settings when no SystemSettings row has been created yet.
     """
-    if db_settings is _NOT_PROVIDED:
+    if db_settings is NOT_PROVIDED:
         db_settings = SystemSettingsRepository(db).get()
 
     return LLMConfig(
@@ -90,7 +129,7 @@ def resolve_llm_config(
 
 
 def resolve_embedding_config(
-    db: Session, db_settings: SystemSettings | None = _NOT_PROVIDED
+    db: Session, db_settings: SystemSettings | None | NotProvided = NOT_PROVIDED
 ) -> EmbeddingConfig:
     """Resolve the effective embedding config: DB value if set, else env default.
 
@@ -103,7 +142,7 @@ def resolve_embedding_config(
     the legitimate value of db_settings when no SystemSettings row has been
     created yet.
     """
-    if db_settings is _NOT_PROVIDED:
+    if db_settings is NOT_PROVIDED:
         db_settings = SystemSettingsRepository(db).get()
 
     return EmbeddingConfig(
@@ -120,7 +159,7 @@ def resolve_embedding_config(
     )
 
 
-def available_provider_options() -> dict[str, list[dict[str, str | bool]]]:
+def available_provider_options() -> dict[str, list[ProviderOptionDict]]:
     """Return the fixed "detected local services" list for the settings screen's
     provider pickers.
 

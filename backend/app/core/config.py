@@ -45,9 +45,23 @@ class Settings(BaseSettings):
     keycloak_web_client_id: str = "eaistack-web"
     keycloak_client_secret: str = "eaistack-api-secret"
 
-    # Session lifecycle
+    # Data retention (env-level defaults; an admin can override each of these
+    # at runtime via the settings screen, which writes to SystemSettings —
+    # see app.services.retention_service.resolve_retention_config).
+    #
+    # session_ttl_hours is the conversation/checkpoint window: None means
+    # "keep forever", 0 means "purge immediately". Enforced by the retention
+    # sweep (`python -m app.cli.retention_sweep`), which a K8s CronJob runs
+    # on a schedule — deliberately not an in-process scheduler, which would
+    # double-run across replicas.
     session_cleanup_on_logout: bool = True
     session_ttl_hours: int | None = 24
+
+    # How long soft-deleted documents (and their embeddings) and revoked API
+    # keys are retained before being hard-deleted. None means "keep forever",
+    # preserving today's behaviour of never purging them.
+    knowledge_base_purge_days: int | None = 30
+    api_key_purge_days: int | None = 30
 
     class Config:
         env_file = ".env"

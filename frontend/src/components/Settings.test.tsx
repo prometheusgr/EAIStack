@@ -39,6 +39,14 @@ const ENV_DEFAULT_SETTINGS = {
   embedding_provider_is_db_override: false,
   embedding_url_is_db_override: false,
   embedding_model_is_db_override: false,
+  conversation_retention_hours: 24,
+  conversation_retention_hours_is_db_override: false,
+  cleanup_on_logout: true,
+  cleanup_on_logout_is_db_override: false,
+  knowledge_base_purge_days: 30,
+  knowledge_base_purge_days_is_db_override: false,
+  api_key_purge_days: 30,
+  api_key_purge_days_is_db_override: false,
   available_providers: {
     llm: [
       { provider: 'fake', url: '', label: 'Fake (mocked, for testing)', requires_manual_entry: false },

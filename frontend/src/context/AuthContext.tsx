@@ -1,17 +1,18 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import {
   decodeJwt,
   buildKeycloakLoginUrl,
   buildKeycloakLogoutUrl,
   AuthUser,
 } from '../auth/authHelpers'
+import { AuthService } from '@/services/authService'
 
 interface AuthContextType {
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
   login: () => void
-  logout: () => void
+  logout: () => Promise<void>
   refreshAccessToken: () => Promise<boolean>
   user: AuthUser | null
   roles: string[]
@@ -27,6 +28,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<AuthUser | null>(null)
   const [roles, setRoles] = useState<string[]>([])
   const [keycloakUrl, setKeycloakUrl] = useState<string>('http://localhost:8080/')
+
+  // Guards every setState after the one genuine await in initAuth (the
+  // `fetch('/api/auth/token')` call below, hit only on the OAuth redirect
+  // callback path). Without it, a slow token exchange still in flight when
+  // AuthProvider unmounts keeps running, and its resolution calls setState
+  // on a provider nothing is listening to anymore - harmless in the running
+  // app, but in this test suite (where every test mounts a fresh
+  // AuthProvider via renderSettings()/render() and none of them wait for
+  // in-flight requests to settle first) a late setState from an
+  // already-unmounted test's provider can land during a *later*, unrelated
+  // test and trigger an extra render at the wrong moment - the shape of the
+  // intermittent CI failures this guard was added to fix.
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     const initAuth = async () => {
@@ -55,6 +75,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 redirect_uri: window.location.origin + '/',
               }),
             })
+
+            if (!isMountedRef.current) {
+              return
+            }
 
             if (tokenResponse.ok) {
               const tokenData = await tokenResponse.json()
@@ -127,7 +151,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setUser(null)
         setToken(null)
       } finally {
-        setIsLoading(false)
+        if (isMountedRef.current) {
+          setIsLoading(false)
+        }
       }
     }
     initAuth()
@@ -167,10 +193,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('token_type')
         localStorage.removeItem('id_token')
-        setIsAuthenticated(false)
-        setUser(null)
-        setToken(null)
-        setRoles([])
+        if (isMountedRef.current) {
+          setIsAuthenticated(false)
+          setUser(null)
+          setToken(null)
+          setRoles([])
+        }
         return false
       }
 
@@ -187,23 +215,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         try {
           const payload = decodeJwt(tokenData.access_token)
-          setToken(tokenData.access_token)
-          setUser({
-            username: payload.preferred_username,
-            email: payload.email,
-            name: payload.name,
-          })
-          setRoles(payload.realm_access?.roles || [])
+          if (isMountedRef.current) {
+            setToken(tokenData.access_token)
+            setUser({
+              username: payload.preferred_username,
+              email: payload.email,
+              name: payload.name,
+            })
+            setRoles(payload.realm_access?.roles || [])
+          }
           return true
         } catch {
           localStorage.removeItem('access_token')
           localStorage.removeItem('refresh_token')
           localStorage.removeItem('token_type')
           localStorage.removeItem('id_token')
-          setIsAuthenticated(false)
-          setUser(null)
-          setToken(null)
-          setRoles([])
+          if (isMountedRef.current) {
+            setIsAuthenticated(false)
+            setUser(null)
+            setToken(null)
+            setRoles([])
+          }
           return false
         }
       }
@@ -213,16 +245,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('token_type')
       localStorage.removeItem('id_token')
-      setIsAuthenticated(false)
-      setUser(null)
-      setToken(null)
-      setRoles([])
+      if (isMountedRef.current) {
+        setIsAuthenticated(false)
+        setUser(null)
+        setToken(null)
+        setRoles([])
+      }
       return false
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
     const idToken = localStorage.getItem('id_token')
+    const accessToken = localStorage.getItem('access_token')
+
+    // Ask the backend to purge this user's conversation state before the
+    // token is discarded — afterwards there is no credential left to
+    // authenticate the request. Whether anything is actually deleted is the
+    // backend's decision (cleanup_on_logout); the frontend only triggers it.
+    // A failure here must not strand the user in a half-logged-out state, so
+    // the local sign-out proceeds regardless.
+    if (accessToken) {
+      try {
+        await new AuthService(accessToken).logout()
+      } catch {
+        // Server-side cleanup failed; the TTL sweep will collect the data.
+      }
+    }
+
     localStorage.removeItem('access_token')
     localStorage.removeItem('token_type')
     localStorage.removeItem('refresh_token')
