@@ -5,6 +5,7 @@ import pytest
 from app.core.auth import get_current_user
 from app.main import app
 from app.repositories.system_settings_repository import SystemSettingsRepository
+from app.services import available_provider_options
 
 ADMIN_USER = {
     "user_id": "admin-user-1",
@@ -212,6 +213,88 @@ def test_put_settings_fetches_the_settings_row_exactly_once(client, mocker):
     # upsert() also calls get() once internally (to check create-vs-update),
     # so PUT's total is 2: one from upsert, one from _to_response — not 4.
     assert get_spy.call_count == 2
+
+
+@pytest.mark.unit
+def test_put_settings_rejects_empty_url_for_openai_compatible_provider(client):
+    """openai-compatible has no detected default URL, so an empty llm_url
+    would leave the client with nowhere to send requests — reject at write
+    time rather than persisting a value that breaks the next chat call.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put(
+        "/api/settings",
+        json={"llm_provider": "openai-compatible", "llm_url": ""},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+
+
+@pytest.mark.unit
+def test_put_settings_accepts_empty_url_for_fake_provider(client):
+    """The 'fake' provider's URL template is legitimately "" (see
+    available_provider_options) — it must not be rejected by the
+    required-URL check.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put(
+        "/api/settings",
+        json={"llm_provider": "fake", "llm_url": ""},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+
+
+@pytest.mark.unit
+def test_put_settings_accepts_empty_url_for_llama_cpp_when_provider_unchanged(client):
+    """llama-cpp has a detected default URL (from available_provider_options),
+    so omitting/clearing llm_url is fine — it falls back to that default via
+    resolve_llm_config, not to an empty string.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put(
+        "/api/settings",
+        json={"llm_provider": "llama-cpp"},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+
+
+@pytest.mark.unit
+def test_put_settings_all_available_providers_are_accepted(client):
+    """Every provider name available_provider_options() advertises to the
+    settings screen must be accepted by update_settings — the two lists must
+    not be able to drift apart.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    options = available_provider_options()
+    for option in options["llm"]:
+        url = "http://example:8000/v1" if option["requires_manual_entry"] else option["url"]
+        response = client.put(
+            "/api/settings",
+            json={"llm_provider": option["provider"], "llm_url": url},
+        )
+        assert response.status_code == 200, f"llm provider {option['provider']} was rejected"
+
+    for option in options["embedding"]:
+        url = "http://example:8000/v1" if option["requires_manual_entry"] else option["url"]
+        response = client.put(
+            "/api/settings",
+            json={"embedding_provider": option["provider"], "embedding_url": url},
+        )
+        assert response.status_code == 200, f"embedding provider {option['provider']} was rejected"
+
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.unit

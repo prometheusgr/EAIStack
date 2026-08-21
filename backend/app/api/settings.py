@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ProviderOption, SystemSettingsResponse, UpdateSettingsRequest
 from app.core.auth import require_admin
 from app.db.database import get_db
+from app.db.models import SystemSettings
 from app.repositories import SystemSettingsRepository
 from app.services import (
     available_provider_options,
@@ -15,15 +16,35 @@ from app.services import (
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-_VALID_LLM_PROVIDERS = {"fake", "llama-cpp", "openai-compatible"}
-_VALID_EMBEDDING_PROVIDERS = {"fake", "llama-cpp"}
+# Sentinel distinguishing "caller didn't pass db_settings" from "caller
+# passed the real value None" (a legitimate case: no SystemSettings row
+# exists yet). Mirrors the same pattern in system_settings_service.
+_NOT_PROVIDED = object()
 
 
-def _to_response(db: Session) -> SystemSettingsResponse:
+def _provider_options_by_category() -> dict[str, dict[str, dict[str, str | bool]]]:
+    """available_provider_options(), indexed by provider name within each
+    category, for O(1) lookups of a provider's catalog entry.
+    """
+    return {
+        category: {str(option["provider"]): option for option in options}
+        for category, options in available_provider_options().items()
+    }
+
+
+def _to_response(
+    db: Session, db_settings: SystemSettings | None = _NOT_PROVIDED
+) -> SystemSettingsResponse:
     """Build the settings response: resolved effective config, plus which
     fields are DB-overridden vs. falling back to the env default.
+
+    db_settings: the already-fetched singleton row, if the caller has one
+    (e.g. update_settings, whose upsert() call already returns it) — avoids
+    a redundant SELECT. Omit it (the default) for callers like get_settings
+    that have no row of their own yet.
     """
-    db_settings = SystemSettingsRepository(db).get()
+    if db_settings is _NOT_PROVIDED:
+        db_settings = SystemSettingsRepository(db).get()
     llm_config = resolve_llm_config(db, db_settings)
     embedding_config = resolve_embedding_config(db, db_settings)
 
@@ -76,11 +97,13 @@ async def update_settings(
     matching the nullable-column semantics of SystemSettings. Takes effect
     on the next chat/embedding call — no backend restart required.
     """
-    if payload.llm_provider is not None and payload.llm_provider not in _VALID_LLM_PROVIDERS:
+    options_by_category = _provider_options_by_category()
+
+    if payload.llm_provider is not None and payload.llm_provider not in options_by_category["llm"]:
         raise HTTPException(status_code=400, detail=f"Unknown llm_provider: {payload.llm_provider}")
     if (
         payload.embedding_provider is not None
-        and payload.embedding_provider not in _VALID_EMBEDDING_PROVIDERS
+        and payload.embedding_provider not in options_by_category["embedding"]
     ):
         raise HTTPException(
             status_code=400,
@@ -88,7 +111,32 @@ async def update_settings(
         )
 
     repo = SystemSettingsRepository(db)
-    repo.upsert(
+    db_settings = repo.get()
+
+    # The provider this URL applies to is the one the payload is setting, or
+    # (if the payload only touches the URL) the currently-effective one —
+    # never assume "fake", since an existing openai-compatible override must
+    # still be validated when only its URL is being cleared.
+    llm_provider = payload.llm_provider or resolve_llm_config(db, db_settings).provider
+    if options_by_category["llm"][llm_provider]["requires_manual_entry"] and payload.llm_url == "":
+        raise HTTPException(
+            status_code=400,
+            detail=f"llm_url is required for provider: {llm_provider}",
+        )
+
+    embedding_provider = (
+        payload.embedding_provider or resolve_embedding_config(db, db_settings).provider
+    )
+    if (
+        options_by_category["embedding"][embedding_provider]["requires_manual_entry"]
+        and payload.embedding_url == ""
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"embedding_url is required for provider: {embedding_provider}",
+        )
+
+    updated_settings = repo.upsert(
         llm_provider=payload.llm_provider,
         llm_url=payload.llm_url,
         llm_model=payload.llm_model,
@@ -99,4 +147,4 @@ async def update_settings(
     )
     db.commit()
 
-    return _to_response(db)
+    return _to_response(db, updated_settings)
