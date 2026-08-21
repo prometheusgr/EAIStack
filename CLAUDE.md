@@ -35,6 +35,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Isolation: `(user_id, thread_id)` ownership is enforced structurally by `ThreadRepository`, never by a checkpointer or per-endpoint filter. A client-supplied `thread_id` not owned by the caller is silently replaced with a fresh thread on `POST /api/agents/chat`; the new `GET /api/agents/threads` and `GET /api/agents/threads/{thread_id}` endpoints return 404 (never 403) for threads that don't exist or aren't the caller's.
 - Frontend: `ChatWindow` restores the user's most recently updated thread on mount and lets them switch or start a new conversation, via a proper client → service → hook layer (`threadsClient` → `ThreadsService` → `useThreadsService`).
 - Out of scope (deferred): retention/TTL enforcement (`session_ttl_hours`, `session_cleanup_on_logout` in `config.py` exist but aren't enforced yet).
+**Phase 4b Complete ✓**: Data Retention Policy & Admin Configuration
+- Every persisted store has a documented, tested retention timeline — see the policy table in `docs/SECURITY.md`. Windows are nullable DB overrides over env defaults, resolved per-call by `retention_service.resolve_retention_config` (same `is not None` semantics as `system_settings_service`, since `0` = "purge immediately" and `None` = "keep forever" are both meaningful).
+- Enforcement: a K8s CronJob (`infra/k3s/retention-cronjob.yaml`) running `python -m app.cli.retention_sweep`, deliberately **not** an in-process scheduler — that would double-run across replicas without a distributed lock. Logout-triggered cleanup runs via `POST /api/auth/logout`, scoped to the caller's own `user_id` from the validated token.
+- Audit: `AuditLog` is the first audit record in the system, append-only. Exemption from purges is structural, not conventional — `AuditLogRepository` has no delete/update method (asserted by a test on its public surface) and no purge path queries the table. Retention changes record actor, timestamp, field, and old→new values.
+- Safety: the Settings UI requires explicit confirmation before applying a *shortened* window, naming each affected store and its old→new value. Purges are batched (500/round-trip), never one unbounded DELETE.
+- Time is injected (`now: datetime`) throughout the retention service, so time-dependent logic is deterministic under test without patching `datetime`.
 
 ## Common Development Commands
 
@@ -225,4 +231,4 @@ Response → Frontend
 - **Keycloak secrets**: Currently hardcoded in `app/core/config.py`; move to K8s secrets before production (Phase 5).
 - **LLM model vendoring**: All models must be downloaded during air-gap setup; no internet at runtime.
 - **MCP transport**: Must be Streamable HTTP (not stdio) for K8s pod-to-pod communication (Phase 3+).
-- **Session cleanup**: Configurable per deployment: logout-triggered OR TTL-based (or both). Implemented in Phase 4a.
+- **Session cleanup**: Configurable per deployment: logout-triggered OR TTL-based (or both). Implemented in Phase 4b; the TTL sweep needs its CronJob scheduled (or the module run manually under docker-compose) or nothing purges automatically.

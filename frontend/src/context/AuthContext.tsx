@@ -5,13 +5,14 @@ import {
   buildKeycloakLogoutUrl,
   AuthUser,
 } from '../auth/authHelpers'
+import { AuthService } from '@/services/authService'
 
 interface AuthContextType {
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
   login: () => void
-  logout: () => void
+  logout: () => Promise<void>
   refreshAccessToken: () => Promise<boolean>
   user: AuthUser | null
   roles: string[]
@@ -221,8 +222,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
     const idToken = localStorage.getItem('id_token')
+    const accessToken = localStorage.getItem('access_token')
+
+    // Ask the backend to purge this user's conversation state before the
+    // token is discarded — afterwards there is no credential left to
+    // authenticate the request. Whether anything is actually deleted is the
+    // backend's decision (cleanup_on_logout); the frontend only triggers it.
+    // A failure here must not strand the user in a half-logged-out state, so
+    // the local sign-out proceeds regardless.
+    if (accessToken) {
+      try {
+        await new AuthService(accessToken).logout()
+      } catch {
+        // Server-side cleanup failed; the TTL sweep will collect the data.
+      }
+    }
+
     localStorage.removeItem('access_token')
     localStorage.removeItem('token_type')
     localStorage.removeItem('refresh_token')

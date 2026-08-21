@@ -150,6 +150,26 @@ class ProviderOption(BaseModel):
     requires_manual_entry: bool
 
 
+class AuditLogEntry(BaseModel):
+    """One entry in the audit trail."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    actor_user_id: str
+    action: str
+    field_name: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    created_at: datetime
+
+
+class AuditLogResponse(BaseModel):
+    """Response body for GET /api/settings/audit."""
+
+    entries: list[AuditLogEntry]
+
+
 class SystemSettingsResponse(BaseModel):
     """Response body for GET /api/settings.
 
@@ -170,6 +190,14 @@ class SystemSettingsResponse(BaseModel):
     embedding_provider_is_db_override: bool
     embedding_url_is_db_override: bool
     embedding_model_is_db_override: bool
+    conversation_retention_hours: Optional[int] = None
+    conversation_retention_hours_is_db_override: bool
+    cleanup_on_logout: bool
+    cleanup_on_logout_is_db_override: bool
+    knowledge_base_purge_days: Optional[int] = None
+    knowledge_base_purge_days_is_db_override: bool
+    api_key_purge_days: Optional[int] = None
+    api_key_purge_days_is_db_override: bool
     available_providers: dict[str, list[ProviderOption]]
 
 
@@ -186,3 +214,9 @@ class UpdateSettingsRequest(BaseModel):
     embedding_provider: Optional[str] = None
     embedding_url: Optional[str] = None
     embedding_model: Optional[str] = None
+    # Retention windows. None clears back to the env default; 0 is a valid
+    # "purge immediately" override, so the lower bound is 0, not 1.
+    conversation_retention_hours: Optional[int] = Field(default=None, ge=0)
+    cleanup_on_logout: Optional[bool] = None
+    knowledge_base_purge_days: Optional[int] = Field(default=None, ge=0)
+    api_key_purge_days: Optional[int] = Field(default=None, ge=0)

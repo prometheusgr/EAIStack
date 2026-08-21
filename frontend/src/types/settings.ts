@@ -18,6 +18,14 @@ export interface SystemSettingsResponse {
   embedding_provider_is_db_override: boolean
   embedding_url_is_db_override: boolean
   embedding_model_is_db_override: boolean
+  conversation_retention_hours: number | null
+  conversation_retention_hours_is_db_override: boolean
+  cleanup_on_logout: boolean
+  cleanup_on_logout_is_db_override: boolean
+  knowledge_base_purge_days: number | null
+  knowledge_base_purge_days_is_db_override: boolean
+  api_key_purge_days: number | null
+  api_key_purge_days_is_db_override: boolean
   available_providers: {
     llm: ProviderOption[]
     embedding: ProviderOption[]
@@ -31,4 +39,8 @@ export interface UpdateSettingsRequest {
   embedding_provider?: string | null
   embedding_url?: string | null
   embedding_model?: string | null
+  conversation_retention_hours?: number | null
+  cleanup_on_logout?: boolean | null
+  knowledge_base_purge_days?: number | null
+  api_key_purge_days?: number | null
 }

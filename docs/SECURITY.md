@@ -66,6 +66,70 @@ This template does **not** include a dedicated Key Management Service (Vault, AW
 
 This is a documented upgrade path, not built in to keep the template's complexity down.
 
+## Data Retention Policy
+
+**Status**: Phase 4b, implemented.
+
+Every persisted store has an explicit retention timeline. Windows marked
+admin-configurable can be changed at runtime from the Settings screen and take
+effect on the next retention sweep — no backend restart.
+
+| Store | Retention timeline | Admin-configurable | Enforced by |
+|---|---|---|---|
+| `conversation_threads` / `conversation_checkpoints` | `session_ttl_hours`, default **24h** since last update. Also purged on logout when `session_cleanup_on_logout` is on. | Yes (`conversation_retention_hours`, `cleanup_on_logout`) | `purge_expired_conversations`, `purge_user_conversations` |
+| `knowledge_base` (soft-deleted) | **30 days** after `deleted_at`, then hard-deleted. Live documents are never purged. | Yes (`knowledge_base_purge_days`) | `purge_expired_knowledge_base` |
+| `embeddings` | Follows its parent document — purged in the same batch. | Inherited | `purge_expired_knowledge_base` |
+| `api_keys` (revoked) | **30 days** after `revoked_at`, then hard-deleted. Active keys are never purged. | Yes (`api_key_purge_days`) | `purge_expired_api_keys` |
+| `system_settings` | **Forever** (configuration, single row). | n/a | Never purged |
+| `audit_logs` | **Forever** — retained on a schedule independent of session cleanup. | **No, by design** | Never purged (see below) |
+
+A window of `null` means "keep forever"; `0` means "purge immediately". Both are
+meaningful values, so every resolver tests `is not None` rather than truthiness.
+
+### Audit Records Are Exempt From Every Purge Path
+
+This is enforced in code, not by convention:
+
+- `AuditLogRepository` exposes only `record` and `list_recent`. There is no
+  update or delete method, so no purge path can acquire one. A unit test asserts
+  the class's public surface to keep it that way.
+- No function in `app.services.retention_service` queries or deletes `AuditLog`
+  at all.
+- `run_retention_sweep` is tested with every window set to its most aggressive
+  value: all other stores are emptied and audit history is still intact.
+
+### Enforcement: K8s CronJob, not an in-process scheduler
+
+The TTL sweep runs as a Kubernetes CronJob invoking
+`python -m app.cli.retention_sweep`, rather than APScheduler inside the API
+process. The deciding reason is multi-replica correctness: an in-process
+scheduler runs in *every* replica, so a 3-replica Deployment fires three
+concurrent sweeps issuing overlapping DELETEs. Avoiding that requires a
+distributed lock or leader election — real machinery to build, test and operate.
+Kubernetes already guarantees one Job per schedule, so the problem disappears
+instead of being managed. Secondary benefits: a failed purge surfaces as a
+failed Job with retained logs rather than a silently dead background thread, and
+it adds no new runtime dependency to an air-gapped image.
+
+**Trade-off**: nothing sweeps automatically under plain `docker-compose`. Run the
+module manually (or from host cron) in that environment.
+
+### Safety: Shortening a Window
+
+Shortening a retention window irreversibly deletes data belonging to users other
+than the admin making the change. Two controls apply:
+
+1. The Settings UI requires explicit confirmation before applying a shortened
+   window, naming each affected store and its old → new value.
+2. Every retention change is written to `audit_logs` with the actor, timestamp,
+   field, and old/new values — captured *before* the write, so the trail shows
+   the actual transition rather than just the final state. Unchanged fields
+   produce no record.
+
+Purges are batched (500 rows per round-trip), never issued as one unbounded
+DELETE, so a deployment with months of accumulated history doesn't hold a single
+long transaction.
+
 ## Session & Context Lifecycle
 
 Every conversation exists as a LangGraph "checkpoint" in Postgres, tied to a specific user session.
@@ -84,7 +148,9 @@ class Checkpoint(Base):
 
 ### Cleanup Policy
 
-**Phase 4a**: Configurable per-deployment via environment variables.
+**Phase 4b**: Configurable per-deployment via environment variables, and
+overridable at runtime by an admin from the Settings screen (the DB override
+wins over the env default). The env vars below set the deployment's defaults.
 
 #### Option 1: Logout-Triggered Cleanup
 
@@ -94,8 +160,10 @@ SESSION_TTL_HOURS=null  # Disabled
 ```
 
 **Mechanism**: 
-- Keycloak backchannel logout webhook calls `/api/logout`
-- Backend purges all checkpoints for that user
+- The frontend calls `POST /api/auth/logout` on sign-out
+- Backend purges all conversation threads/checkpoints for that user
+- The purged user_id always comes from the validated token, never request
+  input, so the endpoint cannot reach another user's data
 
 **Implication**: Conversation history is deleted on logout. Good for high-sensitivity use cases.
 
@@ -107,8 +175,9 @@ SESSION_TTL_HOURS=24
 ```
 
 **Mechanism**: 
-- Background job (APScheduler or K8s CronJob) runs hourly
-- Deletes checkpoints older than the TTL
+- A K8s CronJob runs `python -m app.cli.retention_sweep` on a schedule
+- Deletes checkpoints (and their threads) not updated within the TTL
+- See "Enforcement: K8s CronJob" above for why this is not an in-process scheduler
 
 **Implication**: Sessions live for N hours; users can re-login and see old conversations until TTL expires.
 
@@ -154,23 +223,25 @@ def test_session_isolation():
 
 ## Audit & Compliance
 
-**Not included in v1**, but ready for Phase 4a expansion:
-1. Log all checkpoint mutations (CREATE, UPDATE, DELETE)
-2. Capture audit metadata (user, timestamp, action)
-3. Store in an immutable audit log table
-4. Configure retention policy independent of session cleanup
+**Status**: Phase 4b — `audit_logs` exists and records retention configuration
+changes. Checkpoint-mutation auditing is not yet in scope.
 
-Example:
 ```python
 # app/db/models.py
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    user_id: str
-    action: str  # "create_checkpoint", "update_checkpoint", "delete_checkpoint"
-    checkpoint_id: str
-    timestamp: datetime
-    # ... metadata
+    actor_user_id: str   # who made the change (Keycloak subject)
+    action: str          # "retention.update"
+    field_name: str      # e.g. "conversation_retention_hours"
+    old_value: str | None  # NULL = had no DB override before the change
+    new_value: str | None
+    created_at: datetime
 ```
+
+Append-only by design: no application code updates or deletes a row, and the
+repository exposes no method that could. Read it via `GET /api/settings/audit`
+(admin-only). Retention is independent of session cleanup — see the retention
+policy table above.
 
 ## Compliance Considerations
 
@@ -181,7 +252,9 @@ The session cleanup mechanism satisfies "right to be forgotten" by:
 2. Checkpoint rows are purged
 3. MinIO document metadata can be tagged with user_id for bulk deletion
 
-**Caveat**: Audit logs are retained separately; configure audit log retention per your compliance requirements.
+**Caveat**: Audit logs are deliberately exempt from every purge path and retained
+indefinitely; configure audit log retention per your compliance requirements
+before treating deletion as complete.
 
 ### Data Residency
 

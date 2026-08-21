@@ -1,0 +1,66 @@
+# Scheduled data-retention sweep.
+#
+# Runs `python -m app.cli.retention_sweep`, which purges every store past its
+# configured retention window (see docs/SECURITY.md's retention policy table).
+# Audit records are never purged by this job — the sweep has no code path that
+# can delete them.
+#
+# A CronJob rather than an in-process scheduler inside the API pods: an
+# in-process scheduler runs in every replica, so a multi-replica Deployment
+# would fire concurrent sweeps issuing overlapping DELETEs unless a distributed
+# lock or leader election were added. Kubernetes already guarantees one Job per
+# schedule, so the problem does not arise.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eaistack-retention-sweep
+  namespace: eaistack
+spec:
+  # Hourly. The sweep is cheap when nothing has expired (it selects IDs before
+  # deleting), so frequency is driven by how promptly an expired conversation
+  # should disappear, not by cost.
+  schedule: "0 * * * *"
+
+  # Never run two sweeps at once. A long sweep on a large backlog must not have
+  # the next schedule stack on top of it and issue overlapping DELETEs — the
+  # same failure mode a multi-replica in-process scheduler would cause.
+  concurrencyPolicy: Forbid
+
+  # A missed sweep (node down, cluster upgrade) is not worth backfilling: the
+  # next run purges everything expired anyway, since eligibility is computed
+  # from timestamps, not from what previous runs did.
+  startingDeadlineSeconds: 300
+
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  jobTemplate:
+    spec:
+      # Retry a failed sweep a couple of times, then leave the Job failed so it
+      # is visible rather than silently retried forever.
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: retention-sweep
+              # Same image as the backend: the sweep is backend code and must
+              # stay in lockstep with the models and migrations it runs against.
+              image: eaistack/backend:latest
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-m", "app.cli.retention_sweep"]
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: eaistack-backend
+                      key: database-url
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000

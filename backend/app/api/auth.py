@@ -3,10 +3,14 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.config import settings
+from app.db.database import get_db
+from app.services import purge_user_conversations, resolve_retention_config
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +24,12 @@ class TokenExchangeRequest(BaseModel):
     redirect_uri: str | None = None
     grant_type: str = "authorization_code"
     refresh_token: str | None = None
+
+
+class LogoutResponse(BaseModel):
+    """Response body for POST /api/auth/logout."""
+
+    purged_conversations: int
 
 
 class TokenResponse(BaseModel):
@@ -130,3 +140,30 @@ async def exchange_token(request: TokenExchangeRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Token request failed",
         ) from e
+
+
+@router.post("/logout", response_model=LogoutResponse)
+async def logout(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LogoutResponse:
+    """Log out, optionally purging the caller's conversation history.
+
+    Implements SECURITY.md's Option 1 (logout-triggered cleanup): when
+    cleanup_on_logout is on, this deletes the caller's conversation threads
+    and checkpoint state. When it's off, the session simply ends and history
+    survives until the TTL sweep collects it.
+
+    The user_id purged always comes from the validated token, never from
+    request input, so this endpoint is structurally incapable of deleting
+    another user's conversations. Audit records are never touched - the
+    purge path does not query them.
+    """
+    if not resolve_retention_config(db).cleanup_on_logout:
+        return LogoutResponse(purged_conversations=0)
+
+    purged = purge_user_conversations(db, user_id=user["user_id"])
+    db.commit()
+
+    logger.info("Logout cleanup: purged %d conversation thread(s)", purged)
+    return LogoutResponse(purged_conversations=purged)
