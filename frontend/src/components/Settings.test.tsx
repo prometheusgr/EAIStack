@@ -41,20 +41,27 @@ const ENV_DEFAULT_SETTINGS = {
   embedding_model_is_db_override: false,
   available_providers: {
     llm: [
-      { provider: 'fake', url: '', label: 'Fake (mocked, for testing)' },
+      { provider: 'fake', url: '', label: 'Fake (mocked, for testing)', requires_manual_entry: false },
       {
         provider: 'llama-cpp',
         url: 'http://llama-server:8000/v1',
         label: 'llama-cpp (llama-server, detected)',
+        requires_manual_entry: true,
       },
-      { provider: 'openai-compatible', url: '', label: 'OpenAI-compatible (custom)' },
+      {
+        provider: 'openai-compatible',
+        url: '',
+        label: 'OpenAI-compatible (custom)',
+        requires_manual_entry: true,
+      },
     ],
     embedding: [
-      { provider: 'fake', url: '', label: 'Fake (mocked, for testing)' },
+      { provider: 'fake', url: '', label: 'Fake (mocked, for testing)', requires_manual_entry: false },
       {
         provider: 'llama-cpp',
         url: 'http://embedding-server:8000/v1',
         label: 'llama-cpp (embedding-server, detected)',
+        requires_manual_entry: true,
       },
     ],
   },
@@ -182,10 +189,15 @@ describe('Settings', () => {
     const modelInput = document.getElementById('llm-model') as HTMLInputElement
     expect(modelInput.value).toBe('llama-3')
 
+    // Switch to another manual-entry provider (not "fake", whose advanced
+    // fields are hidden entirely) so the model input stays visible and its
+    // cleared value can be asserted directly.
     const providerSelect = screen.getByLabelText(/llm provider/i)
     await user.click(providerSelect)
-    const fakeOption = await screen.findByRole('option', { name: /fake \(mocked, for testing\)/i })
-    await user.click(fakeOption)
+    const llamaCppOption = await screen.findByRole('option', {
+      name: /llama-cpp \(llama-server, detected\)/i,
+    })
+    await user.click(llamaCppOption)
 
     await waitFor(() => {
       expect((document.getElementById('llm-model') as HTMLInputElement).value).toBe('')
@@ -206,10 +218,25 @@ describe('Settings', () => {
     const user = userEvent.setup()
     renderSettings()
 
-    const providerSelect = await screen.findByLabelText(/embedding provider/i)
+    await waitFor(() => {
+      expect(document.getElementById('embedding-model')).not.toBeNull()
+    })
+    const modelInput = document.getElementById('embedding-model') as HTMLInputElement
+    expect(modelInput.value).toBe('embed-model')
+
+    // Switch away to "fake" (whose advanced fields are hidden) and back to
+    // llama-cpp: the model field must come back empty, not carrying over
+    // the stale "embed-model" value from before the round trip.
+    const providerSelect = screen.getByLabelText(/embedding provider/i)
     await user.click(providerSelect)
     const fakeOption = await screen.findByRole('option', { name: /fake \(mocked, for testing\)/i })
     await user.click(fakeOption)
+
+    await user.click(screen.getByLabelText(/embedding provider/i))
+    const llamaCppOption = await screen.findByRole('option', {
+      name: /llama-cpp \(embedding-server, detected\)/i,
+    })
+    await user.click(llamaCppOption)
 
     await waitFor(() => {
       expect((document.getElementById('embedding-model') as HTMLInputElement).value).toBe('')
@@ -245,5 +272,26 @@ describe('Settings', () => {
     const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
     expect(payload.llm_url).toBeNull()
     expect(payload.llm_model).toBeNull()
+  })
+
+  it('shows and pre-fills the custom URL/model fields for llama-cpp with a stored override', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      llm_provider: 'llama-cpp',
+      llm_url: 'http://custom-llama-host:9000/v1',
+      llm_model: 'custom-model-name',
+      llm_provider_is_db_override: true,
+      llm_url_is_db_override: true,
+      llm_model_is_db_override: true,
+    })
+
+    renderSettings()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Custom URL')).toBeInTheDocument()
+    })
+
+    expect(screen.getByLabelText('Custom URL')).toHaveValue('http://custom-llama-host:9000/v1')
+    expect(screen.getByLabelText('Custom Model')).toHaveValue('custom-model-name')
   })
 })

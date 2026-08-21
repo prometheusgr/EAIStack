@@ -2,6 +2,7 @@ export interface ProviderOption {
   provider: string
   url: string
   label: string
+  requires_manual_entry: boolean
 }
 
 export interface SystemSettingsResponse {

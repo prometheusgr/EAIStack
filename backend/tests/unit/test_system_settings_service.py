@@ -201,3 +201,33 @@ def test_available_provider_options_returns_fixed_detected_services():
 
     openai_compatible = next(o for o in options["llm"] if o["provider"] == "openai-compatible")
     assert openai_compatible["url"] == ""
+
+
+@pytest.mark.unit
+def test_available_provider_options_flags_requires_manual_entry_explicitly():
+    """The settings screen must not infer "does this provider need a
+    custom URL/model" from an empty-string url convention (that conflates
+    "no default URL, but a custom one may be entered" with "not
+    customizable"). Each option carries an explicit flag instead.
+
+    fake: no URL, and none is expected (mocked provider) -> not manual entry.
+    llama-cpp: has a detected default URL, but an admin can still override it
+    with a custom URL/model -> manual entry allowed.
+    openai-compatible: no default URL, always requires one -> manual entry.
+    """
+    options = available_provider_options()
+
+    fake_llm = next(o for o in options["llm"] if o["provider"] == "fake")
+    assert fake_llm["requires_manual_entry"] is False
+
+    llama_cpp_llm = next(o for o in options["llm"] if o["provider"] == "llama-cpp")
+    assert llama_cpp_llm["requires_manual_entry"] is True
+
+    openai_compatible = next(o for o in options["llm"] if o["provider"] == "openai-compatible")
+    assert openai_compatible["requires_manual_entry"] is True
+
+    fake_embedding = next(o for o in options["embedding"] if o["provider"] == "fake")
+    assert fake_embedding["requires_manual_entry"] is False
+
+    llama_cpp_embedding = next(o for o in options["embedding"] if o["provider"] == "llama-cpp")
+    assert llama_cpp_embedding["requires_manual_entry"] is True

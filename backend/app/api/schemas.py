@@ -119,6 +119,7 @@ class ProviderOption(BaseModel):
     provider: str
     url: str
     label: str
+    requires_manual_entry: bool
 
 
 class SystemSettingsResponse(BaseModel):

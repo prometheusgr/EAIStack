@@ -120,8 +120,12 @@ export function Settings() {
 
   const llmOptions = get.data.available_providers.llm
   const embeddingOptions = get.data.available_providers.embedding
-  const llmShowAdvanced = !llmOptions.find((o) => o.provider === llmProvider)?.url
-  const embeddingShowAdvanced = !embeddingOptions.find((o) => o.provider === embeddingProvider)?.url
+  const llmShowAdvanced = Boolean(
+    llmOptions.find((o) => o.provider === llmProvider)?.requires_manual_entry
+  )
+  const embeddingShowAdvanced = Boolean(
+    embeddingOptions.find((o) => o.provider === embeddingProvider)?.requires_manual_entry
+  )
 
   return (
     <div className="space-y-6">

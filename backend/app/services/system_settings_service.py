@@ -120,7 +120,7 @@ def resolve_embedding_config(
     )
 
 
-def available_provider_options() -> dict[str, list[dict[str, str]]]:
+def available_provider_options() -> dict[str, list[dict[str, str | bool]]]:
     """Return the fixed "detected local services" list for the settings screen's
     provider pickers.
 
@@ -129,27 +129,46 @@ def available_provider_options() -> dict[str, list[dict[str, str]]]:
     port 8000; embedding-server's 8002 is only the host-published port) —
     not discovered dynamically, since this stack has no service-discovery
     mechanism.
+
+    `requires_manual_entry` is an explicit flag for whether the settings
+    screen should show the custom URL/model fields for this provider. It is
+    not inferred from `url` being empty: llama-cpp has a detected default
+    URL but an admin can still override it with a custom URL/model, so
+    "has a default URL" and "is customizable" are independent facts.
     """
     return {
         "llm": [
-            {"provider": "fake", "url": "", "label": "Fake (mocked, for testing)"},
+            {
+                "provider": "fake",
+                "url": "",
+                "label": "Fake (mocked, for testing)",
+                "requires_manual_entry": False,
+            },
             {
                 "provider": "llama-cpp",
                 "url": "http://llama-server:8000/v1",
                 "label": "llama-cpp (llama-server, detected)",
+                "requires_manual_entry": True,
             },
             {
                 "provider": "openai-compatible",
                 "url": "",
                 "label": "OpenAI-compatible (custom)",
+                "requires_manual_entry": True,
             },
         ],
         "embedding": [
-            {"provider": "fake", "url": "", "label": "Fake (mocked, for testing)"},
+            {
+                "provider": "fake",
+                "url": "",
+                "label": "Fake (mocked, for testing)",
+                "requires_manual_entry": False,
+            },
             {
                 "provider": "llama-cpp",
                 "url": "http://embedding-server:8000/v1",
                 "label": "llama-cpp (embedding-server, detected)",
+                "requires_manual_entry": True,
             },
         ],
     }
