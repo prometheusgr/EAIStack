@@ -1,5 +1,7 @@
 """Repository for ConversationThread data access."""
 
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.db.models import ConversationThread
@@ -64,3 +66,29 @@ class ThreadRepository:
             .order_by(ConversationThread.updated_at.desc())
             .all()
         )
+
+    def touch(self, thread_id: str, now: datetime) -> None:
+        """Bump a thread's updated_at to `now`.
+
+        The chat endpoint calls this after every turn. ConversationThread's
+        onupdate=utc_now only fires when the ORM writes one of this row's own
+        columns, but a chat turn only ever writes ConversationCheckpoint - so
+        without this explicit bump, list_for_user's "most recently updated
+        first" ordering (and the TTL sweep's purge cutoff) would both be
+        keyed on thread creation time instead of last activity, silently
+        expiring conversations that are still in active use.
+
+        A no-op if thread_id doesn't exist: by the time the chat endpoint
+        calls this, get_or_create_owned has already resolved the thread
+        within the same request, so this only guards against that
+        invariant changing later.
+
+        Does not commit; the caller owns the transaction.
+        """
+        thread = (
+            self.db.query(ConversationThread).filter(ConversationThread.id == thread_id).first()
+        )
+        if thread is None:
+            return
+        thread.updated_at = now.replace(tzinfo=None)
+        self.db.flush()

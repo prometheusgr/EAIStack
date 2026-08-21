@@ -332,6 +332,30 @@ def _login_as(user_id: str) -> dict:
 
 
 @pytest.mark.unit
+def test_get_threads_timestamps_are_serialized_as_utc(client):
+    """GET /api/agents/threads must serialize created_at/updated_at with an
+    explicit UTC offset, not a bare ISO string.
+
+    ConversationThread's timestamp columns hold naive datetimes (see
+    app.db.models.utc_now), which Pydantic serializes as ISO 8601 with no
+    offset by default - e.g. "2026-08-21T17:09:00". A JS Date parses a bare
+    datetime string as local time, not UTC, so every timestamp the frontend
+    renders would be off by the viewer's UTC offset. The 'Z' suffix (or a
+    '+00:00' offset) is what tells the client which timezone the string is
+    already in.
+    """
+    _login_as("user-a")
+    client.post("/api/agents/chat", json={"message": "Hello"})
+
+    response = client.get("/api/agents/threads")
+    app.dependency_overrides.clear()
+
+    thread = response.json()["threads"][0]
+    assert thread["created_at"].endswith("Z") or "+" in thread["created_at"][10:]
+    assert thread["updated_at"].endswith("Z") or "+" in thread["updated_at"][10:]
+
+
+@pytest.mark.unit
 def test_get_threads_returns_only_callers_threads(client):
     """GET /api/agents/threads should list only the authenticated user's threads."""
     _login_as("user-a")
@@ -378,6 +402,35 @@ def test_get_thread_history_returns_404_for_other_users_thread(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 404
+
+
+@pytest.mark.unit
+def test_get_threads_orders_by_most_recently_active_not_most_recently_created(client):
+    """GET /api/agents/threads must reorder a thread to the front after a new
+    message, not just after it's first created.
+
+    Regression test: ConversationThread.updated_at has no onupdate trigger
+    that a chat turn fires (only ConversationCheckpoint is written on a
+    follow-up turn), so without an explicit touch() the older thread would
+    incorrectly stay ordered ahead of the one just used.
+    """
+    _login_as("user-a")
+    older_thread_id = client.post("/api/agents/chat", json={"message": "First"}).json()["thread_id"]
+    newer_thread_id = client.post("/api/agents/chat", json={"message": "Second"}).json()[
+        "thread_id"
+    ]
+    assert older_thread_id != newer_thread_id
+
+    # Reactivate the older thread with a follow-up message.
+    client.post(
+        "/api/agents/chat", json={"message": "Back to the first", "thread_id": older_thread_id}
+    )
+
+    response = client.get("/api/agents/threads")
+    app.dependency_overrides.clear()
+
+    thread_ids = [t["id"] for t in response.json()["threads"]]
+    assert thread_ids == [older_thread_id, newer_thread_id]
 
 
 @pytest.mark.unit

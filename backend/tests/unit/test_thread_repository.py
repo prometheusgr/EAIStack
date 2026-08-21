@@ -1,6 +1,6 @@
 """Unit tests for ThreadRepository - TDD discipline."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -121,3 +121,41 @@ def test_list_for_user_orders_by_most_recently_updated_first(db_session):
     result = repo.list_for_user("user-a")
 
     assert [t.id for t in result] == [newer.id, older.id]
+
+
+@pytest.mark.unit
+def test_touch_advances_updated_at(db_session):
+    """Test: touch bumps updated_at, independent of the row's other columns.
+
+    ConversationThread has no column the chat path writes on a follow-up
+    turn (the checkpoint lives in a separate table), so onupdate alone never
+    fires. touch() is the explicit bump that stands in for it - see
+    KnowledgeBaseRepository.mark_updated for the same pattern.
+    """
+    repo = ThreadRepository(db_session)
+    thread = repo.get_or_create_owned(None, "user-a")
+    db_session.commit()
+    original_updated_at = thread.updated_at
+
+    new_timestamp = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    repo.touch(thread.id, now=new_timestamp)
+    db_session.commit()
+    db_session.refresh(thread)
+
+    assert thread.updated_at != original_updated_at
+    assert thread.updated_at == new_timestamp.replace(tzinfo=None)
+
+
+@pytest.mark.unit
+def test_touch_is_a_no_op_for_an_unknown_thread_id(db_session):
+    """Test: touch silently does nothing for a thread_id that doesn't exist.
+
+    The chat endpoint calls touch() after the agent has already run inside
+    the request; by that point the thread is guaranteed to exist (it was
+    just resolved by get_or_create_owned), so this is a defensive no-op
+    rather than a path this codebase's callers actually hit.
+    """
+    repo = ThreadRepository(db_session)
+
+    repo.touch("does-not-exist", now=datetime(2030, 1, 1, tzinfo=timezone.utc))
+    db_session.commit()  # must not raise

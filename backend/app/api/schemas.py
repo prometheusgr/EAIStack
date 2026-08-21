@@ -1,9 +1,26 @@
 """API request/response schemas."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+
+def _as_utc_isoformat(value: datetime) -> str:
+    """Serialize a datetime as ISO 8601 with an explicit UTC offset.
+
+    Every timestamp column in app.db.models (see utc_now) stores a naive
+    datetime that is UTC by convention, not by type - the DB round-trip
+    strips the tzinfo a Python-side aware value had on write. Pydantic's
+    default serialization of a naive datetime omits any offset, so a
+    JS `new Date(...)` on the client parses it as local time rather than
+    UTC, silently shifting every rendered timestamp by the viewer's UTC
+    offset. Stamping the offset back on at the response boundary - where
+    the naive-vs-aware convention is actually violated - fixes this without
+    touching how every model or repository in the codebase handles time.
+    """
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return aware.isoformat()
 
 
 class ChatRequest(BaseModel):
@@ -26,6 +43,10 @@ class ThreadSummary(BaseModel):
     id: str
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_utc(self, value: datetime) -> str:
+        return _as_utc_isoformat(value)
 
 
 class ThreadListResponse(BaseModel):
@@ -162,6 +183,10 @@ class AuditLogEntry(BaseModel):
     old_value: Optional[str] = None
     new_value: Optional[str] = None
     created_at: datetime
+
+    @field_serializer("created_at")
+    def _serialize_utc(self, value: datetime) -> str:
+        return _as_utc_isoformat(value)
 
 
 class AuditLogResponse(BaseModel):

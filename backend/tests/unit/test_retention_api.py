@@ -242,6 +242,26 @@ def test_audit_log_endpoint_returns_retention_history_to_admin(client, db_sessio
 
 
 @pytest.mark.unit
+def test_audit_log_endpoint_serializes_created_at_as_utc(client):
+    """created_at must carry an explicit UTC offset, not a bare ISO string.
+
+    AuditLog.created_at is naive-UTC by convention (see app.db.models.utc_now);
+    without an offset marker, a JS `new Date(...)` on the client would parse
+    it as local time and shift every audit timestamp by the viewer's UTC
+    offset. Same defect and fix as ThreadSummary's timestamps.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"conversation_retention_hours": 72})
+    response = client.get("/api/settings/audit")
+
+    app.dependency_overrides.clear()
+
+    created_at = response.json()["entries"][0]["created_at"]
+    assert created_at.endswith("Z") or "+" in created_at[10:]
+
+
+@pytest.mark.unit
 def test_audit_log_endpoint_is_admin_only(client):
     app.dependency_overrides[get_current_user] = _override_user(NON_ADMIN_USER)
 

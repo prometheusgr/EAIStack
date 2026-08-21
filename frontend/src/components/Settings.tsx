@@ -138,7 +138,7 @@ export function Settings() {
       conversation_retention_hours: clearedFields.has('conversation_retention_hours')
         ? null
         : toRetentionPayloadValue(conversationRetentionHours),
-      cleanup_on_logout: cleanupOnLogout,
+      cleanup_on_logout: clearedFields.has('cleanup_on_logout') ? null : cleanupOnLogout,
       knowledge_base_purge_days: clearedFields.has('knowledge_base_purge_days')
         ? null
         : toRetentionPayloadValue(knowledgeBasePurgeDays),
@@ -469,7 +469,10 @@ export function Settings() {
             id="cleanup-on-logout"
             type="checkbox"
             checked={cleanupOnLogout}
-            onChange={(e) => setCleanupOnLogout(e.target.checked)}
+            onChange={(e) => {
+              setCleanupOnLogout(e.target.checked)
+              markFieldEdited('cleanup_on_logout')
+            }}
           />
           <label className="text-sm font-medium" htmlFor="cleanup-on-logout">
             Purge conversations on logout (
@@ -485,9 +488,11 @@ export function Settings() {
             setConversationRetentionHours('')
             setKnowledgeBasePurgeDays('')
             setApiKeyPurgeDays('')
+            setCleanupOnLogout(true)
             markFieldCleared('conversation_retention_hours')
             markFieldCleared('knowledge_base_purge_days')
             markFieldCleared('api_key_purge_days')
+            markFieldCleared('cleanup_on_logout')
           }}
         >
           Reset retention to default

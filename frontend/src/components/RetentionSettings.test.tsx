@@ -251,4 +251,31 @@ describe('Settings retention section', () => {
       cleanup_on_logout: false,
     })
   })
+
+  it('resetting retention to default also clears the cleanup-on-logout override', async () => {
+    // Once toggled and saved, cleanup_on_logout becomes a DB override
+    // (booleans have no "unset" value other than null) and the only way
+    // back to the env default is the same reset control the other
+    // retention fields already use.
+    const user = userEvent.setup()
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      cleanup_on_logout: false,
+      cleanup_on_logout_is_db_override: true,
+    })
+
+    renderSettings()
+    await waitForLoaded()
+
+    const retentionSection = screen.getByRole('region', { name: /data retention/i })
+    await user.click(within(retentionSection).getByRole('button', { name: /reset retention to default/i }))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+    expect(vi.mocked(settingsClient.updateSettings).mock.calls[0][0]).toMatchObject({
+      cleanup_on_logout: null,
+    })
+  })
 })

@@ -17,6 +17,7 @@ from app.api.schemas import (
 )
 from app.core.auth import get_current_user
 from app.db.database import get_db
+from app.db.models import utc_now
 from app.repositories import ThreadRepository
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -38,7 +39,8 @@ async def chat(
     thread instead, so a request always succeeds but never resumes or
     reveals another user's conversation.
     """
-    thread = ThreadRepository(db).get_or_create_owned(request.thread_id, user["user_id"])
+    thread_repository = ThreadRepository(db)
+    thread = thread_repository.get_or_create_owned(request.thread_id, user["user_id"])
 
     agent = create_chat_agent(db=db, user_id=user["user_id"])
     state = {
@@ -48,6 +50,7 @@ async def chat(
     }
 
     result = agent.invoke(state, config={"configurable": {"thread_id": thread.id}})
+    thread_repository.touch(thread.id, now=utc_now())
     db.commit()
     final_message = result["messages"][-1]
 
