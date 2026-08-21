@@ -9,7 +9,7 @@ Read [CLAUDE.md](CLAUDE.md) for project overview, development standards, and tes
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 18+
+- Node.js 20 (LTS) — matches CI and `frontend/.nvmrc`; run `nvm use` in `frontend/` if you use nvm
 - Docker & Docker Compose
 - Git
 

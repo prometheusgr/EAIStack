@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export function useApiMutation<T, R>(
   mutateFn: (args: T) => Promise<R>,
@@ -17,21 +17,40 @@ export function useApiMutation<T, R>(
   const [error, setError] = useState<Error | null>(null)
   const [data, setData] = useState<R | null>(null)
 
+  // See the matching guard in useApiCall: without it, a mutation still in
+  // flight when the component unmounts keeps running, and its resolution
+  // calls setState on a component nothing is listening to anymore.
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
   const mutateAsync = async (args: T): Promise<R> => {
-    setIsPending(true)
-    setError(null)
+    if (isMountedRef.current) {
+      setIsPending(true)
+      setError(null)
+    }
     try {
       const result = await mutateFn(args)
-      setData(result)
+      if (isMountedRef.current) {
+        setData(result)
+      }
       options?.onSuccess?.(result)
       return result
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      if (isMountedRef.current) {
+        setError(error)
+      }
       options?.onError?.(error)
       throw error
     } finally {
-      setIsPending(false)
+      if (isMountedRef.current) {
+        setIsPending(false)
+      }
     }
   }
 

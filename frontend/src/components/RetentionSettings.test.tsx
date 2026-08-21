@@ -71,7 +71,21 @@ async function waitForLoaded() {
   await waitFor(() => {
     expect(settingsClient.getSettings).toHaveBeenCalled()
   })
-  return screen.findByLabelText(/conversation history/i)
+  const input = await screen.findByLabelText(/conversation history/i)
+
+  // The input exists as soon as get.data becomes non-null, but its value is
+  // populated by a second, separate useEffect keyed on get.data (see
+  // Settings.tsx) that commits in a later render. Under fast local
+  // scheduling that gap is invisible; under CPU-constrained CI runners it's
+  // wide enough for a test to read the input before it's populated,
+  // producing an empty/null value instead of the loaded one. Waiting for
+  // the value to actually land - not just for the element to exist - is
+  // what every caller of this helper actually needs before it starts
+  // asserting on or editing the field.
+  await waitFor(() => {
+    expect(input).not.toHaveValue(null)
+  })
+  return input
 }
 
 describe('Settings retention section', () => {
