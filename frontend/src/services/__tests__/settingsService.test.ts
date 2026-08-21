@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { MockedFunction } from 'vitest'
+import type { AuthRefresh } from '@/api/authorizedFetch'
 import { SettingsService } from '../settingsService'
 import { settingsClient } from '@/api/settingsClient'
 
@@ -11,7 +13,7 @@ vi.mock('@/api/settingsClient', () => ({
 
 describe('SettingsService', () => {
   const mockToken = 'valid_token'
-  let mockRefresh: ReturnType<typeof vi.fn>
+  let mockRefresh: MockedFunction<AuthRefresh>
 
   const settingsResponse = {
     llm_provider: 'fake',
@@ -39,7 +41,7 @@ describe('SettingsService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockRefresh = vi.fn()
+    mockRefresh = vi.fn() as MockedFunction<AuthRefresh>
   })
 
   describe('getSettings', () => {

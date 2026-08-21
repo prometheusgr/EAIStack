@@ -76,6 +76,10 @@ jobs:
         working-directory: ./frontend
         run: npm run lint
 
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
   infra-validation:
     runs-on: ubuntu-latest
 
