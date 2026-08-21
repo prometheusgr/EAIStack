@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { MockedFunction } from 'vitest'
+import type { AuthRefresh } from '@/api/authorizedFetch'
 import { ThreadsService } from '../threadsService'
 import { threadsClient } from '@/api/threadsClient'
 
@@ -11,11 +13,11 @@ vi.mock('@/api/threadsClient', () => ({
 
 describe('ThreadsService', () => {
   const mockToken = 'valid_token'
-  let mockRefresh: ReturnType<typeof vi.fn>
+  let mockRefresh: MockedFunction<AuthRefresh>
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockRefresh = vi.fn()
+    mockRefresh = vi.fn() as MockedFunction<AuthRefresh>
   })
 
   describe('listThreads', () => {

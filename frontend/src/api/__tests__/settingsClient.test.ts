@@ -1,17 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { MockedFunction } from 'vitest'
+import type { AuthRefresh } from '@/api/authorizedFetch'
 import { settingsClient } from '../settingsClient'
+
+/**
+ * The subset of Response that authorizedFetch actually reads. Tests supply
+ * these fields only, so typing the fetch mock against the full Response would
+ * force every literal to carry a dozen irrelevant properties.
+ */
+type FetchStub = (input: string, init?: RequestInit) => Promise<{
+  status: number
+  ok: boolean
+  statusText?: string
+  json?: () => Promise<unknown>
+}>
 
 describe('settingsClient', () => {
   const mockToken = 'valid_token'
-  let mockFetch: ReturnType<typeof vi.fn>
-  let mockRefresh: ReturnType<typeof vi.fn>
+  let mockFetch: MockedFunction<FetchStub>
+  let mockRefresh: MockedFunction<AuthRefresh>
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFetch = vi.fn()
-    mockRefresh = vi.fn()
+    mockFetch = vi.fn() as MockedFunction<FetchStub>
+    mockRefresh = vi.fn() as MockedFunction<AuthRefresh>
 
-    global.fetch = mockFetch
+    global.fetch = mockFetch as unknown as typeof fetch
     localStorage.clear()
   })
 
