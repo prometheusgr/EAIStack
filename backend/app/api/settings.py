@@ -20,16 +20,16 @@ from app.services import (
     resolve_llm_config,
     resolve_retention_config,
 )
+from app.services.system_settings_service import (
+    NOT_PROVIDED,
+    NotProvided,
+    ProviderOptionDict,
+)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-# Sentinel distinguishing "caller didn't pass db_settings" from "caller
-# passed the real value None" (a legitimate case: no SystemSettings row
-# exists yet). Mirrors the same pattern in system_settings_service.
-_NOT_PROVIDED = object()
 
-
-def _provider_options_by_category() -> dict[str, dict[str, dict[str, str | bool]]]:
+def _provider_options_by_category() -> dict[str, dict[str, ProviderOptionDict]]:
     """available_provider_options(), indexed by provider name within each
     category, for O(1) lookups of a provider's catalog entry.
     """
@@ -40,7 +40,7 @@ def _provider_options_by_category() -> dict[str, dict[str, dict[str, str | bool]
 
 
 def _to_response(
-    db: Session, db_settings: SystemSettings | None = _NOT_PROVIDED
+    db: Session, db_settings: SystemSettings | None | NotProvided = NOT_PROVIDED
 ) -> SystemSettingsResponse:
     """Build the settings response: resolved effective config, plus which
     fields are DB-overridden vs. falling back to the env default.
@@ -50,7 +50,7 @@ def _to_response(
     a redundant SELECT. Omit it (the default) for callers like get_settings
     that have no row of their own yet.
     """
-    if db_settings is _NOT_PROVIDED:
+    if db_settings is NOT_PROVIDED:
         db_settings = SystemSettingsRepository(db).get()
     llm_config = resolve_llm_config(db, db_settings)
     embedding_config = resolve_embedding_config(db, db_settings)

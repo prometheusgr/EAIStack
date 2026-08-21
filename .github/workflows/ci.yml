@@ -51,6 +51,10 @@ jobs:
           ruff check .
           black --check .
 
+      - name: Run type checking
+        working-directory: ./backend
+        run: mypy app/
+
   frontend-tests:
     runs-on: ubuntu-latest
 

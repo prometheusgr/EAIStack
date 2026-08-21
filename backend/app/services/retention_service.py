@@ -18,7 +18,6 @@ method. See docs/SECURITY.md's retention policy table.
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -32,17 +31,10 @@ from app.db.models import (
     SystemSettings,
 )
 from app.repositories.system_settings_repository import SystemSettingsRepository
+from app.services.system_settings_service import NOT_PROVIDED, NotProvided
 
 logger = logging.getLogger(__name__)
 
-# Sentinel distinguishing "caller didn't pass db_settings" from "caller
-# passed the real value None" (a legitimate case: no SystemSettings row
-# exists yet). Mirrors the same pattern in system_settings_service.
-#
-# Typed as Any so it can be a default for a SystemSettings | None parameter
-# without mypy rejecting the object() default - the alternative is an
-# overload pair, which is more machinery than this one sentinel warrants.
-_NOT_PROVIDED: Any = object()
 
 # Rows deleted per round-trip. Purges must be batched rather than issued as
 # one unbounded DELETE: an air-gapped deployment that has accumulated months
@@ -80,7 +72,7 @@ def _resolve_field(db_value: int | bool | None, env_default: int | bool | None):
 
 
 def resolve_retention_config(
-    db: Session, db_settings: SystemSettings | None = _NOT_PROVIDED
+    db: Session, db_settings: SystemSettings | None | NotProvided = NOT_PROVIDED
 ) -> RetentionConfig:
     """Resolve the effective retention policy: DB value if set, else env default.
 
@@ -94,7 +86,7 @@ def resolve_retention_config(
     None because None is also the legitimate value when no SystemSettings
     row has been created yet.
     """
-    if db_settings is _NOT_PROVIDED:
+    if db_settings is NOT_PROVIDED:
         db_settings = SystemSettingsRepository(db).get()
 
     return RetentionConfig(
