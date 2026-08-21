@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react'
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import {
   decodeJwt,
   buildKeycloakLoginUrl,
@@ -6,6 +6,7 @@ import {
   AuthUser,
 } from '../auth/authHelpers'
 import { AuthService } from '@/services/authService'
+import { useIsMounted } from '../hooks/useIsMounted'
 
 interface AuthContextType {
   token: string | null
@@ -28,25 +29,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<AuthUser | null>(null)
   const [roles, setRoles] = useState<string[]>([])
   const [keycloakUrl, setKeycloakUrl] = useState<string>('http://localhost:8080/')
-
-  // Guards every setState after the one genuine await in initAuth (the
-  // `fetch('/api/auth/token')` call below, hit only on the OAuth redirect
-  // callback path). Without it, a slow token exchange still in flight when
-  // AuthProvider unmounts keeps running, and its resolution calls setState
-  // on a provider nothing is listening to anymore - harmless in the running
-  // app, but in this test suite (where every test mounts a fresh
-  // AuthProvider via renderSettings()/render() and none of them wait for
-  // in-flight requests to settle first) a late setState from an
-  // already-unmounted test's provider can land during a *later*, unrelated
-  // test and trigger an extra render at the wrong moment - the shape of the
-  // intermittent CI failures this guard was added to fix.
-  const isMountedRef = useRef(true)
-  useEffect(() => {
-    isMountedRef.current = true
-    return () => {
-      isMountedRef.current = false
-    }
-  }, [])
+  const isMounted = useIsMounted()
 
   useEffect(() => {
     const initAuth = async () => {
@@ -57,7 +40,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           url += '/'
         }
       }
-      setKeycloakUrl(url)
+      if (isMounted()) setKeycloakUrl(url)
 
       try {
         const urlParams = new URLSearchParams(window.location.search)
@@ -76,7 +59,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               }),
             })
 
-            if (!isMountedRef.current) {
+            if (!isMounted()) {
               return
             }
 
@@ -94,14 +77,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
                 try {
                   const payload = decodeJwt(tokenData.access_token)
-                  setToken(tokenData.access_token)
-                  setIsAuthenticated(true)
-                  setUser({
-                    username: payload.preferred_username,
-                    email: payload.email,
-                    name: payload.name,
-                  })
-                  setRoles(payload.realm_access?.roles || [])
+                  if (isMounted()) {
+                    setToken(tokenData.access_token)
+                    setIsAuthenticated(true)
+                    setUser({
+                      username: payload.preferred_username,
+                      email: payload.email,
+                      name: payload.name,
+                    })
+                    setRoles(payload.realm_access?.roles || [])
+                  }
                 } catch {
                   localStorage.removeItem('access_token')
                   localStorage.removeItem('refresh_token')
@@ -110,7 +95,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 }
               }
               window.history.replaceState(null, '', window.location.pathname)
-              setIsLoading(false)
+              if (isMounted()) setIsLoading(false)
               return
             }
           } catch {
@@ -128,15 +113,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (storedToken) {
           try {
             const payload = decodeJwt(storedToken)
-            setToken(storedToken)
-            setIsAuthenticated(true)
-            setUser({
-              username: payload.preferred_username,
-              email: payload.email,
-              name: payload.name,
-            })
-            setRoles(payload.realm_access?.roles || [])
-            setIsLoading(false)
+            if (isMounted()) {
+              setToken(storedToken)
+              setIsAuthenticated(true)
+              setUser({
+                username: payload.preferred_username,
+                email: payload.email,
+                name: payload.name,
+              })
+              setRoles(payload.realm_access?.roles || [])
+              setIsLoading(false)
+            }
             return
           } catch {
             localStorage.removeItem('access_token')
@@ -147,11 +134,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         // No token found
-        setIsAuthenticated(false)
-        setUser(null)
-        setToken(null)
+        if (isMounted()) {
+          setIsAuthenticated(false)
+          setUser(null)
+          setToken(null)
+          setIsLoading(false)
+        }
       } finally {
-        if (isMountedRef.current) {
+        if (isMounted()) {
           setIsLoading(false)
         }
       }
@@ -193,7 +183,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('token_type')
         localStorage.removeItem('id_token')
-        if (isMountedRef.current) {
+        if (isMounted()) {
           setIsAuthenticated(false)
           setUser(null)
           setToken(null)
@@ -215,7 +205,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         try {
           const payload = decodeJwt(tokenData.access_token)
-          if (isMountedRef.current) {
+          if (isMounted()) {
             setToken(tokenData.access_token)
             setUser({
               username: payload.preferred_username,
@@ -230,7 +220,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.removeItem('refresh_token')
           localStorage.removeItem('token_type')
           localStorage.removeItem('id_token')
-          if (isMountedRef.current) {
+          if (isMounted()) {
             setIsAuthenticated(false)
             setUser(null)
             setToken(null)
@@ -245,7 +235,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('token_type')
       localStorage.removeItem('id_token')
-      if (isMountedRef.current) {
+      if (isMounted()) {
         setIsAuthenticated(false)
         setUser(null)
         setToken(null)

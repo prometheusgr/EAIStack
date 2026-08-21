@@ -60,6 +60,28 @@ pytest tests/integration/              # Integration tests (real services, slow)
 4. **Have clear failure messages** — If a test fails, the error message should tell you what went wrong, not just "assertion failed."
 5. **Test one thing** — A single test should verify one behavior. If your test has "and" in the name, split it.
 
+### Time-Dependent Functions (No Global Mocking)
+
+If a function's behavior changes based on time, **accept `now: datetime` as a parameter** instead of calling `datetime.now()` inside the function. This makes tests deterministic without mocking:
+
+**Pattern:**
+```python
+def calculate_expiry(issue_date: datetime, ttl_days: int, now: datetime) -> datetime:
+    """Calculate token expiry. Accept now for testability."""
+    return now + timedelta(days=ttl_days)
+
+# Test: no mocking needed
+def test_calculate_expiry():
+    issue = datetime(2026, 8, 21, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 22, 12, 0, 0, tzinfo=timezone.utc)
+    expiry = calculate_expiry(issue, ttl_days=7, now=now)
+    assert expiry == datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+```
+
+**Why this works:** Tests pass fixed `now` values; no mock setup needed. The function signature is honest about its dependency on time. Use pytest fixtures `now_fixed` and `now_fixed_naive` from `conftest.py` for standard test times.
+
+**Linter compliance:** `python tools/lint_time_injection.py` flags functions calling `datetime.now()` without accepting `now` as a parameter (warning mode; gates CI at error severity).
+
 **Example (what NOT to do):**
 ```python
 def test_api_key_form_works():  # ❌ Too vague
@@ -76,6 +98,45 @@ def test_api_key_form_rejects_empty_name():  # ✓ Specific behavior
     assert 'name' in result.errors  # ✓ Shows which field failed
 ```
 
+### Retention Field Semantics (is not None, Not Truthiness)
+
+When `None`, `0`, and `False` are all meaningful, distinct values for a field, use `is not None` checks, never truthiness. `if retention_hours:` silently treats `0` the same as `None`/unset — a real bug when `0` means something specific ("purge immediately") rather than "no value."
+
+**Pattern:**
+```python
+from typing import Annotated
+
+RetentionHours = Annotated[
+    int | None,
+    "None='keep forever', 0='purge immediately'",
+]
+
+class SystemSettings(Base):
+    conversation_retention_hours: Mapped[RetentionHours]
+```
+
+**Semantics** (document this for every field with this shape):
+- `None` = keep forever (no retention limit)
+- `0` = purge immediately (very aggressive)
+- `1+` = keep for this many hours
+
+**Checklist:**
+```
+- [ ] Is there a truthiness check on a nullable field?
+  ✗ `if retention_hours:`
+  ✓ `if retention_hours is not None:`
+- [ ] Are None, 0, and positive values all handled?
+```
+
+**Tests:** parametrize edge-case fields over `[None, 0, 1, 24]` (or the equivalent boundary values) so a truthiness regression fails a test immediately, not silently in production:
+```python
+@pytest.mark.parametrize("retention_hours", [None, 0, 1, 24])
+def test_retention_hours_edge_cases(retention_hours):
+    ...  # verify each value is handled correctly
+```
+
+**Linter:** `python tools/lint_edge_case_truthiness.py` flags `if <name>:` / `if not <name>:` where `<name>` is a parameter or attribute annotated `int | None` / `Optional[int]` (warning mode; parse errors gate CI). Runs automatically in CI, alongside `lint_time_injection.py`.
+
 ### Frontend (React/TypeScript)
 
 - React Testing Library + Vitest
@@ -90,6 +151,40 @@ npm test                 # Run all tests
 npm run test:ui         # Run with interactive UI
 npm test -- filename.test.ts  # Single test file
 ```
+
+### React Unmount Guard Pattern (No setState After Unmount)
+
+Any hook or component that sets state after an `await` (an API call, a token refresh, an auth check) must guard against the component having unmounted while that call was in flight. Calling `setState` after unmount doesn't crash in modern React, but it silently leaks the closure and signals a race the test suite should be catching.
+
+**Pattern:** use the shared `useIsMounted()` hook (`src/hooks/useIsMounted.ts`) and check it immediately before every `setState` that follows an awaited call:
+
+```ts
+import { useIsMounted } from './useIsMounted'
+
+function useThing() {
+  const isMounted = useIsMounted()
+  const [data, setData] = useState<Thing | null>(null)
+
+  useEffect(() => {
+    fetchThing().then((result) => {
+      if (isMounted()) setData(result)
+    })
+  }, [])
+
+  return data
+}
+```
+
+**Why this works:** `useIsMounted()` flips a ref to `false` in its cleanup function, so the check reflects the current mount state at the moment the awaited call resolves — not the state when the effect was scheduled.
+
+**Checklist:**
+```
+- [ ] Does this hook/component call setState after an await (fetch, async auth check, timer)?
+- [ ] Is every such setState guarded by `if (isMounted())`?
+- [ ] Does a test exercise unmounting mid-request and assert no post-unmount state update/warning?
+```
+
+Applied in `AuthContext.tsx` (auth init, token refresh, logout) and available to any hook via `useApiCall`/`useApiMutation` or direct use of `useIsMounted()`.
 
 ### MCP doc-search server (Phase 3+)
 
@@ -196,6 +291,7 @@ The patterns below are **mandatory shapes**, not suggestions — each has a cano
 | Add backend business logic used by 2+ endpoints | [docs/BACKEND_SERVICES.md](../docs/BACKEND_SERVICES.md) | When to create a service, service module shape, refactoring endpoints to use it |
 | Add or change a frontend API call | [docs/FRONTEND_ARCHITECTURE.md](../docs/FRONTEND_ARCHITECTURE.md) | API client → service → hook → component layering, full worked example, testing each layer |
 | Add a new database query used by an endpoint | [docs/REPOSITORY_PATTERN.md](../docs/REPOSITORY_PATTERN.md) | Repository class shape, user-isolation and soft-delete query patterns |
+| Write a time-dependent function | [docs/TIME_INJECTION.md](../docs/TIME_INJECTION.md) | Time injection pattern, pytest fixtures, testability without mocking |
 
 **Why this matters:** these four areas are exactly where inconsistent one-off implementations creep in — a service with FastAPI imports, a component with a raw `fetch()`, a query written inline in an endpoint instead of a repository. The guides exist so every instance looks the same. If you find yourself deviating from the documented shape, that's a signal to either follow it or flag the guide as outdated — not to invent a new shape silently.
 

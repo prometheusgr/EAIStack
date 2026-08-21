@@ -55,6 +55,14 @@ jobs:
         working-directory: ./backend
         run: mypy app/
 
+      - name: Lint time injection pattern
+        working-directory: ./backend
+        run: python tools/lint_time_injection.py
+
+      - name: Lint edge-case truthiness
+        working-directory: ./backend
+        run: python tools/lint_edge_case_truthiness.py
+
   frontend-tests:
     runs-on: ubuntu-latest
 

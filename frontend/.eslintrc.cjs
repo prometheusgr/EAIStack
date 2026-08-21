@@ -18,5 +18,9 @@ module.exports = {
     // TypeScript enforces prop types at compile time; this rule can't see
     // through forwardRef<T, Props> generics and false-positives on them.
     'react/prop-types': 'off',
+    // Loaded from eslint-local-rules/ via --rulesdir (see package.json lint script).
+    // Warning only: 46 pre-existing violations across the codebase (AuthContext,
+    // ChatWindow, APIKeyList, etc.) need fixing before this can gate CI as an error.
+    'no-unguarded-setstate-after-await': 'warn',
   },
 }

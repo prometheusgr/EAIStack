@@ -1,6 +1,7 @@
 """Pytest configuration and shared fixtures."""
 
 import os
+from datetime import datetime, timezone
 from typing import Generator
 
 # Patch httpx.Client to work with Starlette TestClient
@@ -148,3 +149,23 @@ def mock_keycloak_token():
         "iat": 1629312000,
         "exp": 1629398400,
     }
+
+
+@pytest.fixture
+def now_fixed():
+    """Provide a fixed UTC datetime for time-dependent function tests.
+
+    Use this fixture in tests of functions that accept `now: datetime` as a parameter.
+    Ensures all time-dependent tests use the same reference moment.
+    """
+    return datetime(2026, 8, 21, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def now_fixed_naive():
+    """Provide a fixed naive datetime (no timezone) for time-dependent function tests.
+
+    Use this fixture only when testing code that expects naive datetimes.
+    Prefer now_fixed (UTC) for new code.
+    """
+    return datetime(2026, 8, 21, 12, 0, 0)
