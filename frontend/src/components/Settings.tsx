@@ -28,6 +28,13 @@ export function Settings() {
   const [embeddingUrl, setEmbeddingUrl] = useState('')
   const [embeddingModel, setEmbeddingModel] = useState('')
 
+  // Fields the admin has explicitly reset to their env-var default. Cleared
+  // whenever the field is edited again, and sent as `null` in the save
+  // payload instead of the (now-stale) string state.
+  const [clearedFields, setClearedFields] = useState<Set<keyof UpdateSettingsRequest>>(
+    new Set()
+  )
+
   useEffect(() => {
     // Wait for AuthContext's async init to finish resolving the token
     // before the first fetch — firing earlier would hit the "no auth
@@ -44,27 +51,46 @@ export function Settings() {
     setEmbeddingProvider(get.data.embedding_provider)
     setEmbeddingUrl(get.data.embedding_url)
     setEmbeddingModel(get.data.embedding_model)
+    setClearedFields(new Set())
   }, [get.data])
 
   function applyProviderSelection(
     options: ProviderOption[],
     provider: string,
-    setUrl: (url: string) => void
+    setUrl: (url: string) => void,
+    setModel: (model: string) => void
   ) {
     const selected = options.find((option) => option.provider === provider)
     if (selected) {
       setUrl(selected.url)
+      // The old provider's model name is meaningless for the new provider
+      // (available_providers carries no per-provider model), so it must not
+      // carry over — otherwise a stale model could be silently saved.
+      setModel('')
     }
+  }
+
+  function markFieldCleared(field: keyof UpdateSettingsRequest) {
+    setClearedFields((prev) => new Set(prev).add(field))
+  }
+
+  function markFieldEdited(field: keyof UpdateSettingsRequest) {
+    setClearedFields((prev) => {
+      if (!prev.has(field)) return prev
+      const next = new Set(prev)
+      next.delete(field)
+      return next
+    })
   }
 
   async function handleSave() {
     const payload: UpdateSettingsRequest = {
-      llm_provider: llmProvider,
-      llm_url: llmUrl,
-      llm_model: llmModel,
-      embedding_provider: embeddingProvider,
-      embedding_url: embeddingUrl,
-      embedding_model: embeddingModel,
+      llm_provider: clearedFields.has('llm_provider') ? null : llmProvider,
+      llm_url: clearedFields.has('llm_url') ? null : llmUrl,
+      llm_model: clearedFields.has('llm_model') ? null : llmModel,
+      embedding_provider: clearedFields.has('embedding_provider') ? null : embeddingProvider,
+      embedding_url: clearedFields.has('embedding_url') ? null : embeddingUrl,
+      embedding_model: clearedFields.has('embedding_model') ? null : embeddingModel,
     }
 
     try {
@@ -121,7 +147,9 @@ export function Settings() {
             value={llmProvider}
             onValueChange={(value) => {
               setLlmProvider(value)
-              applyProviderSelection(llmOptions, value, setLlmUrl)
+              applyProviderSelection(llmOptions, value, setLlmUrl, setLlmModel)
+              markFieldEdited('llm_url')
+              markFieldEdited('llm_model')
             }}
           >
             <SelectTrigger id="llm-provider-select" aria-label="LLM provider">
@@ -145,7 +173,10 @@ export function Settings() {
             <Input
               id="llm-url"
               value={llmUrl}
-              onChange={(e) => setLlmUrl(e.target.value)}
+              onChange={(e) => {
+                setLlmUrl(e.target.value)
+                markFieldEdited('llm_url')
+              }}
               placeholder="http://localhost:8000/v1"
             />
             <label className="text-sm font-medium" htmlFor="llm-model">
@@ -154,9 +185,25 @@ export function Settings() {
             <Input
               id="llm-model"
               value={llmModel}
-              onChange={(e) => setLlmModel(e.target.value)}
+              onChange={(e) => {
+                setLlmModel(e.target.value)
+                markFieldEdited('llm_model')
+              }}
               placeholder="model name"
             />
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-sm"
+              onClick={() => {
+                setLlmUrl('')
+                setLlmModel('')
+                markFieldCleared('llm_url')
+                markFieldCleared('llm_model')
+              }}
+            >
+              Reset to default
+            </Button>
           </div>
         )}
       </div>
@@ -176,7 +223,9 @@ export function Settings() {
             value={embeddingProvider}
             onValueChange={(value) => {
               setEmbeddingProvider(value)
-              applyProviderSelection(embeddingOptions, value, setEmbeddingUrl)
+              applyProviderSelection(embeddingOptions, value, setEmbeddingUrl, setEmbeddingModel)
+              markFieldEdited('embedding_url')
+              markFieldEdited('embedding_model')
             }}
           >
             <SelectTrigger id="embedding-provider-select" aria-label="Embedding provider">
@@ -200,7 +249,10 @@ export function Settings() {
             <Input
               id="embedding-url"
               value={embeddingUrl}
-              onChange={(e) => setEmbeddingUrl(e.target.value)}
+              onChange={(e) => {
+                setEmbeddingUrl(e.target.value)
+                markFieldEdited('embedding_url')
+              }}
               placeholder="http://localhost:8002/v1"
             />
             <label className="text-sm font-medium" htmlFor="embedding-model">
@@ -209,9 +261,25 @@ export function Settings() {
             <Input
               id="embedding-model"
               value={embeddingModel}
-              onChange={(e) => setEmbeddingModel(e.target.value)}
+              onChange={(e) => {
+                setEmbeddingModel(e.target.value)
+                markFieldEdited('embedding_model')
+              }}
               placeholder="model name"
             />
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-sm"
+              onClick={() => {
+                setEmbeddingUrl('')
+                setEmbeddingModel('')
+                markFieldCleared('embedding_url')
+                markFieldCleared('embedding_model')
+              }}
+            >
+              Reset to default
+            </Button>
           </div>
         )}
       </div>

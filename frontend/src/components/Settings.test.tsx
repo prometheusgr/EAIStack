@@ -161,4 +161,89 @@ describe('Settings', () => {
 
     expect(container.innerHTML).not.toContain('llm_api_key')
   })
+
+  it('clears the model field when the LLM provider selection changes', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      llm_provider: 'openai-compatible',
+      llm_url: 'http://custom:8000/v1',
+      llm_model: 'llama-3',
+      llm_provider_is_db_override: true,
+      llm_url_is_db_override: true,
+      llm_model_is_db_override: true,
+    })
+
+    const user = userEvent.setup()
+    renderSettings()
+
+    await waitFor(() => {
+      expect(document.getElementById('llm-model')).not.toBeNull()
+    })
+    const modelInput = document.getElementById('llm-model') as HTMLInputElement
+    expect(modelInput.value).toBe('llama-3')
+
+    const providerSelect = screen.getByLabelText(/llm provider/i)
+    await user.click(providerSelect)
+    const fakeOption = await screen.findByRole('option', { name: /fake \(mocked, for testing\)/i })
+    await user.click(fakeOption)
+
+    await waitFor(() => {
+      expect((document.getElementById('llm-model') as HTMLInputElement).value).toBe('')
+    })
+  })
+
+  it('clears the model field when the embedding provider selection changes', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      embedding_provider: 'llama-cpp',
+      embedding_url: 'http://embedding-server:8000/v1',
+      embedding_model: 'embed-model',
+      embedding_provider_is_db_override: true,
+      embedding_url_is_db_override: true,
+      embedding_model_is_db_override: true,
+    })
+
+    const user = userEvent.setup()
+    renderSettings()
+
+    const providerSelect = await screen.findByLabelText(/embedding provider/i)
+    await user.click(providerSelect)
+    const fakeOption = await screen.findByRole('option', { name: /fake \(mocked, for testing\)/i })
+    await user.click(fakeOption)
+
+    await waitFor(() => {
+      expect((document.getElementById('embedding-model') as HTMLInputElement).value).toBe('')
+    })
+  })
+
+  it('sends null for the LLM URL and model when "Reset to default" is clicked', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      llm_provider: 'openai-compatible',
+      llm_url: 'http://custom:8000/v1',
+      llm_model: 'llama-3',
+      llm_provider_is_db_override: true,
+      llm_url_is_db_override: true,
+      llm_model_is_db_override: true,
+    })
+    vi.mocked(settingsClient.updateSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+
+    const user = userEvent.setup()
+    renderSettings()
+
+    const resetButtons = await screen.findAllByRole('button', { name: /reset to default/i })
+    const llmResetButton = resetButtons[0]
+    await user.click(llmResetButton)
+
+    const saveButton = screen.getByRole('button', { name: /^save$/i })
+    await user.click(saveButton)
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload.llm_url).toBeNull()
+    expect(payload.llm_model).toBeNull()
+  })
 })
