@@ -13,7 +13,13 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.models import SystemSettings
 from app.repositories.system_settings_repository import SystemSettingsRepository
+
+# Sentinel distinguishing "caller didn't pass db_settings" from "caller
+# passed the real value None" (which happens whenever no SystemSettings row
+# has been created yet — a legitimate, common case, not an absent argument).
+_NOT_PROVIDED = object()
 
 
 @dataclass(frozen=True)
@@ -37,34 +43,79 @@ class EmbeddingConfig:
     timeout: int
 
 
-def resolve_llm_config(db: Session) -> LLMConfig:
+def _resolve_field(db_value: str | None, env_default: str) -> str:
+    """Resolve one overridable field: the DB value if a row set it (even to
+    an empty string, which is a deliberate override — e.g. the 'fake'
+    provider's URL template is ""), else the env default.
+
+    Must stay an `is not None` check, not a truthiness check: `"" or env`
+    would silently discard an empty-string override, which would make this
+    resolver disagree with `_to_response`'s `is_db_override` computation in
+    app.api.settings (also an `is not None` check).
+    """
+    return db_value if db_value is not None else env_default
+
+
+def resolve_llm_config(
+    db: Session, db_settings: SystemSettings | None = _NOT_PROVIDED
+) -> LLMConfig:
     """Resolve the effective LLM config: DB value if set, else env default.
 
     api_key and timeout are always sourced from env Settings — there are no
     DB columns for them. api_key in particular must never be persisted to
     the DB or exposed to the settings screen (see the security note on
     app.api.settings.get_settings).
+
+    db_settings: the already-fetched singleton row, if the caller has one.
+    Pass it to avoid a redundant `SystemSettingsRepository(db).get()` query
+    when the caller already fetched the row for its own purposes (see
+    app.api.settings._to_response). Omit it (the default) to preserve this
+    function's original self-contained behavior for callers (llm_client.py)
+    that only have a session, not a pre-fetched row — the parameter must
+    default to a sentinel, not None, because None is also the legitimate
+    value of db_settings when no SystemSettings row has been created yet.
     """
-    db_settings = SystemSettingsRepository(db).get()
+    if db_settings is _NOT_PROVIDED:
+        db_settings = SystemSettingsRepository(db).get()
 
     return LLMConfig(
-        provider=(db_settings.llm_provider if db_settings else None) or settings.llm_provider,
-        url=(db_settings.llm_url if db_settings else None) or settings.llm_url,
-        model=(db_settings.llm_model if db_settings else None) or settings.llm_model,
+        provider=_resolve_field(
+            db_settings.llm_provider if db_settings else None, settings.llm_provider
+        ),
+        url=_resolve_field(db_settings.llm_url if db_settings else None, settings.llm_url),
+        model=_resolve_field(db_settings.llm_model if db_settings else None, settings.llm_model),
         api_key=settings.llm_api_key,
         timeout=settings.llm_timeout,
     )
 
 
-def resolve_embedding_config(db: Session) -> EmbeddingConfig:
-    """Resolve the effective embedding config: DB value if set, else env default."""
-    db_settings = SystemSettingsRepository(db).get()
+def resolve_embedding_config(
+    db: Session, db_settings: SystemSettings | None = _NOT_PROVIDED
+) -> EmbeddingConfig:
+    """Resolve the effective embedding config: DB value if set, else env default.
+
+    db_settings: the already-fetched singleton row, if the caller has one.
+    Pass it to avoid a redundant `SystemSettingsRepository(db).get()` query
+    (see app.api.settings._to_response). Omit it (the default) to preserve
+    this function's original self-contained behavior for callers
+    (embedding_service.py) that only have a session, not a pre-fetched row —
+    the parameter must default to a sentinel, not None, because None is also
+    the legitimate value of db_settings when no SystemSettings row has been
+    created yet.
+    """
+    if db_settings is _NOT_PROVIDED:
+        db_settings = SystemSettingsRepository(db).get()
 
     return EmbeddingConfig(
-        provider=(db_settings.embedding_provider if db_settings else None)
-        or settings.embedding_provider,
-        url=(db_settings.embedding_url if db_settings else None) or settings.embedding_url,
-        model=(db_settings.embedding_model if db_settings else None) or settings.embedding_model,
+        provider=_resolve_field(
+            db_settings.embedding_provider if db_settings else None, settings.embedding_provider
+        ),
+        url=_resolve_field(
+            db_settings.embedding_url if db_settings else None, settings.embedding_url
+        ),
+        model=_resolve_field(
+            db_settings.embedding_model if db_settings else None, settings.embedding_model
+        ),
         timeout=settings.embedding_timeout,
     )
 

@@ -24,8 +24,8 @@ def _to_response(db: Session) -> SystemSettingsResponse:
     fields are DB-overridden vs. falling back to the env default.
     """
     db_settings = SystemSettingsRepository(db).get()
-    llm_config = resolve_llm_config(db)
-    embedding_config = resolve_embedding_config(db)
+    llm_config = resolve_llm_config(db, db_settings)
+    embedding_config = resolve_embedding_config(db, db_settings)
 
     return SystemSettingsResponse(
         llm_provider=llm_config.provider,

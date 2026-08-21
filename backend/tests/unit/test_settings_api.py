@@ -4,6 +4,7 @@ import pytest
 
 from app.core.auth import get_current_user
 from app.main import app
+from app.repositories.system_settings_repository import SystemSettingsRepository
 
 ADMIN_USER = {
     "user_id": "admin-user-1",
@@ -151,6 +152,66 @@ def test_put_settings_rejects_unknown_embedding_provider(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 400
+
+
+@pytest.mark.unit
+def test_put_settings_with_empty_string_url_reports_override_true_and_resolves_empty(client):
+    """An empty-string llm_url (e.g. selecting the 'fake' provider, whose URL
+    template is "") is a deliberate override, not an unset field. The
+    is_db_override flag and the resolved value must agree: both should treat
+    "" as overridden, not fall back to the env default.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    put_response = client.put(
+        "/api/settings",
+        json={"llm_provider": "fake", "llm_url": "", "llm_model": ""},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert put_response.status_code == 200
+    data = put_response.json()
+    assert data["llm_url"] == ""
+    assert data["llm_url_is_db_override"] is True
+    assert data["llm_model"] == ""
+    assert data["llm_model_is_db_override"] is True
+
+
+@pytest.mark.unit
+def test_get_settings_fetches_the_settings_row_exactly_once(client, mocker):
+    """_to_response resolves both llm and embedding config from the same
+    singleton row. It must fetch that row once and reuse it for both
+    resolvers, not once directly plus once inside each resolver (3 identical
+    SELECTs per request otherwise).
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    get_spy = mocker.spy(SystemSettingsRepository, "get")
+    response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert get_spy.call_count == 1
+
+
+@pytest.mark.unit
+def test_put_settings_fetches_the_settings_row_exactly_once(client, mocker):
+    """Same one-fetch expectation applies to PUT, whose response is built by
+    the same _to_response helper after the upsert.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    get_spy = mocker.spy(SystemSettingsRepository, "get")
+    response = client.put("/api/settings", json={"llm_provider": "llama-cpp"})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    # upsert() also calls get() once internally (to check create-vs-update),
+    # so PUT's total is 2: one from upsert, one from _to_response — not 4.
+    assert get_spy.call_count == 2
 
 
 @pytest.mark.unit

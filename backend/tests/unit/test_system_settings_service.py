@@ -97,6 +97,30 @@ def test_resolve_llm_config_falls_back_per_field_when_only_some_are_null(db_sess
 
 
 @pytest.mark.unit
+def test_resolve_llm_config_treats_empty_string_db_value_as_a_real_override(db_session):
+    """An empty-string DB column is a deliberate override (e.g. the 'fake'
+    provider's URL template is ""), not an unset field. It must resolve to
+    "" rather than silently falling back to the env default.
+    """
+    repo = SystemSettingsRepository(db_session)
+    repo.upsert(
+        llm_provider="fake",
+        llm_url="",
+        llm_model="",
+        embedding_provider=None,
+        embedding_url=None,
+        embedding_model=None,
+        updated_by="admin-1",
+    )
+    db_session.commit()
+
+    config = resolve_llm_config(db_session)
+
+    assert config.url == ""
+    assert config.model == ""
+
+
+@pytest.mark.unit
 def test_resolve_embedding_config_falls_back_to_env_settings_when_no_db_row(db_session):
     """With no SystemSettings row at all, every field comes from env settings."""
     config = resolve_embedding_config(db_session)
@@ -127,6 +151,29 @@ def test_resolve_embedding_config_uses_db_override_when_present(db_session):
     assert config.provider == "llama-cpp"
     assert config.url == "http://embedding-server:8000/v1"
     assert config.model == "nomic-embed-text-v1.5.Q4_K_M.gguf"
+
+
+@pytest.mark.unit
+def test_resolve_embedding_config_treats_empty_string_db_value_as_a_real_override(db_session):
+    """Same empty-string-is-a-real-override semantics apply to embedding
+    fields as to LLM fields.
+    """
+    repo = SystemSettingsRepository(db_session)
+    repo.upsert(
+        llm_provider=None,
+        llm_url=None,
+        llm_model=None,
+        embedding_provider="fake",
+        embedding_url="",
+        embedding_model="",
+        updated_by="admin-1",
+    )
+    db_session.commit()
+
+    config = resolve_embedding_config(db_session)
+
+    assert config.url == ""
+    assert config.model == ""
 
 
 @pytest.mark.unit
