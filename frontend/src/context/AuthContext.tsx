@@ -170,6 +170,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsAuthenticated(false)
         setUser(null)
         setToken(null)
+        setRoles([])
         return false
       }
 
@@ -202,6 +203,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setIsAuthenticated(false)
           setUser(null)
           setToken(null)
+          setRoles([])
           return false
         }
       }
@@ -214,6 +216,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsAuthenticated(false)
       setUser(null)
       setToken(null)
+      setRoles([])
       return false
     }
   }
