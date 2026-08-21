@@ -9,8 +9,8 @@ from langgraph.prebuilt import ToolNode
 from sqlalchemy.orm import Session
 
 from app.agents.checkpointer import SqlAlchemyCheckpointSaver
-from app.agents.tools import make_search_knowledge_base_tool
 from app.core.llm_client import get_llm_client
+from app.mcp_client import make_search_knowledge_base_tool
 
 MAX_TOOL_CALL_ROUNDS = 5
 
@@ -46,18 +46,22 @@ def _count_tool_call_rounds(state: ChatState) -> int:
     )
 
 
-def create_chat_agent(db: Session, user_id: str):
+def create_chat_agent(db: Session, user_id: str, token: str, mcp_url: str):
     """Create and compile the chat agent graph for one request.
 
     Built per-request (not cached) because the search_knowledge_base tool is
-    bound to this specific db session and user_id — the model can never
-    supply its own user_id, which keeps knowledge-base search scoped to the
-    authenticated user. The checkpointer is built the same way and for the
-    same reason: it's bound to this db session, and thread ownership must
-    already have been verified by the caller (see ThreadRepository) before
-    a thread_id ever reaches it.
+    bound to this specific caller's forwarded access token — the model can
+    never supply its own credentials, which keeps knowledge-base search
+    scoped to the authenticated user. token is the caller's own,
+    already-validated Keycloak access token (see app.core.auth.get_current_user),
+    forwarded to the doc-search MCP server so it can independently verify
+    identity rather than trusting a bare user_id from this service (see
+    app.mcp_client.doc_search_client). The checkpointer is built the same
+    way and for the same reason: it's bound to this db session, and thread
+    ownership must already have been verified by the caller (see
+    ThreadRepository) before a thread_id ever reaches it.
     """
-    search_tool = make_search_knowledge_base_tool(user_id=user_id, db=db)
+    search_tool = make_search_knowledge_base_tool(token=token, mcp_url=mcp_url)
     tools = [search_tool]
     llm = get_llm_client(db).bind_tools(tools)
 

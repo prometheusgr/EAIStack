@@ -36,6 +36,7 @@ def test_chat_endpoint_authenticated_returns_200(client):
         "email": "test@example.com",
         "name": "Test User",
         "token": {},
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():
@@ -63,6 +64,7 @@ def test_chat_endpoint_returns_thread_id(client):
         "email": "test@example.com",
         "name": "Test User",
         "token": {},
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():
@@ -90,6 +92,7 @@ def test_chat_endpoint_generates_thread_id_if_absent(client):
         "email": "test@example.com",
         "name": "Test User",
         "token": {},
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():
@@ -127,6 +130,7 @@ def test_chat_endpoint_preserves_thread_id_when_caller_owns_it(client):
         "email": "test@example.com",
         "name": "Test User",
         "token": {},
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():
@@ -158,6 +162,7 @@ def test_chat_endpoint_mints_new_thread_id_for_unrecognized_thread_id(client):
         "email": "test@example.com",
         "name": "Test User",
         "token": {},
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():
@@ -186,6 +191,7 @@ def test_chat_endpoint_rejects_thread_id_owned_by_different_user(client):
         "email": "usera@example.com",
         "name": "User A",
         "token": {},
+        "access_token": "fake-access-token",
     }
     user_b = {
         "user_id": "user-b",
@@ -193,6 +199,7 @@ def test_chat_endpoint_rejects_thread_id_owned_by_different_user(client):
         "email": "userb@example.com",
         "name": "User B",
         "token": {},
+        "access_token": "fake-access-token",
     }
 
     def as_user_a():
@@ -233,6 +240,7 @@ def test_chat_endpoint_response_shape(client):
         "email": "test@example.com",
         "name": "Test User",
         "token": {},
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():
@@ -269,6 +277,7 @@ def test_chat_endpoint_with_valid_auth(client, mock_keycloak_token):
         "email": mock_keycloak_token["email"],
         "name": mock_keycloak_token["name"],
         "token": mock_keycloak_token,
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():
@@ -326,6 +335,7 @@ def _login_as(user_id: str) -> dict:
         "email": f"{user_id}@example.com",
         "name": user_id,
         "token": {},
+        "access_token": "fake-access-token",
     }
     app.dependency_overrides[get_current_user] = lambda: fake_user
     return fake_user

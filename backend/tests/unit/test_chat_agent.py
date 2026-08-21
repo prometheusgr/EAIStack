@@ -10,6 +10,20 @@ from app.core.llm_client import FakeChatModel
 from app.db.models import Embedding, KnowledgeBase
 from app.repositories import ThreadRepository
 from app.services import generate_embedding
+from tests.conftest import FAKE_KEYCLOAK_PRIVATE_KEY
+from tests.integration.doc_search_helper import (
+    make_signed_token,
+    running_doc_search_subprocess,
+)
+
+_CHAT_AGENT_TEST_PORT = 8196
+
+# Tests that never trigger a tool call don't need a reachable doc-search
+# server — token/mcp_url are still required by create_chat_agent's signature
+# (they're bound into the search tool unconditionally), but the fake LLM
+# never emits tool_calls, so the tool is built but never invoked.
+_UNUSED_TOKEN = "unused-token"
+_UNREACHABLE_MCP_URL = "http://localhost:1/mcp"
 
 
 def _new_thread(db_session, user_id: str = "test-user") -> str:
@@ -28,7 +42,9 @@ def _new_thread(db_session, user_id: str = "test-user") -> str:
 @pytest.mark.unit
 def test_create_chat_agent_returns_runnable(db_session):
     """create_chat_agent() should return a compiled, runnable graph."""
-    graph = create_chat_agent(db=db_session, user_id="test-user")
+    graph = create_chat_agent(
+        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+    )
     assert graph is not None
     assert hasattr(graph, "invoke")
 
@@ -40,7 +56,9 @@ def test_chat_agent_invoke_with_message(db_session, monkeypatch):
         "app.agents.chat_agent.get_llm_client",
         lambda db: FakeChatModel(response="4"),
     )
-    graph = create_chat_agent(db=db_session, user_id="test-user")
+    graph = create_chat_agent(
+        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+    )
     thread_id = _new_thread(db_session)
 
     state = {
@@ -65,7 +83,9 @@ def test_conversation_persists_across_two_invokes_same_thread_same_user(db_sessi
     thread_id = _new_thread(db_session)
     config = {"configurable": {"thread_id": thread_id}}
 
-    first_graph = create_chat_agent(db=db_session, user_id="test-user")
+    first_graph = create_chat_agent(
+        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+    )
     first_graph.invoke(
         {
             "messages": [HumanMessage(content="What is 2+2?")],
@@ -76,7 +96,9 @@ def test_conversation_persists_across_two_invokes_same_thread_same_user(db_sessi
     )
     db_session.commit()
 
-    second_graph = create_chat_agent(db=db_session, user_id="test-user")
+    second_graph = create_chat_agent(
+        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+    )
     result = second_graph.invoke(
         {
             "messages": [HumanMessage(content="Are you sure?")],
@@ -100,7 +122,9 @@ def test_chat_agent_invoke_passes_through_thread_id(db_session, monkeypatch):
         "app.agents.chat_agent.get_llm_client",
         lambda db: FakeChatModel(),
     )
-    graph = create_chat_agent(db=db_session, user_id="test-user")
+    graph = create_chat_agent(
+        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+    )
     thread_id = _new_thread(db_session)
 
     state = {
@@ -119,7 +143,9 @@ def test_chat_agent_plain_response_skips_tool_node(db_session, monkeypatch):
     """A response with no tool_calls routes straight to END without invoking the tool."""
     fake_llm = FakeChatModel(response="No tool needed here.")
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
-    graph = create_chat_agent(db=db_session, user_id="test-user")
+    graph = create_chat_agent(
+        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+    )
     thread_id = _new_thread(db_session)
 
     state = {
@@ -137,9 +163,16 @@ def test_chat_agent_plain_response_skips_tool_node(db_session, monkeypatch):
 
 
 @pytest.mark.integration
-def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(db_session, monkeypatch):
+def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(
+    db_session, test_db_url, fake_keycloak_jwks_server, monkeypatch
+):
     """A tool_calls response invokes the tool node, feeds the result back to the LLM,
     and the second LLM call sees the tool result in its message history.
+
+    Marked integration: the tool now calls a real, running doc-search MCP
+    server over Streamable HTTP (see doc_search_helper.py) instead of an
+    in-process closure, so this test needs a real subprocess and real
+    Postgres, same as before the extraction.
     """
     kb = KnowledgeBase(
         id=str(uuid4()),
@@ -167,15 +200,19 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(db_session
     fake_llm = FakeChatModel(responses=[tool_call_message, final_message])
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
 
-    graph = create_chat_agent(db=db_session, user_id="test-user")
-    thread_id = _new_thread(db_session)
-    state = {
-        "messages": [HumanMessage(content="How many vacation days do I get?")],
-        "thread_id": thread_id,
-        "user_id": "test-user",
-    }
+    token = make_signed_token("test-user", FAKE_KEYCLOAK_PRIVATE_KEY)
+    with running_doc_search_subprocess(
+        test_db_url, fake_keycloak_jwks_server, _CHAT_AGENT_TEST_PORT
+    ) as mcp_url:
+        graph = create_chat_agent(db=db_session, user_id="test-user", token=token, mcp_url=mcp_url)
+        thread_id = _new_thread(db_session)
+        state = {
+            "messages": [HumanMessage(content="How many vacation days do I get?")],
+            "thread_id": thread_id,
+            "user_id": "test-user",
+        }
 
-    result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
+        result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
 
     assert fake_llm.call_count == 2
     messages = result["messages"]
@@ -186,13 +223,15 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(db_session
 
 
 @pytest.mark.integration
-def test_chat_agent_stops_after_max_tool_iterations(db_session, monkeypatch):
+def test_chat_agent_stops_after_max_tool_iterations(
+    db_session, test_db_url, fake_keycloak_jwks_server, monkeypatch
+):
     """A model that keeps requesting tool calls is forced to END after a bounded
     number of rounds, rather than looping forever.
 
     Marked integration: a looping tool call is actually executed by the graph's
-    ToolNode, which runs search_knowledge_base against pgvector's cosine
-    distance operator (real Postgres only, see test_embedding_repository.py).
+    ToolNode, which now calls a real, running doc-search MCP server over
+    Streamable HTTP (real Postgres + real subprocess, see doc_search_helper.py).
     """
     looping_tool_call = AIMessage(
         content="",
@@ -203,15 +242,19 @@ def test_chat_agent_stops_after_max_tool_iterations(db_session, monkeypatch):
     fake_llm = FakeChatModel(responses=[looping_tool_call])
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
 
-    graph = create_chat_agent(db=db_session, user_id="test-user")
-    thread_id = _new_thread(db_session)
-    state = {
-        "messages": [HumanMessage(content="Loop forever?")],
-        "thread_id": thread_id,
-        "user_id": "test-user",
-    }
+    token = make_signed_token("test-user", FAKE_KEYCLOAK_PRIVATE_KEY)
+    with running_doc_search_subprocess(
+        test_db_url, fake_keycloak_jwks_server, _CHAT_AGENT_TEST_PORT + 1
+    ) as mcp_url:
+        graph = create_chat_agent(db=db_session, user_id="test-user", token=token, mcp_url=mcp_url)
+        thread_id = _new_thread(db_session)
+        state = {
+            "messages": [HumanMessage(content="Loop forever?")],
+            "thread_id": thread_id,
+            "user_id": "test-user",
+        }
 
-    result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
+        result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
 
     assert result is not None
     assert fake_llm.call_count <= 6

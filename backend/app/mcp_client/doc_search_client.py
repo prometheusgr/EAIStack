@@ -40,9 +40,11 @@ class _SearchKnowledgeBaseInput(BaseModel):
 
 
 async def _call_doc_search(token: str, mcp_url: str, query: str, top_k: int) -> str:
-    async with streamablehttp_client(
-        mcp_url, headers={"Authorization": f"Bearer {token}"}
-    ) as (read, write, _get_session_id):
+    async with streamablehttp_client(mcp_url, headers={"Authorization": f"Bearer {token}"}) as (
+        read,
+        write,
+        _get_session_id,
+    ):
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.call_tool(
@@ -50,9 +52,7 @@ async def _call_doc_search(token: str, mcp_url: str, query: str, top_k: int) -> 
                 {"query": query, "top_k": top_k},
                 read_timeout_seconds=MCP_CALL_TIMEOUT,
             )
-            return "".join(
-                block.text for block in result.content if hasattr(block, "text")
-            )
+            return "".join(block.text for block in result.content if hasattr(block, "text"))
 
 
 def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:

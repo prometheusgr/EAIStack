@@ -62,10 +62,11 @@ def _valid_token_for(user_id: str) -> str:
 @contextmanager
 def _running_server(monkeypatch_jwks, db_url: str):
     """Run the real doc-search Streamable HTTP app in a background thread."""
-    import app.db as app_db
-    from app.server import build_app
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
+
+    import app.db as app_db
+    from app.server import build_app
 
     engine = create_engine(db_url)
     app_db.engine = engine
@@ -125,7 +126,12 @@ async def test_search_via_real_http_with_valid_token_returns_matches(
     db_session.commit()
 
     token, jwks = _make_signed_token(
-        {"sub": "user-a", "aud": "eaistack-web", "iat": int(time.time()), "exp": int(time.time()) + 3600}
+        {
+            "sub": "user-a",
+            "aud": "eaistack-web",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+        }
     )
     jwks_mock["jwks"] = jwks
 
@@ -174,9 +180,11 @@ async def test_search_via_real_http_rejects_expired_token(db_session, test_db_ur
 
     with _running_server(jwks_mock, test_db_url) as url:
         with pytest.raises(Exception):
-            async with streamablehttp_client(
-                url, headers={"Authorization": f"Bearer {token}"}
-            ) as (read, write, _):
+            async with streamablehttp_client(url, headers={"Authorization": f"Bearer {token}"}) as (
+                read,
+                write,
+                _,
+            ):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     await session.call_tool("search_knowledge_base", {"query": "anything"})
@@ -184,9 +192,7 @@ async def test_search_via_real_http_rejects_expired_token(db_session, test_db_ur
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_search_via_real_http_never_crosses_user_boundary(
-    db_session, test_db_url, jwks_mock
-):
+async def test_search_via_real_http_never_crosses_user_boundary(db_session, test_db_url, jwks_mock):
     """User B's valid token must never surface User A's documents, even
     though both tokens are independently valid and verified.
     """
@@ -203,14 +209,21 @@ async def test_search_via_real_http_never_crosses_user_boundary(
     db_session.commit()
 
     token_b, jwks = _make_signed_token(
-        {"sub": "user-b", "aud": "eaistack-web", "iat": int(time.time()), "exp": int(time.time()) + 3600}
+        {
+            "sub": "user-b",
+            "aud": "eaistack-web",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+        }
     )
     jwks_mock["jwks"] = jwks
 
     with _running_server(jwks_mock, test_db_url) as url:
-        async with streamablehttp_client(
-            url, headers={"Authorization": f"Bearer {token_b}"}
-        ) as (read, write, _):
+        async with streamablehttp_client(url, headers={"Authorization": f"Bearer {token_b}"}) as (
+            read,
+            write,
+            _,
+        ):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool("search_knowledge_base", {"query": "secret"})

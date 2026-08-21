@@ -44,7 +44,7 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         if not auth_header.lower().startswith("bearer "):
             return JSONResponse({"error": "Missing bearer token"}, status_code=401)
 
-        token = auth_header[len("bearer "):].strip()
+        token = auth_header[len("bearer ") :].strip()
         try:
             user_id = await verify_bearer_token(token)
         except TokenVerificationError as e:

@@ -51,7 +51,9 @@ def resolve_embedding_config(db: Session) -> EmbeddingConfig:
         provider=_resolve_field(
             db_settings.embedding_provider if db_settings else None, settings.embedding_provider
         ),
-        url=_resolve_field(db_settings.embedding_url if db_settings else None, settings.embedding_url),
+        url=_resolve_field(
+            db_settings.embedding_url if db_settings else None, settings.embedding_url
+        ),
         model=_resolve_field(
             db_settings.embedding_model if db_settings else None, settings.embedding_model
         ),

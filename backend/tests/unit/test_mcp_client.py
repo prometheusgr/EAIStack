@@ -19,9 +19,7 @@ def test_search_knowledge_base_tool_reports_clear_error_when_server_unreachable(
     exception that would crash the agent's tool-call round-trip — the LLM
     still needs a ToolMessage to continue the conversation.
     """
-    tool = make_search_knowledge_base_tool(
-        token="some.jwt.token", mcp_url="http://localhost:1/mcp"
-    )
+    tool = make_search_knowledge_base_tool(token="some.jwt.token", mcp_url="http://localhost:1/mcp")
 
     result = tool.invoke({"query": "anything"})
 
