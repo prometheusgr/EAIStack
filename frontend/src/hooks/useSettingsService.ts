@@ -1,5 +1,5 @@
 import { useAuth } from '@/context/AuthContext'
-import { settingsClient } from '@/api/settingsClient'
+import { SettingsService } from '@/services/settingsService'
 import type { SystemSettingsResponse, UpdateSettingsRequest } from '@/types/settings'
 import { useApiCall } from './useApiCall'
 import { useApiMutation } from './useApiMutation'
@@ -10,7 +10,8 @@ export function useSettingsService() {
   const get = useApiCall<SystemSettingsResponse>(
     async () => {
       if (!token) throw new Error('No auth token available')
-      return settingsClient.getSettings(token, refreshAccessToken)
+      const service = new SettingsService(token, refreshAccessToken)
+      return service.getSettings()
     },
     { immediate: false }
   )
@@ -18,7 +19,8 @@ export function useSettingsService() {
   const update = useApiMutation<UpdateSettingsRequest, SystemSettingsResponse>(
     async (payload) => {
       if (!token) throw new Error('No auth token available')
-      return settingsClient.updateSettings(payload, token, refreshAccessToken)
+      const service = new SettingsService(token, refreshAccessToken)
+      return service.updateSettings(payload)
     }
   )
 
