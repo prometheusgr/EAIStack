@@ -221,6 +221,49 @@ def test_session_isolation():
     assert get_checkpoint_state(session2) is None
 ```
 
+## MCP Server Isolation
+
+**Status**: Phase 3, implemented — `mcp-servers/doc-search`.
+
+`search_knowledge_base` runs as a standalone MCP server, reached by the
+backend over the network (Streamable HTTP) instead of an in-process Python
+closure. Crossing that process boundary removes the mechanism that used to
+guarantee isolation: a closure over `user_id` and a `db` session can't
+survive a network hop, so a new isolation guarantee had to replace it.
+
+**Design**: the backend forwards the caller's own, already-validated
+Keycloak access token — never a bare `user_id` string — as a `Bearer`
+header on every call to doc-search. doc-search independently verifies that
+token against Keycloak's JWKS (the same signature, audience, and expiry
+checks `backend/app/core/auth.py`'s `verify_token` performs, duplicated in
+`mcp-servers/doc-search/app/auth.py` rather than shared as a package, since
+these are two separately deployed services) and derives `user_id` from the
+verified `sub` claim itself. doc-search never trusts an identity claim
+handed to it by another service — this is defense-in-depth, chosen
+deliberately over the simpler alternative of trusting a bare `user_id` the
+backend claims, appropriate for a template aimed at high-security
+deployments.
+
+**Trade-off, stated explicitly**: forwarding the real bearer token widens
+where a stolen token is dangerous. Before this design, a compromised token
+was usable only against the backend; now it's also directly usable against
+doc-search, since doc-search verifies it itself rather than trusting the
+backend's say-so. This is the direct cost of independent verification over
+blind trust — accepted deliberately, not overlooked. It is mitigated by:
+the token being request-scoped in memory at both hops (never logged, never
+persisted to disk or a database by either service); doc-search performing
+the exact same signature/audience/expiry checks the backend does, so a
+token invalid at one service is invalid at the other; and TLS on the
+backend↔MCP-server hop (Phase 5, see the Encryption section above) closing
+the remaining plaintext-network exposure this design accepts until then.
+
+**Verification test** (Phase 3): `mcp-servers/doc-search/tests/unit/test_server.py`
+proves this end-to-end over a real Streamable HTTP connection — a request
+with no token, an expired token, or a token signed by the wrong key is
+rejected before any database query runs, and a valid token for one user
+never surfaces another user's documents even when both tokens are
+independently valid.
+
 ## Audit & Compliance
 
 **Status**: Phase 4b — `audit_logs` exists and records retention configuration

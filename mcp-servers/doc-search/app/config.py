@@ -34,9 +34,6 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text-v1.5.Q4_K_M.gguf"
     embedding_timeout: int = 60
 
-    host: str = "0.0.0.0"
-    port: int = 8100
-
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -114,6 +114,45 @@ services:
     profiles:
       - llm  # Only start with --profile llm flag
 
+  # Standalone MCP server exposing pgvector document search as an MCP tool
+  # over Streamable HTTP (see mcp-servers/doc-search). Runs as its own
+  # service/pod rather than in-process in the backend so it can scale and be
+  # redeployed independently — see docs/ARCHITECTURE.md's "MCP Transport"
+  # section for why Streamable HTTP (not stdio) is required.
+  #
+  # Alembic in backend/ remains the sole schema authority for knowledge_base,
+  # embeddings, and system_settings — doc-search only reads those tables, so
+  # it depends on `migrate` (not its own migration step) to guarantee the
+  # schema already exists before it starts.
+  doc-search:
+    build:
+      context: ./mcp-servers/doc-search
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/eaistack
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: eaistack
+      # Same env-level embedding defaults as the backend (see
+      # backend's EMBEDDING_PROVIDER/EMBEDDING_URL/EMBEDDING_MODEL below) —
+      # an admin's runtime override via the Settings screen is read from the
+      # same system_settings row by both services, so this only matters as
+      # the fallback before any override is set.
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fake}
+      EMBEDDING_URL: ${EMBEDDING_URL:-http://embedding-server:8000/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text-v1.5.Q4_K_M.gguf}
+    ports:
+      # Published on 8100 for host access (curl, direct debugging). The
+      # containerized backend reaches it as http://doc-search:8100/mcp.
+      - "8100:8100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8100
+
   # One-shot job: applies Alembic migrations, then exits. `backend` waits for
   # this to succeed before it starts, so the app schema always matches the
   # code it's running — no manual "did you remember to migrate?" step.
@@ -157,6 +196,7 @@ services:
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fake}
       EMBEDDING_URL: ${EMBEDDING_URL:-http://embedding-server:8000/v1}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text-v1.5.Q4_K_M.gguf}
+      DOC_SEARCH_MCP_URL: http://doc-search:8100/mcp
     ports:
       - "8001:8000"
     depends_on:
@@ -168,6 +208,8 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+      doc-search:
+        condition: service_started
     volumes:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
