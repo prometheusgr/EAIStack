@@ -268,10 +268,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('id_token')
 
-    setIsAuthenticated(false)
-    setUser(null)
-    setToken(null)
-    setRoles([])
+    if (isMounted()) {
+      setIsAuthenticated(false)
+      setUser(null)
+      setToken(null)
+      setRoles([])
+    }
 
     try {
       const logoutUrl = buildKeycloakLogoutUrl(keycloakUrl, window.location.origin + '/', idToken || undefined)
