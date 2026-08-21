@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures."""
 
+import json
 import os
 from datetime import datetime, timezone
 from typing import Generator
@@ -8,6 +9,8 @@ from typing import Generator
 # This is a workaround for Starlette/httpx version incompatibility
 import httpx
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+from jwt.utils import to_base64url_uint
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -149,6 +152,66 @@ def mock_keycloak_token():
         "iat": 1629312000,
         "exp": 1629398400,
     }
+
+
+FAKE_KEYCLOAK_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+@pytest.fixture(scope="session")
+def fake_keycloak_jwks_server():
+    """Serve FAKE_KEYCLOAK_PRIVATE_KEY's public JWKS over real HTTP, at the
+    same path Keycloak serves its realm JWKS
+    (/realms/{realm}/protocol/openid-connect/certs).
+
+    Used by tests/integration/test_mcp_client.py: doc-search runs as a real
+    subprocess and needs a real, network-reachable JWKS URL to verify tokens
+    against — it cannot share an in-process mock with the backend's test
+    process. Session-scoped since the keypair and server are cheap to reuse
+    across every test that needs a live doc-search subprocess.
+
+    Yields the base URL (e.g. http://127.0.0.1:PORT) to set as
+    doc-search's KEYCLOAK_URL.
+    """
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    public_numbers = FAKE_KEYCLOAK_PRIVATE_KEY.public_key().public_numbers()
+    jwks_body = json.dumps(
+        {
+            "keys": [
+                {
+                    "kid": "backend-integration-test-key",
+                    "kty": "RSA",
+                    "use": "sig",
+                    "n": to_base64url_uint(public_numbers.n).decode("utf-8"),
+                    "e": to_base64url_uint(public_numbers.e).decode("utf-8"),
+                }
+            ]
+        }
+    ).encode("utf-8")
+
+    class _JWKSHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.endswith("/protocol/openid-connect/certs"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(jwks_body)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, format, *args):
+            pass  # Silence per-request logging; tests already report failures.
+
+    server = HTTPServer(("127.0.0.1", 0), _JWKSHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 @pytest.fixture
