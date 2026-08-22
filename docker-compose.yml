@@ -152,6 +152,14 @@ services:
       migrate:
         condition: service_completed_successfully
     command: uvicorn app.main:app --host 0.0.0.0 --port 8100
+    healthcheck:
+      # /healthz is the one path BearerTokenMiddleware exempts from bearer
+      # token verification (see mcp-servers/doc-search/app/server.py) — every
+      # other route, including /mcp, still requires a valid Keycloak token.
+      test: ["CMD", "curl", "-f", "http://localhost:8100/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # One-shot job: applies Alembic migrations, then exits. `backend` waits for
   # this to succeed before it starts, so the app schema always matches the
@@ -209,7 +217,7 @@ services:
       migrate:
         condition: service_completed_successfully
       doc-search:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

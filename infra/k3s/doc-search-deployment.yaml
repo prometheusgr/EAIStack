@@ -58,11 +58,20 @@ spec:
             limits:
               memory: 512Mi
           readinessProbe:
-            # doc-search rejects unauthenticated requests with 401, which is
-            # still proof the process is up and serving — a readiness probe
-            # only needs a response, not a 200.
+            # /healthz is the one path BearerTokenMiddleware exempts from
+            # token verification (see mcp-servers/doc-search/app/server.py).
+            # kubelet only treats HTTP 200-399 as a passing probe, so hitting
+            # any authenticated path (including "/") here would return 401
+            # forever and the pod would never join the Service's endpoints,
+            # even though the process is perfectly healthy.
             httpGet:
-              path: /
+              path: /healthz
+              port: 8100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
               port: 8100
             initialDelaySeconds: 5
             periodSeconds: 10

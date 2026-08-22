@@ -21,6 +21,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.routing import Route
 from starlette.types import ASGIApp
 
 import app.db as app_db
@@ -29,17 +30,41 @@ from app.search import search_knowledge_base as _search_knowledge_base
 
 _current_user_id: contextvars.ContextVar[str] = contextvars.ContextVar("current_user_id")
 
+# Paths a Kubernetes/docker-compose health probe must be able to reach
+# without a Keycloak token. Kept to exactly the synthetic liveness/readiness
+# path — every other route, including the MCP endpoint itself, still goes
+# through verify_bearer_token below. Exposing "the process is up" costs
+# nothing security-wise; it reveals no data and no user identity.
+UNAUTHENTICATED_PATHS = frozenset({"/healthz"})
+
+
+async def healthz(request: Request) -> JSONResponse:
+    """Liveness/readiness endpoint. Deliberately excluded from
+    BearerTokenMiddleware (see UNAUTHENTICATED_PATHS) so kubelet's readiness
+    probe gets a real 200 instead of the 401 every other route returns
+    without a bearer token — kubelet only treats HTTP 200-399 as a passing
+    probe, so a 401 here would keep this pod out of the Service's endpoints
+    forever even though the process is healthy.
+    """
+    return JSONResponse({"status": "ok"})
+
 
 class BearerTokenMiddleware(BaseHTTPMiddleware):
     """Verifies the Authorization header against Keycloak's JWKS on every
     request, independently of whatever the backend claims about the caller.
     Rejects before the request reaches MCP's tool dispatch.
+
+    Exempts UNAUTHENTICATED_PATHS (currently just the health probe) from
+    this check; every other path, including /mcp, is unaffected.
     """
 
     def __init__(self, app: ASGIApp):
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next):
+        if request.url.path in UNAUTHENTICATED_PATHS:
+            return await call_next(request)
+
         auth_header = request.headers.get("authorization", "")
         if not auth_header.lower().startswith("bearer "):
             return JSONResponse({"error": "Missing bearer token"}, status_code=401)
@@ -93,5 +118,6 @@ def build_app() -> Starlette:
     """Build the Streamable HTTP ASGI app, wrapped with bearer-token verification."""
     mcp = _build_mcp()
     inner_app = mcp.streamable_http_app()
+    inner_app.router.routes.insert(0, Route("/healthz", healthz, methods=["GET"]))
     inner_app.user_middleware.insert(0, Middleware(BearerTokenMiddleware))
     return inner_app
