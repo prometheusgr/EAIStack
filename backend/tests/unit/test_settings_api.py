@@ -3,6 +3,7 @@
 import pytest
 
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.main import app
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services import available_provider_options
@@ -317,3 +318,98 @@ def test_put_settings_with_no_fields_clears_all_overrides_back_to_env_defaults(c
     data = get_response.json()
     assert data["llm_provider"] == "fake"
     assert data["llm_provider_is_db_override"] is False
+
+
+@pytest.mark.unit
+def test_available_provider_options_suggests_this_deployment_s_configured_urls(monkeypatch):
+    """The "detected" URLs must come from this deployment's own env config.
+
+    The catalog is what the Settings screen offers an admin as the URL for a
+    provider. Hardcoding docker-compose's service DNS names made that offer
+    wrong on any deployment that names its services differently (K3s uses
+    eaistack-embedding-server, per infra/k3s/doc-search-deployment.yaml), so
+    an admin picking "detected" from the dropdown would persist a hostname
+    unresolvable in their own cluster — overriding, via the DB row, the very
+    env var that deployment had set correctly.
+    """
+    monkeypatch.setattr(settings, "llm_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "llm_url", "http://eaistack-llama-server:8000/v1")
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://eaistack-embedding-server:8000/v1")
+
+    options = available_provider_options()
+
+    llm_llama = next(o for o in options["llm"] if o["provider"] == "llama-cpp")
+    embedding_llama = next(o for o in options["embedding"] if o["provider"] == "llama-cpp")
+
+    assert llm_llama["url"] == "http://eaistack-llama-server:8000/v1"
+    assert embedding_llama["url"] == "http://eaistack-embedding-server:8000/v1"
+
+
+@pytest.mark.unit
+def test_available_provider_options_leaves_non_detected_providers_without_a_url(monkeypatch):
+    """Only the configured provider is offered this deployment's URL.
+
+    "fake" needs no URL, and a provider this deployment did not configure
+    has no known address here — neither should be pre-filled from llm_url,
+    which describes only the endpoint llm_provider names.
+    """
+    monkeypatch.setattr(settings, "llm_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "llm_url", "http://eaistack-llama-server:8000/v1")
+
+    options = available_provider_options()
+
+    assert next(o for o in options["llm"] if o["provider"] == "fake")["url"] == ""
+    assert next(o for o in options["llm"] if o["provider"] == "openai-compatible")["url"] == ""
+
+
+@pytest.mark.unit
+def test_available_provider_options_suggests_configured_url_for_a_remote_llm(monkeypatch):
+    """A deployment whose LLM is a hosted endpoint, not a local llama-server.
+
+    There may be no llama.cpp pod at all — LLM_URL can point at Azure
+    OpenAI, Bedrock, or any OpenAI-compatible gateway. The configured URL
+    must then be offered against the provider that deployment actually set
+    (openai-compatible), and must NOT be offered as the llama-cpp default:
+    labelling a hosted endpoint "llama-server, detected" would be plainly
+    wrong, and would invite an admin to save a remote URL under a provider
+    that is not what their deployment runs.
+    """
+    monkeypatch.setattr(settings, "llm_provider", "openai-compatible")
+    monkeypatch.setattr(settings, "llm_url", "https://example.openai.azure.com/openai/v1")
+
+    options = available_provider_options()
+
+    openai_option = next(o for o in options["llm"] if o["provider"] == "openai-compatible")
+    llama_option = next(o for o in options["llm"] if o["provider"] == "llama-cpp")
+
+    assert openai_option["url"] == "https://example.openai.azure.com/openai/v1"
+    assert llama_option["url"] == ""
+
+
+@pytest.mark.unit
+def test_available_provider_options_marks_only_the_configured_provider_as_detected(monkeypatch):
+    """ "Detected" means "this is what your deployment is configured to use".
+
+    It is a claim about configuration, so exactly the configured provider may
+    carry it — otherwise the screen tells a llama-cpp deployment that a
+    hosted endpoint was detected, or vice versa.
+    """
+    monkeypatch.setattr(settings, "llm_provider", "openai-compatible")
+    monkeypatch.setattr(settings, "llm_url", "https://example.openai.azure.com/openai/v1")
+
+    options = available_provider_options()
+
+    detected = [o["provider"] for o in options["llm"] if "detected" in o["label"]]
+    assert detected == ["openai-compatible"]
+
+
+@pytest.mark.unit
+def test_available_provider_options_never_suggests_a_url_for_fake(monkeypatch):
+    """The fake provider is in-process; a URL for it is meaningless."""
+    monkeypatch.setattr(settings, "llm_provider", "fake")
+    monkeypatch.setattr(settings, "llm_url", "https://example.openai.azure.com/openai/v1")
+
+    options = available_provider_options()
+
+    assert next(o for o in options["llm"] if o["provider"] == "fake")["url"] == ""
