@@ -45,7 +45,6 @@ async def chat(
 
     agent = create_chat_agent(
         db=db,
-        user_id=user["user_id"],
         token=user["access_token"],
         mcp_url=settings.doc_search_mcp_url,
     )

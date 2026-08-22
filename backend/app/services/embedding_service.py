@@ -25,6 +25,10 @@ class EmbeddingResult:
     provider: str
     model: str
 
+    def as_embed_metadata(self) -> dict[str, str]:
+        """Provenance dict stored in Embedding.embed_metadata by every write site."""
+        return {"embedding_provider": self.provider, "embedding_model": self.model}
+
 
 def generate_embedding(db: Session, text: str) -> EmbeddingResult:
     """Generate an embedding vector for text, via the configured provider.

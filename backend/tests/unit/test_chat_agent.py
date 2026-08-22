@@ -42,9 +42,7 @@ def _new_thread(db_session, user_id: str = "test-user") -> str:
 @pytest.mark.unit
 def test_create_chat_agent_returns_runnable(db_session):
     """create_chat_agent() should return a compiled, runnable graph."""
-    graph = create_chat_agent(
-        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
-    )
+    graph = create_chat_agent(db=db_session, token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL)
     assert graph is not None
     assert hasattr(graph, "invoke")
 
@@ -56,9 +54,7 @@ def test_chat_agent_invoke_with_message(db_session, monkeypatch):
         "app.agents.chat_agent.get_llm_client",
         lambda db: FakeChatModel(response="4"),
     )
-    graph = create_chat_agent(
-        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
-    )
+    graph = create_chat_agent(db=db_session, token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL)
     thread_id = _new_thread(db_session)
 
     state = {
@@ -84,7 +80,7 @@ def test_conversation_persists_across_two_invokes_same_thread_same_user(db_sessi
     config = {"configurable": {"thread_id": thread_id}}
 
     first_graph = create_chat_agent(
-        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+        db=db_session, token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
     )
     first_graph.invoke(
         {
@@ -97,7 +93,7 @@ def test_conversation_persists_across_two_invokes_same_thread_same_user(db_sessi
     db_session.commit()
 
     second_graph = create_chat_agent(
-        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+        db=db_session, token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
     )
     result = second_graph.invoke(
         {
@@ -122,9 +118,7 @@ def test_chat_agent_invoke_passes_through_thread_id(db_session, monkeypatch):
         "app.agents.chat_agent.get_llm_client",
         lambda db: FakeChatModel(),
     )
-    graph = create_chat_agent(
-        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
-    )
+    graph = create_chat_agent(db=db_session, token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL)
     thread_id = _new_thread(db_session)
 
     state = {
@@ -143,9 +137,7 @@ def test_chat_agent_plain_response_skips_tool_node(db_session, monkeypatch):
     """A response with no tool_calls routes straight to END without invoking the tool."""
     fake_llm = FakeChatModel(response="No tool needed here.")
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
-    graph = create_chat_agent(
-        db=db_session, user_id="test-user", token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
-    )
+    graph = create_chat_agent(db=db_session, token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL)
     thread_id = _new_thread(db_session)
 
     state = {
@@ -208,7 +200,7 @@ async def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(
     with running_doc_search_subprocess(
         test_db_url, fake_keycloak_jwks_server, _CHAT_AGENT_TEST_PORT
     ) as mcp_url:
-        graph = create_chat_agent(db=db_session, user_id="test-user", token=token, mcp_url=mcp_url)
+        graph = create_chat_agent(db=db_session, token=token, mcp_url=mcp_url)
         thread_id = _new_thread(db_session)
         state = {
             "messages": [HumanMessage(content="How many vacation days do I get?")],
@@ -252,7 +244,7 @@ async def test_chat_agent_stops_after_max_tool_iterations(
     with running_doc_search_subprocess(
         test_db_url, fake_keycloak_jwks_server, _CHAT_AGENT_TEST_PORT + 1
     ) as mcp_url:
-        graph = create_chat_agent(db=db_session, user_id="test-user", token=token, mcp_url=mcp_url)
+        graph = create_chat_agent(db=db_session, token=token, mcp_url=mcp_url)
         thread_id = _new_thread(db_session)
         state = {
             "messages": [HumanMessage(content="Loop forever?")],

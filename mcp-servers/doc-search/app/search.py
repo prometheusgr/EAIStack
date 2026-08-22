@@ -7,6 +7,7 @@ this standalone MCP server instead of in-process in the backend), not a
 behavior change.
 """
 
+import random
 from dataclasses import dataclass
 
 import httpx
@@ -16,6 +17,12 @@ from app.config import settings
 from app.models import Embedding, KnowledgeBase, SystemSettings
 
 MAX_EXCERPT_CHARS = 300
+
+# Must match backend/app/services/embedding_service.py's EMBEDDING_DIMENSION —
+# nomic-embed-text-v1.5's output dimension (see docs/LLM_SETUP.md). Doc-search
+# can't import that constant directly (separate deployable, no shared package),
+# so it's duplicated here rather than left as an unnamed literal.
+EMBEDDING_DIMENSION = 768
 
 
 @dataclass(frozen=True)
@@ -69,13 +76,11 @@ def generate_query_embedding(db: Session, text: str) -> list[float]:
     the chat LLM, only the embedding server), matching the subset of
     providers backend/app/core/config.py defines for embeddings.
     """
-    import random
-
     config = resolve_embedding_config(db)
 
     if config.provider == "fake":
         random.seed(hash(text) % (2**32))
-        return [random.gauss(0, 0.1) for _ in range(768)]
+        return [random.gauss(0, 0.1) for _ in range(EMBEDDING_DIMENSION)]
     elif config.provider == "llama-cpp":
         with httpx.Client(timeout=config.timeout) as client:
             response = client.post(

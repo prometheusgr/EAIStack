@@ -46,7 +46,7 @@ def _count_tool_call_rounds(state: ChatState) -> int:
     )
 
 
-def create_chat_agent(db: Session, user_id: str, token: str, mcp_url: str):
+def create_chat_agent(db: Session, token: str, mcp_url: str):
     """Create and compile the chat agent graph for one request.
 
     Built per-request (not cached) because the search_knowledge_base tool is

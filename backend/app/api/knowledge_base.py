@@ -58,10 +58,7 @@ async def create_knowledge_base(
         id=str(uuid4()),
         doc_id=kb.id,
         embedding=embedding_result.vector,
-        embed_metadata={
-            "embedding_provider": embedding_result.provider,
-            "embedding_model": embedding_result.model,
-        },
+        embed_metadata=embedding_result.as_embed_metadata(),
     )
     db.add(embedding)
 
@@ -128,10 +125,7 @@ async def update_knowledge_base(
     if embedding:
         embedding_result = generate_embedding(db, payload.content)
         embedding.embedding = embedding_result.vector
-        embedding.embed_metadata = {
-            "embedding_provider": embedding_result.provider,
-            "embedding_model": embedding_result.model,
-        }
+        embedding.embed_metadata = embedding_result.as_embed_metadata()
         embedding.updated_at = datetime.now(timezone.utc)
 
     db.commit()
