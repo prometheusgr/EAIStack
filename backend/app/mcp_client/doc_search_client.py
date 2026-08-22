@@ -16,14 +16,24 @@ logging is the easiest way to accidentally widen that further.
 import logging
 from datetime import timedelta
 
+import httpx
 from langchain_core.tools import StructuredTool
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 MCP_CALL_TIMEOUT = timedelta(seconds=30)
+
+# Connect/write timeout and the long-lived read timeout for the server-sent
+# event stream, respectively. These are the values the MCP SDK's deprecated
+# streamablehttp_client applied by default; they are set explicitly here
+# because the current streamable_http_client takes a caller-built httpx
+# client instead of timeout arguments, and letting them fall back to httpx's
+# own defaults would silently change behavior.
+_CONNECT_TIMEOUT_SECONDS = 30.0
+_SSE_READ_TIMEOUT_SECONDS = 300.0
 
 
 class _SearchKnowledgeBaseInput(BaseModel):
@@ -45,18 +55,23 @@ async def _open_doc_search_session(token: str, mcp_url: str, query: str, top_k: 
     outside this codebase's control, and so the only part whose exceptions
     should be caught and turned into the agent's "unavailable" fallback.
     """
-    async with streamablehttp_client(mcp_url, headers={"Authorization": f"Bearer {token}"}) as (
-        read,
-        write,
-        _get_session_id,
-    ):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            return await session.call_tool(
-                "search_knowledge_base",
-                {"query": query, "top_k": top_k},
-                read_timeout_seconds=MCP_CALL_TIMEOUT,
-            )
+    http_client = create_mcp_http_client(
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=httpx.Timeout(_CONNECT_TIMEOUT_SECONDS, read=_SSE_READ_TIMEOUT_SECONDS),
+    )
+    async with http_client:
+        async with streamable_http_client(mcp_url, http_client=http_client) as (
+            read,
+            write,
+            _get_session_id,
+        ):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                return await session.call_tool(
+                    "search_knowledge_base",
+                    {"query": query, "top_k": top_k},
+                    read_timeout_seconds=MCP_CALL_TIMEOUT,
+                )
 
 
 def _render_search_result(result) -> str:
