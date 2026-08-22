@@ -13,12 +13,51 @@ only the JWKS HTTP fetch is mocked.
 import time
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.utils import to_base64url_uint
 
+import app.auth as auth_module
 from app.auth import TokenVerificationError, verify_bearer_token
+
+
+def _install_fake_jwks_endpoint(monkeypatch, jwks_by_call: list[dict]) -> list[int]:
+    """Patch httpx.AsyncClient.get so calls to the JWKS endpoint are served
+    from jwks_by_call (one dict per call, last one repeats once exhausted)
+    without any real HTTP request. Returns a list whose length grows by one
+    per actual call, so tests can assert exactly how many fetches happened.
+
+    This patches at the httpx level (not app.auth.get_keycloak_jwks like the
+    other tests in this file) because the cache-busting/cooldown behavior
+    under test lives inside get_keycloak_jwks itself.
+    """
+    call_count: list[int] = []
+
+    async def fake_get(self, url, *args, **kwargs):
+        index = min(len(call_count), len(jwks_by_call) - 1)
+        call_count.append(1)
+        request = httpx.Request("GET", url)
+        return httpx.Response(200, json=jwks_by_call[index], request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    return call_count
+
+
+@pytest.fixture(autouse=True)
+def _reset_jwks_cache_state():
+    """Every test in this file starts with a clean module-level cache so
+    fetch-count assertions aren't polluted by state left over from a
+    previous test.
+    """
+    auth_module._jwks_cache = None
+    auth_module._jwks_cache_expiry = 0.0
+    auth_module._jwks_last_refetch_attempt = 0.0
+    yield
+    auth_module._jwks_cache = None
+    auth_module._jwks_cache_expiry = 0.0
+    auth_module._jwks_last_refetch_attempt = 0.0
 
 
 def _make_signed_token(claims: dict, kid: str = "test-key") -> tuple[str, dict]:
@@ -191,3 +230,92 @@ async def test_verify_bearer_token_rejects_malformed_token():
     """A string that isn't a JWT at all must raise, not crash."""
     with pytest.raises(TokenVerificationError):
         await verify_bearer_token("not-a-jwt")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_unknown_kid_does_not_refetch_jwks_within_cooldown(monkeypatch):
+    """Two requests bearing different bogus/unknown kids, submitted back to
+    back, must only trigger ONE real JWKS fetch (the initial cache
+    population) rather than a fresh Keycloak round-trip per request.
+
+    Without a cooldown, verify_bearer_token's cache-miss handling
+    unconditionally clears _jwks_cache and refetches on every unrecognized
+    kid — turning a bogus/unknown kid into a free way to force full-rate
+    JWKS refetches against Keycloak on every single request, bypassing the
+    600s TTL entirely. This is the cache-busting DoS this test guards
+    against.
+    """
+    _token, jwks = _make_signed_token(
+        {
+            "sub": "user-123",
+            "aud": "eaistack-web",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+        },
+        kid="the-real-key",
+    )
+    call_count = _install_fake_jwks_endpoint(monkeypatch, [jwks])
+
+    bogus_token_1, _ = _make_signed_token(
+        {"sub": "attacker", "aud": "eaistack-web"}, kid="bogus-kid-1"
+    )
+    bogus_token_2, _ = _make_signed_token(
+        {"sub": "attacker", "aud": "eaistack-web"}, kid="bogus-kid-2"
+    )
+
+    with pytest.raises(TokenVerificationError):
+        await verify_bearer_token(bogus_token_1)
+    with pytest.raises(TokenVerificationError):
+        await verify_bearer_token(bogus_token_2)
+
+    assert len(call_count) == 1, (
+        "expected exactly one JWKS fetch (initial population); the second "
+        "unknown kid should have been rejected using the cooldown-protected "
+        "cache instead of triggering another HTTP call"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_legitimate_key_rotation_refetches_after_cooldown_elapses(monkeypatch):
+    """A genuinely rotated signing key must still be picked up once the
+    cooldown window has passed — the cooldown must not permanently pin the
+    cache past a real Keycloak key rotation.
+    """
+    old_token, old_jwks = _make_signed_token(
+        {
+            "sub": "user-old",
+            "aud": "eaistack-web",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+        },
+        kid="old-key",
+    )
+    new_token, new_jwks = _make_signed_token(
+        {
+            "sub": "user-new",
+            "aud": "eaistack-web",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+        },
+        kid="new-key",
+    )
+    call_count = _install_fake_jwks_endpoint(monkeypatch, [old_jwks, new_jwks])
+
+    # Populate the cache with the old JWKS.
+    user_id = await verify_bearer_token(old_token)
+    assert user_id == "user-old"
+    assert len(call_count) == 1
+
+    # Simulate the cooldown having fully elapsed since the last refetch
+    # attempt, as if real time had passed (e.g. Keycloak rotated its key
+    # between requests, well outside the DoS-mitigation cooldown window).
+    auth_module._jwks_last_refetch_attempt -= auth_module._JWKS_REFETCH_COOLDOWN_SECONDS + 1
+
+    # The new key's kid isn't in the cached (old) JWKS, so this must trigger
+    # a real refetch — and, this time, succeed.
+    user_id = await verify_bearer_token(new_token)
+
+    assert user_id == "user-new"
+    assert len(call_count) == 2, "expected a second fetch once the cooldown had elapsed"

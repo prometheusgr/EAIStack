@@ -24,14 +24,48 @@ _jwks_cache: dict[Any, Any] | None = None
 _jwks_cache_expiry: float = 0.0
 _JWKS_CACHE_TTL: int = 600  # 10 minutes
 
+# Tracks the monotonic time of the *last* JWKS fetch attempt, regardless of
+# whether it was a normal TTL-driven refresh or a forced refetch triggered by
+# an unrecognized kid (see verify_bearer_token below). A forced refetch is
+# only allowed to actually hit the network if this much time has passed
+# since the previous attempt. Without this, a token carrying a bogus/unknown
+# kid on every request would force a full JWKS refetch from Keycloak on
+# every single request, bypassing _JWKS_CACHE_TTL entirely and turning an
+# unauthenticated endpoint into a DoS amplifier against Keycloak (a shared
+# piece of infrastructure the whole stack depends on). Deliberately much
+# shorter than _JWKS_CACHE_TTL: legitimate key rotation should still be
+# picked up promptly, this only caps the *rate* of forced refetches.
+_jwks_last_refetch_attempt: float = 0.0
+_JWKS_REFETCH_COOLDOWN_SECONDS: int = 30
+
+_http_client: httpx.AsyncClient | None = None
+
 
 class TokenVerificationError(Exception):
     """Raised when a bearer token fails signature, audience, or expiry checks."""
 
 
+def _get_http_client() -> httpx.AsyncClient:
+    """Return a process-wide httpx.AsyncClient, created on first use.
+
+    A fresh AsyncClient per request means a fresh TCP+TLS connection every
+    time (no keep-alive reuse) — cheap when JWKS fetches are rare (once per
+    _JWKS_CACHE_TTL), but this is also the resource the cooldown above is
+    protecting: reusing one pooled client keeps even a burst of
+    cooldown-limited forced refetches cheap. Mirrors app/db.py's
+    module-level SessionLocal/engine: a lazily-created, process-lifetime
+    singleton rather than an explicit startup/shutdown lifespan hook, since
+    this service has no existing lifespan wiring to hook into.
+    """
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient()
+    return _http_client
+
+
 async def get_keycloak_jwks() -> dict[Any, Any]:
     """Fetch Keycloak realm's JWKS with TTL caching."""
-    global _jwks_cache, _jwks_cache_expiry
+    global _jwks_cache, _jwks_cache_expiry, _jwks_last_refetch_attempt
 
     current_time = time.monotonic()
     if _jwks_cache is not None and current_time < _jwks_cache_expiry:
@@ -40,13 +74,14 @@ async def get_keycloak_jwks() -> dict[Any, Any]:
     jwks_url = (
         f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
     )
-    async with httpx.AsyncClient() as client:
-        response = await client.get(jwks_url, timeout=10.0)
-        response.raise_for_status()
-        jwks: dict[Any, Any] = response.json()
+    client = _get_http_client()
+    response = await client.get(jwks_url, timeout=10.0)
+    response.raise_for_status()
+    jwks: dict[Any, Any] = response.json()
 
     _jwks_cache = jwks
     _jwks_cache_expiry = current_time + _JWKS_CACHE_TTL
+    _jwks_last_refetch_attempt = current_time
     return jwks
 
 
@@ -70,7 +105,7 @@ async def verify_bearer_token(token: str) -> str:
     jwks = await get_keycloak_jwks()
     key = _find_key_for_kid(jwks, kid)
 
-    if key is None:
+    if key is None and _cooldown_has_elapsed():
         global _jwks_cache, _jwks_cache_expiry
         _jwks_cache = None
         _jwks_cache_expiry = 0.0
@@ -101,6 +136,14 @@ async def verify_bearer_token(token: str) -> str:
         raise TokenVerificationError("Token missing subject claim")
 
     return str(user_id)
+
+
+def _cooldown_has_elapsed() -> bool:
+    """Whether enough time has passed since the last JWKS fetch attempt to
+    allow another forced refetch on a cache miss. See
+    _JWKS_REFETCH_COOLDOWN_SECONDS for why this exists.
+    """
+    return time.monotonic() - _jwks_last_refetch_attempt >= _JWKS_REFETCH_COOLDOWN_SECONDS
 
 
 def _find_key_for_kid(jwks: dict[Any, Any], kid: str) -> jwt.PyJWK | None:
