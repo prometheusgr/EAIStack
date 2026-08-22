@@ -1,0 +1,92 @@
+# doc-search MCP server: pgvector-backed knowledge base search, exposed over
+# Streamable HTTP so the backend (or any future MCP client) reaches it as a
+# separate pod rather than a co-located subprocess. See
+# mcp-servers/doc-search/README.md for the service's security model
+# (independent JWT verification against Keycloak's JWKS — never a bare
+# user_id trusted from the caller).
+#
+# This is a minimal, direct manifest rather than a Helm chart: infra/k3s and
+# infra/helm currently have no Deployment/Service example for ANY service
+# (backend, frontend, llama-server included) — full Helm chart packaging is
+# explicitly deferred to Phase 5 (see infra/helm/charts/README.md). Writing
+# one here for doc-search alone, ahead of that phase, would pull Phase 5 work
+# forward under a different name. This manifest establishes the pattern
+# Phase 5's charts can formalize, styled after retention-cronjob.yaml's
+# existing conventions (namespace, secretKeyRef env injection, non-root
+# securityContext, resource requests/limits).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-doc-search
+  namespace: eaistack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eaistack-doc-search
+  template:
+    metadata:
+      labels:
+        app: eaistack-doc-search
+    spec:
+      containers:
+        - name: doc-search
+          image: eaistack/doc-search:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8100
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: eaistack-backend
+                  key: database-url
+            - name: KEYCLOAK_URL
+              value: "http://eaistack-keycloak:8080"
+            - name: KEYCLOAK_REALM
+              value: "eaistack"
+            - name: EMBEDDING_PROVIDER
+              value: "llama-cpp"
+            - name: EMBEDDING_URL
+              value: "http://eaistack-embedding-server:8000/v1"
+            - name: EMBEDDING_MODEL
+              value: "nomic-embed-text-v1.5.Q4_K_M.gguf"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            # /healthz is the one path BearerTokenMiddleware exempts from
+            # token verification (see mcp-servers/doc-search/app/server.py).
+            # kubelet only treats HTTP 200-399 as a passing probe, so hitting
+            # any authenticated path (including "/") here would return 401
+            # forever and the pod would never join the Service's endpoints,
+            # even though the process is perfectly healthy.
+            httpGet:
+              path: /healthz
+              port: 8100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eaistack-doc-search
+  namespace: eaistack
+spec:
+  selector:
+    app: eaistack-doc-search
+  ports:
+    - port: 8100
+      targetPort: 8100

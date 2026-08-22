@@ -1,6 +1,6 @@
 """Backend service layer for business logic."""
 
-from app.services.embedding_service import generate_embedding
+from app.services.embedding_service import EmbeddingResult, generate_embedding
 from app.services.retention_service import (
     RetentionConfig,
     purge_expired_api_keys,
@@ -20,6 +20,7 @@ from app.services.system_settings_service import (
 
 __all__ = [
     "generate_embedding",
+    "EmbeddingResult",
     "RetentionConfig",
     "purge_expired_api_keys",
     "purge_expired_conversations",

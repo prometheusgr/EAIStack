@@ -33,7 +33,7 @@ def test_generate_embedding_fake_provider_is_deterministic(embedding_provider, d
     first = generate_embedding(db_session, "What snacks does the office serve?")
     second = generate_embedding(db_session, "What snacks does the office serve?")
 
-    assert first == second
+    assert first.vector == second.vector
 
 
 @pytest.mark.unit
@@ -44,7 +44,7 @@ def test_generate_embedding_fake_provider_differs_by_text(embedding_provider, db
     first = generate_embedding(db_session, "alpha")
     second = generate_embedding(db_session, "beta")
 
-    assert first != second
+    assert first.vector != second.vector
 
 
 @pytest.mark.unit
@@ -54,7 +54,20 @@ def test_generate_embedding_fake_provider_dimension(embedding_provider, db_sessi
 
     result = generate_embedding(db_session, "some text")
 
-    assert len(result) == 768
+    assert len(result.vector) == 768
+
+
+@pytest.mark.unit
+def test_generate_embedding_result_carries_provider_and_model(embedding_provider, db_session):
+    """The result records which provider/model produced the vector, so a
+    runtime provider switch is detectable later from stored embed_metadata.
+    """
+    embedding_provider("fake")
+
+    result = generate_embedding(db_session, "some text")
+
+    assert result.provider == "fake"
+    assert result.model == settings.embedding_model
 
 
 @pytest.mark.unit
@@ -81,7 +94,9 @@ def test_generate_embedding_llama_cpp_calls_embeddings_endpoint(
 
         result = generate_embedding(db_session, "search_document: office snack policy")
 
-        assert result == fake_vector
+        assert result.vector == fake_vector
+        assert result.provider == "llama-cpp"
+        assert result.model == "nomic-embed-text-v1.5.Q4_K_M.gguf"
         mock_client_instance.post.assert_called_once()
         call_args = mock_client_instance.post.call_args
         assert call_args.args[0] == "http://localhost:8002/v1/embeddings"
@@ -163,6 +178,7 @@ def test_generate_embedding_uses_db_override_over_env_default(db_session, monkey
 
         result = generate_embedding(db_session, "search_document: office snack policy")
 
-        assert result == fake_vector
+        assert result.vector == fake_vector
+        assert result.provider == "llama-cpp"
         call_args = mock_client_instance.post.call_args
         assert call_args.args[0] == "http://embedding-server:8000/v1/embeddings"

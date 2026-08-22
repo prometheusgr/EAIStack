@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text-v1.5.Q4_K_M.gguf"
     embedding_timeout: int = 60
 
+    # doc-search MCP server (mcp-servers/doc-search): a standalone Streamable
+    # HTTP service exposing search_knowledge_base as an MCP tool, so it can
+    # run as its own K8s pod. The backend forwards each caller's own Keycloak
+    # access token on every call (see app.mcp_client.doc_search_client) — the
+    # server never trusts a bare user_id from this service.
+    doc_search_mcp_url: str = "http://localhost:8100/mcp"
+
     # Keycloak (OIDC)
     keycloak_url: str = "http://localhost:8080"
     keycloak_realm: str = "eaistack"

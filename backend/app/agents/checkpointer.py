@@ -12,10 +12,21 @@ checkpoint history - Phase 4a's scope is resuming a conversation, not
 LangGraph time-travel/replay. put_writes is a no-op for the same reason:
 pending-writes tracking exists to resume mid-superstep after a crash or
 an interrupt(), neither of which this graph uses.
+
+The a* methods (aget_tuple, alist, aput, aput_writes) exist because
+BaseCheckpointSaver's own defaults raise NotImplementedError rather than
+falling back to the sync methods above - the compiled graph is invoked via
+ainvoke() (see app.api.agents.chat), so LangGraph calls these directly.
+Each wraps its sync counterpart in anyio.to_thread.run_sync rather than
+duplicating the CheckpointRepository/SQLAlchemy calls: this class's db
+Session is synchronous (see docs/DATABASE_MODELS.md), so "async" here
+means "don't block the event loop while doing sync I/O", not "use an
+async DB driver".
 """
 
-from typing import Any, Iterator, Sequence
+from typing import Any, AsyncIterator, Iterator, Sequence
 
+import anyio.to_thread
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -122,6 +133,45 @@ class SqlAlchemyCheckpointSaver(BaseCheckpointSaver):
         }
 
     def put_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """No-op: this saver does not support mid-superstep resume (see module docstring)."""
+
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        return await anyio.to_thread.run_sync(self.get_tuple, config)
+
+    async def alist(
+        self,
+        config: RunnableConfig | None,
+        *,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
+    ) -> AsyncIterator[CheckpointTuple]:
+        # list()'s own filter/before/limit validation (see its docstring)
+        # applies unchanged; consuming the sync generator to a list off the
+        # event loop thread is what makes this "async" rather than a second
+        # implementation of the same logic.
+        results = await anyio.to_thread.run_sync(
+            lambda: list(self.list(config, filter=filter, before=before, limit=limit))
+        )
+        for result in results:
+            yield result
+
+    async def aput(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> RunnableConfig:
+        return await anyio.to_thread.run_sync(self.put, config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(
         self,
         config: RunnableConfig,
         writes: Sequence[tuple[str, Any]],

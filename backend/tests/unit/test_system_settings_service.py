@@ -178,9 +178,15 @@ def test_resolve_embedding_config_treats_empty_string_db_value_as_a_real_overrid
 
 @pytest.mark.unit
 def test_available_provider_options_returns_fixed_detected_services():
-    """The option list is hardcoded to match docker-compose.yml's service DNS
-    names/ports, not discovered dynamically (there's no service-discovery
-    mechanism in this stack).
+    """The provider list itself is fixed; only the llama-cpp URLs vary.
+
+    Which providers exist is a property of the code (each needs a branch in
+    llm_client/embedding_service), so that set is asserted literally. The
+    llama-cpp URL is deliberately not: it reflects this deployment's own
+    LLM_URL/EMBEDDING_URL, so pinning it to docker-compose's service names
+    is what previously made the Settings screen offer an unreachable URL on
+    K3s. See test_settings_api.py's
+    test_available_provider_options_suggests_this_deployment_s_configured_urls.
     """
     options = available_provider_options()
 
@@ -193,11 +199,9 @@ def test_available_provider_options_returns_fixed_detected_services():
     embedding_providers = {option["provider"] for option in options["embedding"]}
     assert embedding_providers == {"fake", "llama-cpp"}
 
-    llama_cpp_llm = next(o for o in options["llm"] if o["provider"] == "llama-cpp")
-    assert llama_cpp_llm["url"] == "http://llama-server:8000/v1"
-
-    llama_cpp_embedding = next(o for o in options["embedding"] if o["provider"] == "llama-cpp")
-    assert llama_cpp_embedding["url"] == "http://embedding-server:8000/v1"
+    # The URL suggested for a provider depends on which one this deployment
+    # configured; see test_settings_api.py for that behavior. Here only the
+    # provider set itself is pinned.
 
     openai_compatible = next(o for o in options["llm"] if o["provider"] == "openai-compatible")
     assert openai_compatible["url"] == ""

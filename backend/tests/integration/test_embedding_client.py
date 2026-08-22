@@ -10,32 +10,36 @@ import pytest
 from app.core.config import settings
 from app.services.embedding_service import generate_embedding
 
+# These exercise a real embedding server, which is opt-in: the default
+# provider is "fake". Skip rather than fail when it isn't configured — a
+# suite that is red by default trains everyone to ignore red, and "you did
+# not opt in" is not a defect. Set EMBEDDING_PROVIDER=llama-cpp (with a
+# reachable EMBEDDING_URL) to run them.
+requires_real_embedding_server = pytest.mark.skipif(
+    settings.embedding_provider != "llama-cpp",
+    reason="Set EMBEDDING_PROVIDER=llama-cpp to run against a real llama-server (docs/LLM_SETUP.md).",
+)
+
 
 @pytest.mark.integration
+@requires_real_embedding_server
 def test_generate_embedding_against_real_llama_server(db_session):
     """A real embedding server should return a 768-dim vector for real text."""
-    assert settings.embedding_provider == "llama-cpp", (
-        "Set EMBEDDING_PROVIDER=llama-cpp to run this test against a real "
-        "llama-server instance (see docs/LLM_SETUP.md)."
-    )
-
     result = generate_embedding(
         db_session, "search_document: The office serves pretzels on Fridays."
     )
 
-    assert len(result) == 768
-    assert all(isinstance(value, float) for value in result)
+    assert len(result.vector) == 768
+    assert all(isinstance(value, float) for value in result.vector)
+    assert result.provider == "llama-cpp"
 
 
 @pytest.mark.integration
+@requires_real_embedding_server
 def test_generate_embedding_similar_text_produces_similar_vectors(db_session):
     """A real embedding model should place semantically similar text closer
     together than unrelated text, unlike the fake hash-based provider.
     """
-    assert settings.embedding_provider == "llama-cpp", (
-        "Set EMBEDDING_PROVIDER=llama-cpp to run this test against a real "
-        "llama-server instance (see docs/LLM_SETUP.md)."
-    )
 
     def cosine_similarity(a: list[float], b: list[float]) -> float:
         dot = sum(x * y for x, y in zip(a, b))
@@ -51,7 +55,7 @@ def test_generate_embedding_similar_text_produces_similar_vectors(db_session):
         db_session, "search_document: The quarterly tax filing deadline is April 15."
     )
 
-    related_similarity = cosine_similarity(snack_policy, snack_query)
-    unrelated_similarity = cosine_similarity(snack_policy, unrelated)
+    related_similarity = cosine_similarity(snack_policy.vector, snack_query.vector)
+    unrelated_similarity = cosine_similarity(snack_policy.vector, unrelated.vector)
 
     assert related_similarity > unrelated_similarity

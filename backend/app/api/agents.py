@@ -16,6 +16,7 @@ from app.api.schemas import (
     ThreadSummary,
 )
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import utc_now
 from app.repositories import ThreadRepository
@@ -42,14 +43,18 @@ async def chat(
     thread_repository = ThreadRepository(db)
     thread = thread_repository.get_or_create_owned(request.thread_id, user["user_id"])
 
-    agent = create_chat_agent(db=db, user_id=user["user_id"])
+    agent = create_chat_agent(
+        db=db,
+        token=user["access_token"],
+        mcp_url=settings.doc_search_mcp_url,
+    )
     state = {
         "messages": [HumanMessage(content=request.message)],
         "thread_id": thread.id,
         "user_id": user["user_id"],
     }
 
-    result = agent.invoke(state, config={"configurable": {"thread_id": thread.id}})
+    result = await agent.ainvoke(state, config={"configurable": {"thread_id": thread.id}})
     thread_repository.touch(thread.id, now=utc_now())
     db.commit()
     final_message = result["messages"][-1]

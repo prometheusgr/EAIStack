@@ -1,8 +1,30 @@
-"""Integration tests for API Keys CRUD endpoints."""
+"""Integration tests for API Keys CRUD endpoints.
 
-from unittest.mock import patch
+Auth is stubbed through FastAPI's app.dependency_overrides rather than
+unittest.mock.patch on app.api.apikeys.get_current_user. Patching that module
+attribute has no effect: FastAPI resolves Depends(get_current_user) into each
+route's dependency graph at import time, so the route keeps calling the
+original function and every request 403s on real token verification. The
+override registry is the supported seam, and is what
+tests/integration/test_agent_chat_flow.py already uses.
+"""
+
+from contextlib import contextmanager
 
 import pytest
+
+from app.core.auth import get_current_user
+from app.main import app
+
+
+@contextmanager
+def _authenticated_as(user: dict):
+    """Make the API treat every request in the block as coming from `user`."""
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.mark.integration
@@ -10,42 +32,37 @@ def test_create_apikey_endpoint(client, db_session, mock_keycloak_token):
     """Test: POST /api/apikeys creates a key and returns masked secret."""
     user_id = mock_keycloak_token["sub"]
 
-    with patch("app.core.auth.verify_token") as mock_verify:
-        # Mock the auth dependency to return our test user
-        async def mock_get_current_user():
-            return {
-                "user_id": user_id,
-                "username": "testuser",
-                "email": "testuser@example.com",
-                "name": "Test User",
-                "token": mock_keycloak_token,
-            }
+    authenticated_user = {
+        "user_id": user_id,
+        "username": "testuser",
+        "email": "testuser@example.com",
+        "name": "Test User",
+        "token": mock_keycloak_token,
+    }
 
-        mock_verify.return_value = mock_keycloak_token
+    with _authenticated_as(authenticated_user):
+        payload = {
+            "name": "OpenAI API Key",
+            "provider": "openai",
+            "secret_value": "sk-proj-1234567890abcdefghij",
+        }
 
-        with patch("app.api.apikeys.get_current_user", mock_get_current_user):
-            payload = {
-                "name": "OpenAI API Key",
-                "provider": "openai",
-                "secret_value": "sk-proj-1234567890abcdefghij",
-            }
+        response = client.post("/api/apikeys", json=payload)
 
-            response = client.post("/api/apikeys", json=payload)
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "OpenAI API Key"
+        assert data["provider"] == "openai"
+        assert "secret_value_masked" in data
+        assert "1234567890" not in data["secret_value_masked"]
+        assert data["user_id"] == user_id
 
-            assert response.status_code == 201
-            data = response.json()
-            assert data["name"] == "OpenAI API Key"
-            assert data["provider"] == "openai"
-            assert "secret_value_masked" in data
-            assert "1234567890" not in data["secret_value_masked"]
-            assert data["user_id"] == user_id
+        # Verify it's actually in the database
+        from app.db.models import APIKey
 
-            # Verify it's actually in the database
-            from app.db.models import APIKey
-
-            key = db_session.query(APIKey).filter_by(user_id=user_id).first()
-            assert key is not None
-            assert key.name == "OpenAI API Key"
+        key = db_session.query(APIKey).filter_by(user_id=user_id).first()
+        assert key is not None
+        assert key.name == "OpenAI API Key"
 
 
 @pytest.mark.integration
@@ -77,16 +94,15 @@ def test_list_apikeys_user_isolation(client, db_session, mock_keycloak_token):
     # List as user A
     token_a = {**mock_keycloak_token, "sub": user_a_id}
 
-    async def mock_get_current_user_a():
-        return {
-            "user_id": user_a_id,
-            "username": "usera",
-            "email": "usera@example.com",
-            "name": "User A",
-            "token": token_a,
-        }
+    user_a = {
+        "user_id": user_a_id,
+        "username": "usera",
+        "email": "usera@example.com",
+        "name": "User A",
+        "token": token_a,
+    }
 
-    with patch("app.api.apikeys.get_current_user", mock_get_current_user_a):
+    with _authenticated_as(user_a):
         response = client.get("/api/apikeys")
         assert response.status_code == 200
         data = response.json()
@@ -113,16 +129,15 @@ def test_get_apikey_detail_masked(client, db_session, mock_keycloak_token):
     db_session.add(key)
     db_session.commit()
 
-    async def mock_get_current_user():
-        return {
-            "user_id": user_id,
-            "username": "testuser",
-            "email": "testuser@example.com",
-            "name": "Test User",
-            "token": mock_keycloak_token,
-        }
+    authenticated_user = {
+        "user_id": user_id,
+        "username": "testuser",
+        "email": "testuser@example.com",
+        "name": "Test User",
+        "token": mock_keycloak_token,
+    }
 
-    with patch("app.api.apikeys.get_current_user", mock_get_current_user):
+    with _authenticated_as(authenticated_user):
         response = client.get("/api/apikeys/key-test-1")
         assert response.status_code == 200
         data = response.json()
@@ -149,19 +164,22 @@ def test_update_apikey_name_only(client, db_session, mock_keycloak_token):
     db_session.add(key)
     db_session.commit()
 
-    async def mock_get_current_user():
-        return {
-            "user_id": user_id,
-            "username": "testuser",
-            "email": "testuser@example.com",
-            "name": "Test User",
-            "token": mock_keycloak_token,
-        }
+    authenticated_user = {
+        "user_id": user_id,
+        "username": "testuser",
+        "email": "testuser@example.com",
+        "name": "Test User",
+        "token": mock_keycloak_token,
+    }
 
-    with patch("app.api.apikeys.get_current_user", mock_get_current_user):
+    with _authenticated_as(authenticated_user):
+        # provider is required by APIKeyUpdate; secret_value is not part of
+        # that schema at all, and is sent here to prove it cannot be used to
+        # overwrite the stored secret.
         payload = {
             "name": "Updated Name",
-            "secret_value": "sk-proj-new-secret",  # This should be ignored
+            "provider": "openai",
+            "secret_value": "sk-proj-new-secret",
         }
         response = client.put("/api/apikeys/key-update-1", json=payload)
         assert response.status_code == 200
@@ -190,16 +208,15 @@ def test_revoke_apikey_endpoint(client, db_session, mock_keycloak_token):
     db_session.add(key)
     db_session.commit()
 
-    async def mock_get_current_user():
-        return {
-            "user_id": user_id,
-            "username": "testuser",
-            "email": "testuser@example.com",
-            "name": "Test User",
-            "token": mock_keycloak_token,
-        }
+    authenticated_user = {
+        "user_id": user_id,
+        "username": "testuser",
+        "email": "testuser@example.com",
+        "name": "Test User",
+        "token": mock_keycloak_token,
+    }
 
-    with patch("app.api.apikeys.get_current_user", mock_get_current_user):
+    with _authenticated_as(authenticated_user):
         # Revoke
         response = client.delete("/api/apikeys/key-revoke-1")
         assert response.status_code == 200
@@ -234,15 +251,14 @@ def test_access_other_users_key_denied(client, db_session, mock_keycloak_token):
     # Try to access as user B
     token_b = {**mock_keycloak_token, "sub": user_b_id}
 
-    async def mock_get_current_user_b():
-        return {
-            "user_id": user_b_id,
-            "username": "userb",
-            "email": "userb@example.com",
-            "name": "User B",
-            "token": token_b,
-        }
+    user_b = {
+        "user_id": user_b_id,
+        "username": "userb",
+        "email": "userb@example.com",
+        "name": "User B",
+        "token": token_b,
+    }
 
-    with patch("app.api.apikeys.get_current_user", mock_get_current_user_b):
+    with _authenticated_as(user_b):
         response = client.get("/api/apikeys/key-other-user")
         assert response.status_code == 404

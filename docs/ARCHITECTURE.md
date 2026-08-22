@@ -72,6 +72,8 @@ Each conversation thread is a LangGraph "checkpoint" keyed by `(user_id, thread_
 
 Custom MCP tool servers (e.g., document search) expose **Streamable HTTP** (stateless, K8s-native), not stdio (which assumes co-located processes). This allows MCP servers to scale horizontally and live in separate pods.
 
+**Implemented in Phase 3** (`mcp-servers/doc-search`): `search_knowledge_base` runs as a standalone MCP server rather than in-process in the backend. The security-relevant design decision is how user isolation survives the process boundary: the backend forwards the caller's own, already-validated Keycloak access token (not a bare `user_id`) as a `Bearer` header on every call, and doc-search independently verifies that token against Keycloak's JWKS (a small, deliberately duplicated copy of `backend/app/core/auth.py`'s verification logic — these are separately deployed services, not two callers in one codebase) before deriving `user_id` from the verified `sub` claim. doc-search never trusts an identity claim handed to it by another service. See `mcp-servers/doc-search/README.md` for the full security model.
+
 ### Encryption Posture (Phase 5)
 
 **In transit**: TLS everywhere. cert-manager with self-signed internal CA (no external ACME in air-gap).
@@ -98,9 +100,9 @@ User (browser)
         ↓
         LLM (llama-server) ← Mocked in unit tests
         ↓
-        MCP tool server (Streamable HTTP)
+        MCP tool server (Streamable HTTP, separate pod — doc-search)
           → pgvector (document search)
-          → MinIO (document retrieval)
+          → MinIO (document retrieval, planned)
       → Response to frontend (streaming)
 ```
 
@@ -109,7 +111,7 @@ User (browser)
 1. **Phase 0**: Test & CI scaffolding
 2. **Phase 1**: Local dev (docker-compose, all services running)
 3. **Phase 2**: LangGraph + llama-server integration
-4. **Phase 3**: MCP + pgvector doc search
+4. **Phase 3**: MCP + pgvector doc search ✓ complete
 5. **Phase 4**: Guardrails, prompt library, agent library scaffolding
 6. **Phase 4a**: Session/context lifecycle (configurable cleanup)
 7. **Phase 5**: Kubernetes + air-gap packaging + encryption

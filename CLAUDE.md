@@ -30,6 +30,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Real pgvector cosine-similarity search backing `search_knowledge_base`
 - Streaming: deferred (tool-calling + streaming has known rough edges in llama.cpp)
 
+**Phase 3 Complete ✓**: MCP Server Integration (doc-search)
+- `search_knowledge_base` moved out of the backend process into a standalone MCP server (`mcp-servers/doc-search`), reached over **Streamable HTTP** (not stdio — a hard constraint since MCP servers run as separate K8s pods, not co-located subprocesses).
+- Isolation across the process boundary: the backend forwards the caller's own, already-validated Keycloak access token (`get_current_user`'s `access_token` field) as a `Bearer` header on every call; doc-search independently verifies it against Keycloak's JWKS (`mcp-servers/doc-search/app/auth.py`, a small duplicate of `app.core.auth`'s verification logic, not a shared package) and derives `user_id` from the verified `sub` claim itself. doc-search never trusts a bare `user_id` supplied by the backend — this is the security-relevant design decision the phase's plan called for.
+- `backend/app/mcp_client/doc_search_client.py` replaces the old in-process, closure-bound tool (`app/agents/tools.py`, deleted) with one that calls doc-search over Streamable HTTP via the official `mcp` client SDK; `create_chat_agent` now takes `token`/`mcp_url` instead of building the tool from `db`/`user_id` directly.
+- Scope expansion (decided mid-implementation, not deferred): `generate_embedding` now returns `EmbeddingResult(vector, provider, model)` instead of a bare vector, and every write site tags `Embedding.embed_metadata` with that provenance — closing a pre-existing gap where a runtime embedding-provider switch (via the Settings screen) could silently mix incompatible vectors in the same knowledge base with no way to detect it. doc-search resolves the same DB-backed provider override the backend does, so an admin's change is honored identically by indexing and querying.
+- Dependency fallout: adding the `mcp` SDK forced `fastapi` (0.104.1 → 0.108.0, minimum version dropping a direct `anyio<4.0` pin), `uvicorn`, and `python-multipart` version bumps; full backend suite re-verified green after each.
+- Out of scope (deferred): TLS between backend and doc-search (Phase 5, same as all other service-to-service traffic per `docs/SECURITY.md`), full Helm chart packaging for doc-search (Phase 5 — `infra/k3s/doc-search-deployment.yaml` is a minimal direct manifest, not a chart), streaming through the MCP boundary, and additional MCP tools beyond `search_knowledge_base`.
+
 **Phase 4a Complete ✓**: Conversation Persistence & Session Isolation
 - Backend: LangGraph state persists to Postgres via `SqlAlchemyCheckpointSaver`, a custom `BaseCheckpointSaver` over two Alembic-owned tables (`conversation_threads`, `conversation_checkpoints`) — not `langgraph-checkpoint-postgres`, to keep a single DB driver, Alembic as sole schema authority, and fast SQLite-backed unit tests. Stores only the latest checkpoint per thread (conversation resume, not time-travel/replay).
 - Isolation: `(user_id, thread_id)` ownership is enforced structurally by `ThreadRepository`, never by a checkpointer or per-endpoint filter. A client-supplied `thread_id` not owned by the caller is silently replaced with a fresh thread on `POST /api/agents/chat`; the new `GET /api/agents/threads` and `GET /api/agents/threads/{thread_id}` endpoints return 404 (never 403) for threads that don't exist or aren't the caller's.
@@ -138,7 +146,7 @@ docker-compose down -v  # Also remove volumes
 - **User familiarity**: The user is less familiar with Kubernetes; infrastructure docs should assume minimal prior K8s knowledge.
 - **Hard requirements**: Encryption and session/context lifecycle are non-negotiable (not bolt-on later). Security and session isolation are baked in from Phase 1.
 - **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, minio). Deprecated free tier is off-limits.
-- **MCP transport**: Must be Streamable HTTP (not stdio) for service-to-service K8s deployment (Phase 3+).
+- **MCP transport**: Must be Streamable HTTP (not stdio) for service-to-service K8s deployment. Implemented in Phase 3 (doc-search).
 
 ## Architecture Overview
 
@@ -154,7 +162,7 @@ backend/
     db/             SQLAlchemy models, LangGraph checkpointer (session isolation)
     guardrails/     Input/output validation middleware
     prompts/        Prompt library (Phase 4+)
-    mcp_client/     MCP server integration (Phase 3+)
+    mcp_client/     MCP server integration (doc-search MCP client, Phase 3)
     storage/        MinIO client wrapper
     main.py         FastAPI app definition
   tests/
@@ -196,7 +204,7 @@ frontend/
 ### Other Layers
 
 ```
-/mcp-servers         Custom MCP servers (Phase 3+): doc-search (pgvector queries), etc.
+/mcp-servers         Custom MCP servers: doc-search (pgvector queries, Phase 3), etc.
 /infra
   helm/              Kubernetes Helm charts (Phase 5+)
   k3s/               K3s deployment scripts
@@ -219,7 +227,7 @@ LangGraph Agent (state in Postgres checkpoint)
   ↓
 LLM Service (llama-server, mocked in unit tests)
   ↓
-MCP Tools (Phase 3+): pgvector search, MinIO retrieval
+MCP Tools: pgvector search (doc-search, Phase 3), MinIO retrieval (planned)
   ↓
 Response → Frontend
 ```
@@ -230,5 +238,5 @@ Response → Frontend
 - **llama.cpp tool-calling**: Streaming + tool_calls has known rough edges. Test this combo early (Phase 2).
 - **Keycloak secrets**: Currently hardcoded in `app/core/config.py`; move to K8s secrets before production (Phase 5).
 - **LLM model vendoring**: All models must be downloaded during air-gap setup; no internet at runtime.
-- **MCP transport**: Must be Streamable HTTP (not stdio) for K8s pod-to-pod communication (Phase 3+).
+- **MCP transport**: Must be Streamable HTTP (not stdio) for K8s pod-to-pod communication. Implemented in Phase 3 for doc-search; future MCP servers must follow the same pattern.
 - **Session cleanup**: Configurable per deployment: logout-triggered OR TTL-based (or both). Implemented in Phase 4b; the TTL sweep needs its CronJob scheduled (or the module run manually under docker-compose) or nothing purges automatically.

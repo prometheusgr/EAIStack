@@ -159,55 +159,96 @@ def resolve_embedding_config(
     )
 
 
-def available_provider_options() -> dict[str, list[ProviderOptionDict]]:
-    """Return the fixed "detected local services" list for the settings screen's
-    provider pickers.
+def _provider_option(
+    provider: str, label: str, configured_provider: str, configured_url: str
+) -> ProviderOptionDict:
+    """Build one picker entry, suggesting the configured URL to its own provider.
 
-    Hardcoded to match docker-compose.yml's actual service DNS names/ports
-    (both llama-server and embedding-server listen on container-internal
-    port 8000; embedding-server's 8002 is only the host-published port) —
-    not discovered dynamically, since this stack has no service-discovery
-    mechanism.
+    Only the provider this deployment is actually configured for gets the
+    configured URL (and the "detected" suffix). Every other entry is offered
+    with an empty URL for the admin to fill in, because this deployment
+    holds no address for it: LLM_URL describes one endpoint, and which
+    provider that endpoint belongs to is exactly what LLM_PROVIDER says.
+
+    "fake" is always urlless — it runs in-process, so a URL for it is
+    meaningless even if a deployment nonsensically configured one.
+    """
+    if provider == "fake":
+        return {"provider": provider, "url": "", "label": label, "requires_manual_entry": False}
+
+    is_configured = provider == configured_provider
+    return {
+        "provider": provider,
+        "url": configured_url if is_configured else "",
+        "label": f"{label} (detected)" if is_configured else label,
+        "requires_manual_entry": True,
+    }
+
+
+def available_provider_options() -> dict[str, list[ProviderOptionDict]]:
+    """Return the provider pickers for the settings screen.
+
+    Which providers exist is fixed by the code (each needs a branch in
+    llm_client / embedding_service). What varies is the URL suggested for
+    each, and that comes from this process's own env config
+    (settings.llm_provider/llm_url, settings.embedding_provider/embedding_url)
+    rather than hardcoded service names.
+
+    Why not hardcode: every deployment already states where its LLM and
+    embedding servers live, and they disagree. docker-compose.yml sets
+    LLM_URL to http://llama-server:8000/v1; infra/k3s/ uses that cluster's
+    eaistack-prefixed service names; and a deployment with no llama.cpp at
+    all can point LLM_URL at Azure OpenAI, Bedrock, or any OpenAI-compatible
+    gateway. Hardcoding compose's names offered every other deployment a URL
+    that resolves nowhere — and because a saved DB override always beats the
+    env default (see _resolve_field), accepting that offer would overwrite a
+    correct env value with an unreachable one, turning "pick the detected
+    default" into an outage.
+
+    The URL is suggested only for the configured provider, never blanket-
+    applied to llama-cpp: a hosted endpoint must not be labelled
+    "llama-server, detected". Providers this deployment did not configure are
+    offered with an empty URL for the admin to fill in.
+
+    There is no service *discovery* here: this reports what this deployment
+    was configured to use, it does not probe the network.
 
     `requires_manual_entry` is an explicit flag for whether the settings
-    screen should show the custom URL/model fields for this provider. It is
-    not inferred from `url` being empty: llama-cpp has a detected default
-    URL but an admin can still override it with a custom URL/model, so
-    "has a default URL" and "is customizable" are independent facts.
+    screen should show the custom URL/model fields. It is not inferred from
+    `url` being empty: a configured provider has a suggested URL and is
+    still customizable, so "has a default URL" and "is customizable" are
+    independent facts.
     """
     return {
         "llm": [
-            {
-                "provider": "fake",
-                "url": "",
-                "label": "Fake (mocked, for testing)",
-                "requires_manual_entry": False,
-            },
-            {
-                "provider": "llama-cpp",
-                "url": "http://llama-server:8000/v1",
-                "label": "llama-cpp (llama-server, detected)",
-                "requires_manual_entry": True,
-            },
-            {
-                "provider": "openai-compatible",
-                "url": "",
-                "label": "OpenAI-compatible (custom)",
-                "requires_manual_entry": True,
-            },
+            _provider_option(
+                "fake", "Fake (mocked, for testing)", settings.llm_provider, settings.llm_url
+            ),
+            _provider_option(
+                "llama-cpp",
+                "llama-cpp (local llama-server)",
+                settings.llm_provider,
+                settings.llm_url,
+            ),
+            _provider_option(
+                "openai-compatible",
+                "OpenAI-compatible (hosted endpoint)",
+                settings.llm_provider,
+                settings.llm_url,
+            ),
         ],
         "embedding": [
-            {
-                "provider": "fake",
-                "url": "",
-                "label": "Fake (mocked, for testing)",
-                "requires_manual_entry": False,
-            },
-            {
-                "provider": "llama-cpp",
-                "url": "http://embedding-server:8000/v1",
-                "label": "llama-cpp (embedding-server, detected)",
-                "requires_manual_entry": True,
-            },
+            _provider_option(
+                "fake",
+                "Fake (mocked, for testing)",
+                settings.embedding_provider,
+                settings.embedding_url,
+            ),
+            _provider_option(
+                "llama-cpp",
+                "llama-cpp (local embedding-server)",
+                settings.embedding_provider,
+                settings.embedding_url,
+            ),
         ],
     }

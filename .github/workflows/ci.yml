@@ -67,6 +67,39 @@ jobs:
         working-directory: ./backend
         run: python tools/lint_repositories.py
 
+  doc-search-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install doc-search dependencies
+        working-directory: ./mcp-servers/doc-search
+        run: |
+          pip install -e ".[dev]"
+
+      # Unit tests only: tests/integration/ needs Docker/testcontainers for real
+      # Postgres and is non-gating, matching the backend's gating philosophy.
+      - name: Run doc-search unit tests
+        working-directory: ./mcp-servers/doc-search
+        run: pytest tests/unit/ -v --cov=app --cov-report=term-missing
+
+      - name: Run linting
+        working-directory: ./mcp-servers/doc-search
+        run: |
+          ruff check .
+          black --check .
+
+      - name: Run type checking
+        working-directory: ./mcp-servers/doc-search
+        run: mypy app/
+
   frontend-tests:
     runs-on: ubuntu-latest
 
