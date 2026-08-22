@@ -1,9 +1,8 @@
 """Tests for doc-search's core search logic.
 
 Marked integration: ranking uses pgvector's cosine distance operator, which
-only runs against real Postgres (mirrors backend's
-tests/unit/test_embedding_repository.py and tests/unit/test_tools.py, which
-carry the same constraint despite living under a "unit" directory name).
+only runs against real Postgres, so these live under tests/integration/ and
+are not part of the CI-gating unit run.
 
 Behavior must match backend/app/agents/tools.py's search_knowledge_base
 exactly (same excerpt formatting, same "no matches" message, same

@@ -12,7 +12,7 @@ happens even when two users' tokens are both valid.
 
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 import jwt
 import pytest
@@ -20,12 +20,29 @@ import uvicorn
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.utils import to_base64url_uint
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
 from app.models import Embedding, KnowledgeBase
 from app.search import generate_query_embedding
 
 TEST_PORT = 8199
+
+
+@asynccontextmanager
+async def _mcp_streams(url: str, token: str | None = None):
+    """Open a Streamable HTTP connection, optionally authenticated.
+
+    The MCP SDK's current streamable_http_client takes a caller-built httpx
+    client rather than a headers= argument (the deprecated
+    streamablehttp_client wrapper did that construction internally), so the
+    bearer header is attached here — in one place, since these tests exist
+    precisely to prove the server's handling of that header.
+    """
+    headers = {"Authorization": f"Bearer {token}"} if token is not None else None
+    http_client = create_mcp_http_client(headers=headers)
+    async with http_client:
+        async with streamable_http_client(url, http_client=http_client) as streams:
+            yield streams
 
 
 def _make_signed_token(claims: dict, kid: str = "test-key") -> tuple[str, dict]:
@@ -136,11 +153,7 @@ async def test_search_via_real_http_with_valid_token_returns_matches(
     jwks_mock["jwks"] = jwks
 
     with _running_server(jwks_mock, test_db_url) as url:
-        async with streamablehttp_client(url, headers={"Authorization": f"Bearer {token}"}) as (
-            read,
-            write,
-            _,
-        ):
+        async with _mcp_streams(url, token) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(
@@ -158,7 +171,7 @@ async def test_search_via_real_http_rejects_missing_token(db_session, test_db_ur
     """A request with no Authorization header is rejected before any tool runs."""
     with _running_server(jwks_mock, test_db_url) as url:
         with pytest.raises(Exception):
-            async with streamablehttp_client(url) as (read, write, _):
+            async with _mcp_streams(url) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     await session.call_tool("search_knowledge_base", {"query": "anything"})
@@ -180,11 +193,7 @@ async def test_search_via_real_http_rejects_expired_token(db_session, test_db_ur
 
     with _running_server(jwks_mock, test_db_url) as url:
         with pytest.raises(Exception):
-            async with streamablehttp_client(url, headers={"Authorization": f"Bearer {token}"}) as (
-                read,
-                write,
-                _,
-            ):
+            async with _mcp_streams(url, token) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     await session.call_tool("search_knowledge_base", {"query": "anything"})
@@ -219,11 +228,7 @@ async def test_search_via_real_http_never_crosses_user_boundary(db_session, test
     jwks_mock["jwks"] = jwks
 
     with _running_server(jwks_mock, test_db_url) as url:
-        async with streamablehttp_client(url, headers={"Authorization": f"Bearer {token_b}"}) as (
-            read,
-            write,
-            _,
-        ):
+        async with _mcp_streams(url, token_b) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool("search_knowledge_base", {"query": "secret"})
