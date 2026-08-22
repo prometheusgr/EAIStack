@@ -1,10 +1,13 @@
-"""Core search logic: query embedding + pgvector cosine-similarity search.
+"""Core search logic: query embedding + result formatting.
 
-Ported from backend/app/agents/tools.py and backend/app/repositories/
-embedding_repository.py — same top-k ranking, same excerpt formatting,
-same "no matches" message. This is a structural move (search now runs in
-this standalone MCP server instead of in-process in the backend), not a
-behavior change.
+Ported from backend/app/agents/tools.py — same top-k ranking, same excerpt
+formatting, same "no matches" message. This is a structural move (search now
+runs in this standalone MCP server instead of in-process in the backend),
+not a behavior change.
+
+The pgvector query itself lives in app/repositories/embedding_repository.py,
+mirroring the backend's split: this module owns formatting and provider
+config, the repository owns data access and the user-isolation filter.
 """
 
 import random
@@ -14,7 +17,8 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Embedding, KnowledgeBase, SystemSettings
+from app.models import SystemSettings
+from app.repositories import EmbeddingRepository
 
 MAX_EXCERPT_CHARS = 300
 
@@ -106,21 +110,8 @@ def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5)
     """
     query_embedding = generate_query_embedding(db, query)
 
-    matches = (
-        db.query(
-            Embedding,
-            KnowledgeBase,
-            Embedding.embedding.cosine_distance(query_embedding).label("distance"),
-        )
-        .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)
-        .filter(
-            KnowledgeBase.user_id == user_id,
-            Embedding.deleted_at.is_(None),
-        )
-        .order_by("distance")
-        .limit(top_k)
-        .all()
-    )
+    repo = EmbeddingRepository(db)
+    matches = repo.search_similar(user_id, query_embedding, top_k)
 
     if not matches:
         return "No matching documents were found in the knowledge base."

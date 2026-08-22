@@ -32,8 +32,9 @@ python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
 pip install -e ".[dev]"
 
-# Testing (all tests here need real Postgres via testcontainers)
-pytest tests/ -m "unit or integration" -v
+# Testing
+pytest tests/unit/ -v         # Fast, mocked; no Postgres needed. Gates CI.
+pytest tests/integration/ -v  # Real Postgres via testcontainers (needs Docker). Non-gating.
 
 # Run standalone (requires DATABASE_URL and KEYCLOAK_URL to point at real services)
 uvicorn app.main:app --host 0.0.0.0 --port 8100

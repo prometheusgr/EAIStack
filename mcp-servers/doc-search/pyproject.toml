@@ -35,7 +35,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["app"]
+packages = ["app", "app.repositories"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
