@@ -14,8 +14,9 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Embedding, KnowledgeBase
-from app.search import generate_query_embedding, search_knowledge_base
+from app.config import settings
+from app.models import Embedding, KnowledgeBase, SystemSettings
+from app.search import generate_query_embedding, resolve_embedding_config, search_knowledge_base
 
 
 def _seed_document(db_session, user_id: str, title: str, content: str) -> None:
@@ -91,3 +92,152 @@ def test_search_knowledge_base_truncates_long_content_with_ellipsis(db_session):
     assert "A" * 300 in result
     assert "..." in result
     assert "A" * 301 not in result
+
+
+# resolve_embedding_config: DB-override-vs-env-default resolution.
+#
+# Mirrors backend/tests/unit/test_system_settings_service.py's
+# test_resolve_embedding_config_* tests exactly (same fixture shape, same
+# scenarios) since app.search.resolve_embedding_config is a deliberate port
+# of backend/app/services/system_settings_service.py's function of the same
+# name, reading the same system_settings row. Marked integration like the
+# rest of this file: doc-search has no SQLite fallback, so any db_session use
+# needs real Postgres (see tests/conftest.py).
+
+
+@pytest.mark.integration
+def test_resolve_embedding_config_falls_back_to_env_settings_when_no_db_row(db_session):
+    """With no SystemSettings row at all, every field comes from env settings."""
+    config = resolve_embedding_config(db_session)
+
+    assert config.provider == settings.embedding_provider
+    assert config.url == settings.embedding_url
+    assert config.model == settings.embedding_model
+    assert config.timeout == settings.embedding_timeout
+
+
+@pytest.mark.integration
+def test_resolve_embedding_config_falls_back_to_env_settings_when_db_row_fields_are_null(
+    db_session,
+):
+    """A SystemSettings row can exist (e.g. an admin previously edited LLM
+    settings only) while leaving every embedding field NULL. Each must fall
+    back to its env default independently — this is the case that would
+    silently pass under a truthiness check on a not-None DB row just as
+    easily as it does today, so it exists to pin the per-field is-not-None
+    resolution, not just the "no row" case above.
+    """
+    db_session.add(
+        SystemSettings(
+            id="default",
+            embedding_provider=None,
+            embedding_url=None,
+            embedding_model=None,
+            updated_by="admin-1",
+        )
+    )
+    db_session.commit()
+
+    config = resolve_embedding_config(db_session)
+
+    assert config.provider == settings.embedding_provider
+    assert config.url == settings.embedding_url
+    assert config.model == settings.embedding_model
+    assert config.timeout == settings.embedding_timeout
+
+
+@pytest.mark.integration
+def test_resolve_embedding_config_uses_db_override_when_present(db_session):
+    """A DB row with non-null embedding fields overrides the env-var defaults
+    for every overridable field.
+    """
+    db_session.add(
+        SystemSettings(
+            id="default",
+            embedding_provider="llama-cpp",
+            embedding_url="http://embedding-server:8000/v1",
+            embedding_model="nomic-embed-text-v1.5.Q4_K_M.gguf",
+            updated_by="admin-1",
+        )
+    )
+    db_session.commit()
+
+    config = resolve_embedding_config(db_session)
+
+    assert config.provider == "llama-cpp"
+    assert config.url == "http://embedding-server:8000/v1"
+    assert config.model == "nomic-embed-text-v1.5.Q4_K_M.gguf"
+
+
+@pytest.mark.integration
+def test_resolve_embedding_config_falls_back_per_field_when_only_some_are_null(db_session):
+    """A DB row can override just the provider and leave url/model NULL, each
+    falling back to env independently (not all-or-nothing per row).
+    """
+    db_session.add(
+        SystemSettings(
+            id="default",
+            embedding_provider="llama-cpp",
+            embedding_url=None,
+            embedding_model=None,
+            updated_by="admin-1",
+        )
+    )
+    db_session.commit()
+
+    config = resolve_embedding_config(db_session)
+
+    assert config.provider == "llama-cpp"
+    assert config.url == settings.embedding_url
+    assert config.model == settings.embedding_model
+
+
+@pytest.mark.integration
+def test_resolve_embedding_config_treats_empty_string_db_value_as_a_real_override(db_session):
+    """An empty-string DB column (e.g. the 'fake' provider's URL/model, which
+    have no real endpoint) is a deliberate override, not an unset field. It
+    must resolve to "" rather than silently falling back to the env default
+    — this is the scenario a truthiness check (`if db_value:` instead of
+    `if db_value is not None:`) would get wrong, since "" is falsy but here
+    means something specific (explicitly configured empty), distinct from
+    NULL ("not configured, use env default").
+    """
+    db_session.add(
+        SystemSettings(
+            id="default",
+            embedding_provider="fake",
+            embedding_url="",
+            embedding_model="",
+            updated_by="admin-1",
+        )
+    )
+    db_session.commit()
+
+    config = resolve_embedding_config(db_session)
+
+    assert config.provider == "fake"
+    assert config.url == ""
+    assert config.model == ""
+
+
+@pytest.mark.integration
+def test_resolve_embedding_config_timeout_always_comes_from_env(db_session):
+    """timeout is never DB-overridable — no such column exists on
+    SystemSettings for embeddings (see app.models.SystemSettings), so it must
+    always resolve to the env-configured value regardless of what else is
+    set on the row.
+    """
+    db_session.add(
+        SystemSettings(
+            id="default",
+            embedding_provider="llama-cpp",
+            embedding_url="http://embedding-server:8000/v1",
+            embedding_model="custom-model",
+            updated_by="admin-1",
+        )
+    )
+    db_session.commit()
+
+    config = resolve_embedding_config(db_session)
+
+    assert config.timeout == settings.embedding_timeout
