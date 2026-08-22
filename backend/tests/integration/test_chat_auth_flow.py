@@ -46,6 +46,7 @@ async def test_complete_chat_flow_requires_valid_token():
         "email": "test@example.com",
         "name": "Test User",
         "token": {"aud": "eaistack-web"},
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():

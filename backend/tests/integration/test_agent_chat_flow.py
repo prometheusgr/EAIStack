@@ -18,6 +18,7 @@ def test_agent_chat_flow_happy_path():
         "email": "test@example.com",
         "name": "Test User",
         "token": {},
+        "access_token": "fake-access-token",
     }
 
     def override_get_current_user():
