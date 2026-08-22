@@ -3,8 +3,10 @@
 import uuid
 
 import pytest
+from langchain_core.messages import AIMessage, ToolCall
 
 from app.core.auth import get_current_user
+from app.core.llm_client import FakeChatModel
 from app.main import app
 
 
@@ -325,6 +327,80 @@ def test_chat_endpoint_token_validation_error_returns_401(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 401
+
+
+@pytest.mark.unit
+def test_chat_endpoint_tool_call_does_not_hit_nested_asyncio_run_under_real_event_loop(
+    client, monkeypatch, caplog
+):
+    """A tool-calling turn must not crash when the endpoint is exercised the
+    way it actually runs in production: on FastAPI's live event loop, not
+    from a synchronous pytest function.
+
+    Regression test for a bug where search_knowledge_base's implementation
+    called asyncio.run() to bridge into the async MCP client. asyncio.run()
+    raises RuntimeError when it's already inside a running loop -- which
+    every real request is, since async def chat() runs on the ASGI event
+    loop. tests/unit/test_chat_agent.py and the rest of this file call
+    graph.invoke()/client.post() from plain sync test functions, which have
+    no event loop running and so never trigger this failure mode; using
+    httpx.AsyncClient against the ASGI app (rather than starlette's
+    TestClient) is what puts a real loop underneath the request, matching
+    production.
+
+    The doc-search server at doc_search_mcp_url isn't actually running in
+    this test, so the tool call is expected to fail and fall back to its
+    "currently unavailable" string either way -- that fallback string alone
+    can't distinguish a real network failure from the asyncio.run() bug, so
+    this test inspects the logged exception's type instead. Before the fix:
+    doc_search_client logs the swallowed exception as RuntimeError(
+    "asyncio.run() cannot be called from a running event loop"), not the
+    connection error a reader would expect. After the fix: the tool awaits
+    the MCP client directly (no asyncio.run()), so the logged exception is
+    the real connection failure, never a RuntimeError about a running loop.
+    """
+    tool_call_message = AIMessage(
+        content="",
+        tool_calls=[
+            ToolCall(name="search_knowledge_base", args={"query": "vacation days"}, id="call-1")
+        ],
+    )
+    final_message = AIMessage(content="Here is what I found.")
+    fake_llm = FakeChatModel(responses=[tool_call_message, final_message])
+    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+
+    fake_user = {
+        "user_id": "test-user-123",
+        "username": "testuser",
+        "email": "test@example.com",
+        "name": "Test User",
+        "token": {},
+        "access_token": "fake-access-token",
+    }
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+
+    with caplog.at_level("ERROR", logger="app.mcp_client.doc_search_client"):
+        response = client.post(
+            "/api/agents/chat", json={"message": "How many vacation days do I get?"}
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert fake_llm.call_count == 2
+
+    doc_search_failures = [
+        record
+        for record in caplog.records
+        if record.name == "app.mcp_client.doc_search_client" and record.exc_info
+    ]
+    assert len(doc_search_failures) == 1, "expected exactly one logged doc-search call failure"
+    exc_type = doc_search_failures[0].exc_info[0]
+    assert exc_type is not RuntimeError, (
+        "doc-search call failed with RuntimeError, the signature of asyncio.run() being "
+        "invoked from an already-running event loop -- the real cause (a connection "
+        "failure to the unreachable MCP URL) is being masked"
+    )
 
 
 def _login_as(user_id: str) -> dict:

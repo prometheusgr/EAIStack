@@ -55,7 +55,7 @@ async def chat(
         "user_id": user["user_id"],
     }
 
-    result = agent.invoke(state, config={"configurable": {"thread_id": thread.id}})
+    result = await agent.ainvoke(state, config={"configurable": {"thread_id": thread.id}})
     thread_repository.touch(thread.id, now=utc_now())
     db.commit()
     final_message = result["messages"][-1]

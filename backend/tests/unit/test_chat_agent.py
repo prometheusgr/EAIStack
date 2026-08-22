@@ -163,7 +163,7 @@ def test_chat_agent_plain_response_skips_tool_node(db_session, monkeypatch):
 
 
 @pytest.mark.integration
-def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(
+async def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(
     db_session, test_db_url, fake_keycloak_jwks_server, monkeypatch
 ):
     """A tool_calls response invokes the tool node, feeds the result back to the LLM,
@@ -173,6 +173,10 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(
     server over Streamable HTTP (see doc_search_helper.py) instead of an
     in-process closure, so this test needs a real subprocess and real
     Postgres, same as before the extraction.
+
+    Invoked via graph.ainvoke(), matching the real call chain: the tool is
+    async-only (see doc_search_client.make_search_knowledge_base_tool) and
+    app.api.agents.chat drives the graph with ainvoke(), not invoke().
     """
     kb = KnowledgeBase(
         id=str(uuid4()),
@@ -212,7 +216,7 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(
             "user_id": "test-user",
         }
 
-        result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
+        result = await graph.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
 
     assert fake_llm.call_count == 2
     messages = result["messages"]
@@ -223,7 +227,7 @@ def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(
 
 
 @pytest.mark.integration
-def test_chat_agent_stops_after_max_tool_iterations(
+async def test_chat_agent_stops_after_max_tool_iterations(
     db_session, test_db_url, fake_keycloak_jwks_server, monkeypatch
 ):
     """A model that keeps requesting tool calls is forced to END after a bounded
@@ -232,6 +236,8 @@ def test_chat_agent_stops_after_max_tool_iterations(
     Marked integration: a looping tool call is actually executed by the graph's
     ToolNode, which now calls a real, running doc-search MCP server over
     Streamable HTTP (real Postgres + real subprocess, see doc_search_helper.py).
+
+    Invoked via graph.ainvoke() for the same reason as the test above.
     """
     looping_tool_call = AIMessage(
         content="",
@@ -254,7 +260,7 @@ def test_chat_agent_stops_after_max_tool_iterations(
             "user_id": "test-user",
         }
 
-        result = graph.invoke(state, config={"configurable": {"thread_id": thread_id}})
+        result = await graph.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
 
     assert result is not None
     assert fake_llm.call_count <= 6

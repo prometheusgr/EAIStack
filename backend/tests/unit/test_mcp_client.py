@@ -14,14 +14,19 @@ from app.mcp_client import make_search_knowledge_base_tool
 
 
 @pytest.mark.unit
-def test_search_knowledge_base_tool_reports_clear_error_when_server_unreachable():
+async def test_search_knowledge_base_tool_reports_clear_error_when_server_unreachable():
     """A connection failure surfaces as a clear string result, not a raised
     exception that would crash the agent's tool-call round-trip — the LLM
     still needs a ToolMessage to continue the conversation.
+
+    The tool is async-only (see make_search_knowledge_base_tool's
+    docstring): it's invoked via ainvoke(), matching how LangGraph's
+    ToolNode calls it in the real, fully-async call chain from
+    app.api.agents.chat down through create_chat_agent.
     """
     tool = make_search_knowledge_base_tool(token="some.jwt.token", mcp_url="http://localhost:1/mcp")
 
-    result = tool.invoke({"query": "anything"})
+    result = await tool.ainvoke({"query": "anything"})
 
     assert isinstance(result, str)
     assert "error" in result.lower() or "unavailable" in result.lower()

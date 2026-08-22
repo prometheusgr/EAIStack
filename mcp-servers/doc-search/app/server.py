@@ -15,6 +15,7 @@ middleware — this server never trusts a user_id supplied any other way
 
 import contextvars
 
+import anyio.to_thread
 from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -95,7 +96,7 @@ def _build_mcp() -> FastMCP:
             "matching document, or a message saying nothing matched."
         ),
     )
-    def search_knowledge_base(query: str, top_k: int = 5) -> str:
+    async def search_knowledge_base(query: str, top_k: int = 5) -> str:
         """Search the calling user's knowledge base.
 
         user_id is never a parameter here — it comes only from the verified
@@ -103,13 +104,29 @@ def _build_mcp() -> FastMCP:
         mirroring the same closure-binding guarantee
         backend/app/agents/tools.py relied on before this was a separate
         service: the model (or an MCP client) can never supply user_id.
+
+        FastMCP's tool dispatch calls a sync tool function directly on the
+        request's own async task (no thread offload of its own — unlike
+        LangChain's tool-calling layer on the backend side), so the blocking
+        SQLAlchemy queries and (for the llama-cpp embedding provider) the
+        synchronous httpx call inside _search_knowledge_base would otherwise
+        block this server's single ASGI event loop for every concurrent
+        request. anyio.to_thread.run_sync moves that blocking work onto a
+        worker thread, matching how any other blocking-I/O call is bridged
+        into async code in this codebase (see
+        backend/app/agents/checkpointer.py's a* methods for the same
+        pattern).
         """
         user_id = _current_user_id.get()
-        db = app_db.SessionLocal()
-        try:
-            return _search_knowledge_base(db, user_id=user_id, query=query, top_k=top_k)
-        finally:
-            db.close()
+
+        def run_search() -> str:
+            db = app_db.SessionLocal()
+            try:
+                return _search_knowledge_base(db, user_id=user_id, query=query, top_k=top_k)
+            finally:
+                db.close()
+
+        return await anyio.to_thread.run_sync(run_search)
 
     return mcp
 

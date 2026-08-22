@@ -13,7 +13,6 @@ hop that carries it is a place a stolen credential becomes usable, and
 logging is the easiest way to accidentally widen that further.
 """
 
-import asyncio
 import logging
 from datetime import timedelta
 
@@ -39,7 +38,13 @@ class _SearchKnowledgeBaseInput(BaseModel):
     top_k: int = Field(default=5, description="Maximum number of documents to return.")
 
 
-async def _call_doc_search(token: str, mcp_url: str, query: str, top_k: int) -> str:
+async def _open_doc_search_session(token: str, mcp_url: str, query: str, top_k: int):
+    """Open the Streamable HTTP connection, do the MCP handshake, and call the
+    tool. This is the actual system boundary (network I/O to another
+    service) — the only part of a doc-search call that can fail for reasons
+    outside this codebase's control, and so the only part whose exceptions
+    should be caught and turned into the agent's "unavailable" fallback.
+    """
     async with streamablehttp_client(mcp_url, headers={"Authorization": f"Bearer {token}"}) as (
         read,
         write,
@@ -47,12 +52,24 @@ async def _call_doc_search(token: str, mcp_url: str, query: str, top_k: int) -> 
     ):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            result = await session.call_tool(
+            return await session.call_tool(
                 "search_knowledge_base",
                 {"query": query, "top_k": top_k},
                 read_timeout_seconds=MCP_CALL_TIMEOUT,
             )
-            return "".join(block.text for block in result.content if hasattr(block, "text"))
+
+
+def _render_search_result(result) -> str:
+    """Extract the text content doc-search returned.
+
+    Deliberately outside the network try/except: a bug here (e.g. an
+    unexpected content block shape) is a parsing defect in this codebase,
+    not a network failure, and per AGENTS.md's "error handling only at
+    system boundaries" should raise and surface distinguishably rather than
+    being reported to the model as an identical-looking "server
+    unavailable" fallback.
+    """
+    return "".join(block.text for block in result.content if hasattr(block, "text"))
 
 
 def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:
@@ -62,11 +79,19 @@ def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:
     arguments, for the same reason the pre-extraction tool closed over
     user_id and db: letting the model choose its own credentials or target
     server would be a session-isolation hole.
+
+    Declared as an async-only tool (coroutine=, no func=): the whole call
+    chain from the FastAPI endpoint down through LangGraph's ToolNode is
+    async (see app.agents.chat_agent.create_chat_agent and
+    app.api.agents.chat), so the tool can await the MCP client directly.
+    There is no sync entry point to fall back to, and none is needed —
+    a sync-only caller would be a bug in the caller, not something this
+    tool should paper over by bridging event loops itself.
     """
 
-    def search_knowledge_base(query: str, top_k: int = 5) -> str:
+    async def search_knowledge_base(query: str, top_k: int = 5) -> str:
         try:
-            return asyncio.run(_call_doc_search(token, mcp_url, query, top_k))
+            result = await _open_doc_search_session(token, mcp_url, query, top_k)
         except Exception:
             logger.exception("doc-search MCP call failed")
             return (
@@ -74,9 +99,10 @@ def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:
                 "internal error. Answer using only what you already know, and "
                 "let the user know document search wasn't available."
             )
+        return _render_search_result(result)
 
     return StructuredTool.from_function(
-        func=search_knowledge_base,
+        coroutine=search_knowledge_base,
         name="search_knowledge_base",
         description=(
             "Search the user's personal knowledge base for documents relevant to a "
