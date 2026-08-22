@@ -12,20 +12,24 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_complete_chat_flow_requires_valid_token():
+async def test_complete_chat_flow_requires_valid_token(client):
     """Chat flow should require valid authentication token.
 
     Steps:
     1. POST /api/agents/chat with valid Bearer token should return 200
     2. POST /api/agents/chat without token should return 403
     3. POST /api/agents/chat with invalid token should return 401
-    """
-    from starlette.testclient import TestClient
 
+    Takes the shared `client` fixture rather than building a bare
+    TestClient(app): the fixture overrides get_db to the isolated test
+    database. Without it this test runs against whatever database the
+    developer's environment points at, so a runtime provider override stored
+    in that database's system_settings row (an admin can set one through the
+    Settings screen) would silently decide which LLM this test calls — and a
+    Docker-internal hostname there is unresolvable from the host.
+    """
     from app.core.auth import get_current_user
     from app.main import app
-
-    client = TestClient(app)
 
     # Test 1: No token should return 403
     response = client.post("/api/agents/chat", json={"message": "Hello"})

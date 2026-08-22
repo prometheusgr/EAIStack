@@ -9,6 +9,11 @@ of a Python closure.
 
 See doc_search_helper.py for why doc-search runs as a genuine subprocess
 rather than being imported into the backend's own process.
+
+The tool is async-only (see make_search_knowledge_base_tool's docstring), so
+these tests await ainvoke() — the same entry point LangGraph's ToolNode uses
+in the real, fully-async chain from app.api.agents.chat downward. There is no
+sync entry point to test.
 """
 
 from uuid import uuid4
@@ -41,7 +46,8 @@ def _seed_document(db_session, user_id: str, title: str, content: str) -> None:
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_tool_returns_matching_document_over_real_mcp(
+@pytest.mark.asyncio
+async def test_search_knowledge_base_tool_returns_matching_document_over_real_mcp(
     db_session, test_db_url, fake_keycloak_jwks_server
 ):
     """Same behavior as the old in-process tool: a matching query returns
@@ -59,14 +65,15 @@ def test_search_knowledge_base_tool_returns_matching_document_over_real_mcp(
         test_db_url, fake_keycloak_jwks_server, TEST_PORT
     ) as mcp_url:
         tool = make_search_knowledge_base_tool(token=token, mcp_url=mcp_url)
-        result = tool.invoke({"query": "vacation days"})
+        result = await tool.ainvoke({"query": "vacation days"})
 
     assert "Vacation Policy" in result
     assert "25 days of paid vacation" in result
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_tool_is_scoped_to_the_forwarded_token(
+@pytest.mark.asyncio
+async def test_search_knowledge_base_tool_is_scoped_to_the_forwarded_token(
     db_session, test_db_url, fake_keycloak_jwks_server
 ):
     """The tool only ever returns documents owned by the user whose token was
@@ -85,14 +92,15 @@ def test_search_knowledge_base_tool_is_scoped_to_the_forwarded_token(
         test_db_url, fake_keycloak_jwks_server, TEST_PORT
     ) as mcp_url:
         tool = make_search_knowledge_base_tool(token=token, mcp_url=mcp_url)
-        result = tool.invoke({"query": "confidential"})
+        result = await tool.ainvoke({"query": "confidential"})
 
     assert "User B Confidential Doc" not in result
     assert "belongs only to user B" not in result
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_tool_returns_empty_message_when_no_documents(
+@pytest.mark.asyncio
+async def test_search_knowledge_base_tool_returns_empty_message_when_no_documents(
     db_session, test_db_url, fake_keycloak_jwks_server
 ):
     """A clear, non-crashing message is returned for a user with no documents."""
@@ -102,7 +110,7 @@ def test_search_knowledge_base_tool_returns_empty_message_when_no_documents(
         test_db_url, fake_keycloak_jwks_server, TEST_PORT
     ) as mcp_url:
         tool = make_search_knowledge_base_tool(token=token, mcp_url=mcp_url)
-        result = tool.invoke({"query": "anything"})
+        result = await tool.ainvoke({"query": "anything"})
 
     assert isinstance(result, str)
     assert len(result) > 0
