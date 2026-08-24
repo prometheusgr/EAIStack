@@ -17,6 +17,7 @@ import httpx
 import jwt
 
 from app.config import settings
+from app.tls import httpx_verify
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def _get_http_client() -> httpx.AsyncClient:
     """
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(verify=settings.ca_bundle_path or True)
+        _http_client = httpx.AsyncClient(verify=httpx_verify())
     return _http_client
 
 

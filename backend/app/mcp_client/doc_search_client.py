@@ -22,7 +22,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
+from app.core.tls import get_ssl_context
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +63,15 @@ async def _open_doc_search_session(token: str, mcp_url: str, query: str, top_k: 
     outside this codebase's control, and so the only part whose exceptions
     should be caught and turned into the agent's "unavailable" fallback.
     """
+    # get_ssl_context() (not the raw path) because this session is opened on
+    # every knowledge-base tool call, potentially several times per chat
+    # turn — reusing the cached, already-parsed trust store avoids re-reading
+    # the CA bundle PEM file from disk on every single call.
     http_client = httpx.AsyncClient(
         headers={"Authorization": f"Bearer {token}"},
         timeout=httpx.Timeout(_CONNECT_TIMEOUT_SECONDS, read=_SSE_READ_TIMEOUT_SECONDS),
         follow_redirects=True,
-        verify=settings.ca_bundle_path or True,
+        verify=get_ssl_context(),
     )
     async with http_client:
         async with streamable_http_client(mcp_url, http_client=http_client) as (

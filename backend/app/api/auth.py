@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.config import settings
+from app.core.tls import httpx_verify
 from app.db.database import get_db
 from app.services import purge_user_conversations, resolve_retention_config
 
@@ -95,7 +96,7 @@ async def exchange_token(request: TokenExchangeRequest):
                 detail=f"Unsupported grant_type: {request.grant_type}",
             )
 
-        async with httpx.AsyncClient(verify=settings.ca_bundle_path or True) as client:
+        async with httpx.AsyncClient(verify=httpx_verify()) as client:
             response = await client.post(token_endpoint, data=token_data, timeout=10.0)
 
             if response.status_code != 200:

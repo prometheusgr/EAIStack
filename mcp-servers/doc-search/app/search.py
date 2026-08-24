@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import SystemSettings
 from app.repositories import EmbeddingRepository
+from app.tls import get_ssl_context
 
 MAX_EXCERPT_CHARS = 300
 
@@ -86,7 +87,10 @@ def generate_query_embedding(db: Session, text: str) -> list[float]:
         random.seed(hash(text) % (2**32))
         return [random.gauss(0, 0.1) for _ in range(EMBEDDING_DIMENSION)]
     elif config.provider == "llama-cpp":
-        with httpx.Client(timeout=config.timeout, verify=settings.ca_bundle_path or True) as client:
+        # get_ssl_context() (not the raw path) because this runs on every
+        # knowledge-base query — reusing the cached, already-parsed trust
+        # store avoids re-reading the CA bundle PEM file from disk each time.
+        with httpx.Client(timeout=config.timeout, verify=get_ssl_context()) as client:
             response = client.post(
                 f"{config.url}/embeddings",
                 json={"input": text, "model": config.model},

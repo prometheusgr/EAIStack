@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.tls import get_ssl_context
 from app.services.system_settings_service import resolve_llm_config
 
 
@@ -80,7 +80,12 @@ def get_llm_client(db: Session):
         # sync and async kwargs are set: chat inference runs on the async
         # path, but leaving the sync one unconfigured would silently skip the
         # bundle for any synchronous invocation.
-        verify = settings.ca_bundle_path or True
+        #
+        # get_ssl_context() (not the raw path) because this factory runs on
+        # every chat request and builds two clients each time — reusing the
+        # cached, already-parsed trust store avoids re-reading the CA bundle
+        # PEM file from disk on every single chat turn.
+        verify = get_ssl_context()
 
         return ChatOpenAI(
             base_url=config.url,
