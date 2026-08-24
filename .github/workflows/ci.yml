@@ -151,9 +151,21 @@ jobs:
 
       - name: Lint Helm charts
         run: |
+          umbrella_globals="infra/helm/charts/eaistack-umbrella/values.yaml"
           for chart in infra/helm/charts/*; do
             if [ -f "$chart/Chart.yaml" ]; then
-              helm lint "$chart"
+              if [ "$chart" = "infra/helm/charts/eaistack-umbrella" ]; then
+                helm lint "$chart"
+              else
+                # Subcharts reference .Values.global.* (postgresPassword,
+                # keycloakClientSecret, etc.), which only exist when the
+                # umbrella supplies them at install time. Standalone `helm
+                # lint` with no values leaves .Values.global nil, so
+                # `required`/direct-reference templates panic instead of
+                # linting. Layer in the umbrella's own values.yaml so lint
+                # sees the same globals a real install would.
+                helm lint "$chart" -f "$umbrella_globals"
+              fi
             fi
           done
 
