@@ -19,7 +19,9 @@ from app.core.auth import get_current_user
 from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import utc_now
-from app.repositories import ThreadRepository
+from app.guardrails.input_guardrail import GuardrailVerdict, check_input
+from app.guardrails.output_guardrail import filter_output
+from app.repositories import AuditLogRepository, ThreadRepository
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -39,7 +41,28 @@ async def chat(
     trusted: ThreadRepository.get_or_create_owned silently mints a fresh
     thread instead, so a request always succeeds but never resumes or
     reveals another user's conversation.
+
+    The input guardrail runs before any of that, and before the agent is
+    built at all: a rejected message never reaches the LLM, never creates
+    or touches a thread, and is recorded as an audit event (see
+    app.guardrails.input_guardrail for why reject, not sanitize or flag,
+    is this guardrail's trip behavior). The output guardrail runs after
+    the agent responds, sanitizing the response in place rather than
+    rejecting it (see app.guardrails.output_guardrail for why).
     """
+    guardrail_result = check_input(request.message)
+    if guardrail_result.verdict == GuardrailVerdict.REJECTED:
+        AuditLogRepository(db).record(
+            actor_user_id=user["user_id"],
+            action="guardrail.input_rejected",
+            field_name="message",
+            old_value=None,
+            new_value=guardrail_result.reason,
+            now=utc_now(),
+        )
+        db.commit()
+        raise HTTPException(status_code=400, detail=guardrail_result.reason)
+
     thread_repository = ThreadRepository(db)
     thread = thread_repository.get_or_create_owned(request.thread_id, user["user_id"])
 
@@ -59,7 +82,9 @@ async def chat(
     db.commit()
     final_message = result["messages"][-1]
 
-    return ChatResponse(response=final_message.content, thread_id=result["thread_id"])
+    filtered = filter_output(str(final_message.content))
+
+    return ChatResponse(response=filtered.text, thread_id=result["thread_id"])
 
 
 @router.get("/threads")

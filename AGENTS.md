@@ -321,6 +321,7 @@ The patterns below are **mandatory shapes**, not suggestions — each has a cano
 | Add or change a frontend API call | [docs/FRONTEND_ARCHITECTURE.md](../docs/FRONTEND_ARCHITECTURE.md) | API client → service → hook → component layering, full worked example, testing each layer |
 | Add a new database query used by an endpoint | [docs/REPOSITORY_PATTERN.md](../docs/REPOSITORY_PATTERN.md) | Repository class shape, user-isolation and soft-delete query patterns |
 | Write a time-dependent function | [docs/TIME_INJECTION.md](../docs/TIME_INJECTION.md) | Time injection pattern, pytest fixtures, testability without mocking |
+| Add a second LangGraph agent alongside `chat_agent` | [docs/AGENT_LIBRARY.md](../docs/AGENT_LIBRARY.md) | Agent module/prompt module shape, factory signature, registry, no-premature-abstraction guidance |
 
 **Why this matters:** these four areas are exactly where inconsistent one-off implementations creep in — a service with FastAPI imports, a component with a raw `fetch()`, a query written inline in an endpoint instead of a repository. The guides exist so every instance looks the same. If you find yourself deviating from the documented shape, that's a signal to either follow it or flag the guide as outdated — not to invent a new shape silently.
 
