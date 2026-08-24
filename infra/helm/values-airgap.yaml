@@ -59,7 +59,7 @@ minio:
   # MinIO console port (typically 9001)
   consolePort: 9001
 
-llama_server:
+llama-server:
   enabled: true
   image:
     repository: ghcr.io/ggml-org/llama.cpp
@@ -80,7 +80,7 @@ llama_server:
   # Plain HTTP URL to llama-server (used by embedding and LLM clients in the backend)
   url: "http://eaistack-llama-server:8000"
 
-embedding_server:
+embedding-server:
   enabled: true
   image:
     repository: ghcr.io/ggml-org/llama.cpp
@@ -120,15 +120,15 @@ backend:
     provider: "llama-cpp"
     url: "http://eaistack-embedding-server:8000/v1"
 
-  # MCP doc-search endpoint
+  # MCP doc-search endpoint. doc-search always serves TLS (Decision 1).
   mcp:
-    url: "http://eaistack-doc-search:8100"  # May be upgraded to https:// once doc-search TLS is verified
+    url: "https://eaistack-doc-search:8100/mcp"
 
   # TLS is always enabled for backend (compliance requirement)
   tls:
     enabled: true
 
-doc_search:
+doc-search:
   enabled: true
   image:
     repository: eaistack/doc-search

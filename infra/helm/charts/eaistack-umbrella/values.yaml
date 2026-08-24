@@ -24,16 +24,16 @@ keycloak:
 minio:
   enabled: true
 
-llama_server:
+llama-server:
   enabled: true
 
-embedding_server:
+embedding-server:
   enabled: true
 
 backend:
   enabled: true
 
-doc_search:
+doc-search:
   enabled: true
 
 frontend:

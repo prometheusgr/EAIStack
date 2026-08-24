@@ -24,12 +24,12 @@ dependencies:
 - name: llama-server
   version: "1.0.0"
   repository: "file://../llama-server"
-  condition: llama_server.enabled
+  condition: llama-server.enabled
 
 - name: embedding-server
   version: "1.0.0"
   repository: "file://../embedding-server"
-  condition: embedding_server.enabled
+  condition: embedding-server.enabled
 
 - name: backend
   version: "1.0.0"
@@ -39,7 +39,7 @@ dependencies:
 - name: doc-search
   version: "1.0.0"
   repository: "file://../doc-search"
-  condition: doc_search.enabled
+  condition: doc-search.enabled
 
 - name: frontend
   version: "1.0.0"
