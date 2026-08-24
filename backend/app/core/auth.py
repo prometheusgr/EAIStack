@@ -32,7 +32,7 @@ async def get_keycloak_public_key() -> dict[Any, Any]:
     jwks_url = (
         f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
     )
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=settings.ca_bundle_path or True) as client:
         response = await client.get(jwks_url)
         response.raise_for_status()
         jwks: dict[Any, Any] = response.json()

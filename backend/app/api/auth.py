@@ -95,7 +95,7 @@ async def exchange_token(request: TokenExchangeRequest):
                 detail=f"Unsupported grant_type: {request.grant_type}",
             )
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=settings.ca_bundle_path or True) as client:
             response = await client.post(token_endpoint, data=token_data, timeout=10.0)
 
             if response.status_code != 200:

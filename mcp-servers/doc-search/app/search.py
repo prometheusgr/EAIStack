@@ -86,7 +86,7 @@ def generate_query_embedding(db: Session, text: str) -> list[float]:
         random.seed(hash(text) % (2**32))
         return [random.gauss(0, 0.1) for _ in range(EMBEDDING_DIMENSION)]
     elif config.provider == "llama-cpp":
-        with httpx.Client(timeout=config.timeout) as client:
+        with httpx.Client(timeout=config.timeout, verify=settings.ca_bundle_path or True) as client:
             response = client.post(
                 f"{config.url}/embeddings",
                 json={"input": text, "model": config.model},

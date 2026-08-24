@@ -59,7 +59,7 @@ def _get_http_client() -> httpx.AsyncClient:
     """
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient()
+        _http_client = httpx.AsyncClient(verify=settings.ca_bundle_path or True)
     return _http_client
 
 

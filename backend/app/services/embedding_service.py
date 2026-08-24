@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import httpx
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.services.system_settings_service import EmbeddingConfig, resolve_embedding_config
 
 EMBEDDING_DIMENSION = 768
@@ -76,7 +77,7 @@ def _generate_llama_cpp_embedding(config: EmbeddingConfig, text: str) -> list[fl
     Uses llama-server's OpenAI-compatible /v1/embeddings endpoint
     (`llama-server --embedding`).
     """
-    with httpx.Client(timeout=config.timeout) as client:
+    with httpx.Client(timeout=config.timeout, verify=settings.ca_bundle_path or True) as client:
         response = client.post(
             f"{config.url}/embeddings",
             json={"input": text, "model": config.model},

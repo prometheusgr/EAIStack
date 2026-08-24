@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     keycloak_web_client_id: str = "eaistack-web"
     keycloak_client_secret: str = "eaistack-api-secret"
 
+    # Path to the internal CA bundle every outbound HTTP client verifies
+    # against, mounted into the pod by the Helm chart (Phase 5, Decision 2).
+    # None keeps httpx's default trust store, which is what local dev and
+    # docker-compose need — both talk plain HTTP, where verify is ignored
+    # anyway, and pointing at a file that isn't there would fail on startup.
+    ca_bundle_path: str | None = None
+
     # Data retention (env-level defaults; an admin can override each of these
     # at runtime via the settings screen, which writes to SystemSettings —
     # see app.services.retention_service.resolve_retention_config).

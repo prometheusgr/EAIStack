@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     keycloak_client_id: str = "eaistack-api"
     keycloak_web_client_id: str = "eaistack-web"
 
+    # Path to the internal CA bundle every outbound HTTP client verifies
+    # against, mounted into the pod by the Helm chart (Phase 5, Decision 2).
+    # Mirrors backend/app/core/config.py's field of the same name: None keeps
+    # httpx's default trust store, which is what local dev and docker-compose
+    # need — both talk plain HTTP, where verify is ignored anyway, and
+    # pointing at a file that isn't there would fail on startup.
+    ca_bundle_path: str | None = None
+
     # Embedding provider env-level defaults. Mirrors backend/app/core/config.py's
     # embedding_provider/embedding_url/embedding_model: an admin's runtime
     # override (via the Settings screen, stored in system_settings) wins over
