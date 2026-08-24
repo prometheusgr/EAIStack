@@ -50,6 +50,27 @@ class Settings(BaseSettings):
     keycloak_realm: str = "eaistack"
     keycloak_client_id: str = "eaistack-api"
     keycloak_web_client_id: str = "eaistack-web"
+    #
+    # This value is NOT a production secret — it is the plaintext client
+    # secret baked into infra/keycloak/realm-import.json, the dev-only
+    # Keycloak realm seed that `docker-compose up` imports, and it must
+    # match that file exactly or local auth breaks. The documented
+    # local-dev flow (docs/TESTING_QUICK_START.md) never sets
+    # KEYCLOAK_CLIENT_SECRET, so removing this default outright would break
+    # `docker-compose up` for every contributor.
+    #
+    # Every real deployment path overrides this: the Helm chart's
+    # secret.yaml/deployment.yaml (infra/helm/charts/backend) inject a real
+    # value via a K8s Secret with a `required` guard at install time, so a
+    # Helm install with no value set fails loudly instead of silently
+    # falling back to this constant. A bare `uvicorn` run or a
+    # non-Helm/non-compose deployment that forgets to set this env var will
+    # NOT fail loudly — it will silently authenticate with this well-known
+    # dev-realm value instead (the CLAUDE.md "Keycloak secrets" gotcha).
+    # Closing that gap needs a "required in production" settings split that
+    # nothing else in this Settings class has yet, so it isn't fixed here;
+    # the name below is deliberately unmistakable as a placeholder in the
+    # meantime, so no one mistakes it for a value requiring no setup.
     keycloak_client_secret: str = "eaistack-api-secret"
 
     # Path to the internal CA bundle every outbound HTTP client verifies
