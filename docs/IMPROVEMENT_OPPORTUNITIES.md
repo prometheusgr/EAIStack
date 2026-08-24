@@ -452,15 +452,18 @@ _jwks_cache = JWKSCache()
 
 ## Implementation Checklist
 
-Each improvement opportunity has an associated agent prompt (see `docs/AGENT_PROMPTS.md`). 
+Each improvement opportunity had an associated agent prompt (see archived
+`docs/archive/AGENT_PROMPTS_2026_ARCHITECTURE_REVIEW.md`).
 
-Use this checklist to track progress:
+Progress (Prompts 1-5 are complete; see docs/BACKEND_SERVICES.md,
+docs/REPOSITORY_PATTERN.md, docs/FRONTEND_ARCHITECTURE.md for the resulting
+conventions):
 
-- [ ] Prompt 1: Extract Backend Service Layer
-- [ ] Prompt 2: Implement Backend Repository Pattern
-- [ ] Prompt 3: Build Frontend Service Layer & API Clients
-- [ ] Prompt 4: Add Frontend Custom Hooks
-- [ ] Prompt 5: Implement Alembic Migrations
+- [x] Prompt 1: Extract Backend Service Layer
+- [x] Prompt 2: Implement Backend Repository Pattern
+- [x] Prompt 3: Build Frontend Service Layer & API Clients
+- [x] Prompt 4: Add Frontend Custom Hooks
+- [x] Prompt 5: Implement Alembic Migrations
 - [ ] Prompt 6 (Optional): Wrap Module-Level Global State
 
 ---
@@ -480,5 +483,5 @@ Use this checklist to track progress:
 
 - `ARCHITECTURE_REVIEW_2026-08-19.md` — Full architecture assessment (current)
 - `docs/archive/ARCHITECTURE_REVIEW.md` — Previous review (superseded, archived)
-- `AGENT_PROMPTS.md` — Copy/paste prompts for individual agents
+- `docs/archive/AGENT_PROMPTS_2026_ARCHITECTURE_REVIEW.md` — Archived, copy/paste prompts used for this review's delegated work (all complete)
 
