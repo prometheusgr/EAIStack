@@ -471,6 +471,349 @@ spec:
 
 
 @pytest.mark.unit
+class TestTlsEnabledDeploymentsMountTheirCertificate:
+    """Rule 7: a workload claiming HTTPS on its probes must actually mount its Certificate.
+
+    This is the inverse of Rule 3: Rule 3 catches a client speaking https://
+    without a matching Certificate; this rule catches a server claiming to
+    *serve* HTTPS (via its probe scheme) without ever mounting the Secret
+    that its own same-named Certificate provisions. This is precisely the
+    class of bug that shipped for doc-search, backend, and frontend earlier
+    on this branch: `scheme: HTTPS` on the probes with no volumeMount
+    backing it, so the pod could never pass its own readiness check on a
+    real cluster.
+    """
+
+    BACKEND_CERTIFICATE = """
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eaistack-backend
+  namespace: eaistack
+spec:
+  secretName: eaistack-backend-tls
+  issuerRef:
+    name: eaistack-ca-issuer
+    kind: ClusterIssuer
+"""
+
+    def test_accepts_https_probe_with_mounted_certificate_secret(self):
+        rendered = (
+            self.BACKEND_CERTIFICATE
+            + """
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-backend
+  namespace: eaistack
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: eaistack/backend:latest
+          volumeMounts:
+            - name: backend-tls
+              mountPath: /etc/ssl/backend
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTPS
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTPS
+      volumes:
+        - name: backend-tls
+          secret:
+            secretName: eaistack-backend-tls
+"""
+        )
+        assert validator.validate_manifests(rendered) == []
+
+    def test_accepts_plain_http_probe_with_no_tls_volume(self):
+        """A chart that never claims HTTPS has nothing to mount; the rule must not fire."""
+        rendered = """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-llama-server
+  namespace: eaistack
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: llama-server
+          image: eaistack/llama-server:latest
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+"""
+        assert validator.validate_manifests(rendered) == []
+
+    def test_flags_https_probe_with_no_certificate_rendered_at_all(self):
+        """No same-named Certificate: this workload has no cert-manager Secret to mount."""
+        rendered = """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-doc-search
+  namespace: eaistack
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: doc-search
+          image: eaistack/doc-search:latest
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8100
+              scheme: HTTPS
+"""
+        message = violation_messages(rendered)
+        assert "eaistack-doc-search" in message
+        assert "HTTPS" in message
+
+    def test_flags_https_probe_with_certificate_secret_not_mounted_as_any_volume(self):
+        """The orphaned-Certificate bug: a Certificate exists, but the pod spec has
+        no volume at all sourced from the Secret it provisions."""
+        rendered = (
+            self.BACKEND_CERTIFICATE
+            + """
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-backend
+  namespace: eaistack
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: eaistack/backend:latest
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTPS
+"""
+        )
+        message = violation_messages(rendered)
+        assert "eaistack-backend" in message
+        assert "no volume" in message.lower()
+
+    def test_flags_https_probe_with_certificate_secret_volume_defined_but_not_mounted(self):
+        """The volume sourced from the Certificate's Secret exists in the pod spec,
+        but no container references it in volumeMounts, so it never reaches the
+        filesystem."""
+        rendered = (
+            self.BACKEND_CERTIFICATE
+            + """
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-backend
+  namespace: eaistack
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: eaistack/backend:latest
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTPS
+      volumes:
+        - name: backend-tls
+          secret:
+            secretName: eaistack-backend-tls
+"""
+        )
+        message = violation_messages(rendered)
+        assert "eaistack-backend" in message
+        assert "no container" in message.lower()
+        assert "mount" in message.lower()
+
+    def test_flags_https_probe_when_only_an_unrelated_secret_volume_is_mounted(self):
+        """Regression guard: a pod that mounts some other Secret-backed volume (e.g.
+        the internal CA trust bundle, unrelated to serving TLS) must not be treated
+        as compliant just because *a* Secret volume is mounted. Only a volume
+        sourced from this workload's own Certificate Secret satisfies the rule."""
+        rendered = (
+            self.BACKEND_CERTIFICATE
+            + """
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-backend
+  namespace: eaistack
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: eaistack/backend:latest
+          volumeMounts:
+            - name: ca-bundle
+              mountPath: /etc/ssl/eaistack
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTPS
+      volumes:
+        - name: ca-bundle
+          secret:
+            secretName: eaistack-ca-key-pair
+"""
+        )
+        message = violation_messages(rendered)
+        assert "eaistack-backend" in message
+        assert "eaistack-backend-tls" in message
+
+    def test_flags_https_probe_when_only_a_different_container_mounts_the_secret(self):
+        """A sidecar mounting the cert doesn't help the container the probe actually hits."""
+        rendered = (
+            self.BACKEND_CERTIFICATE
+            + """
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-backend
+  namespace: eaistack
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: eaistack/backend:latest
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTPS
+        - name: unrelated-sidecar
+          image: eaistack/sidecar:latest
+          volumeMounts:
+            - name: backend-tls
+              mountPath: /etc/ssl/backend
+      volumes:
+        - name: backend-tls
+          secret:
+            secretName: eaistack-backend-tls
+"""
+        )
+        assert validator.validate_manifests(rendered) == []
+
+    def test_accepts_https_probe_in_cronjob_job_template(self):
+        """CronJobs nest their pod spec one level deeper; the rule must still reach it."""
+        rendered = """
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eaistack-retention-sweep
+  namespace: eaistack
+spec:
+  secretName: eaistack-sweep-tls
+  issuerRef:
+    name: eaistack-ca-issuer
+    kind: ClusterIssuer
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eaistack-retention-sweep
+  namespace: eaistack
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: retention-sweep
+              image: eaistack/backend:latest
+              volumeMounts:
+                - name: sweep-tls
+                  mountPath: /etc/ssl/sweep
+              readinessProbe:
+                httpGet:
+                  path: /health
+                  port: 8000
+                  scheme: HTTPS
+          volumes:
+            - name: sweep-tls
+              secret:
+                secretName: eaistack-sweep-tls
+"""
+        assert validator.validate_manifests(rendered) == []
+
+    def test_flags_https_probe_in_cronjob_job_template_without_mount(self):
+        rendered = """
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eaistack-retention-sweep
+  namespace: eaistack
+spec:
+  secretName: eaistack-sweep-tls
+  issuerRef:
+    name: eaistack-ca-issuer
+    kind: ClusterIssuer
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eaistack-retention-sweep
+  namespace: eaistack
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: retention-sweep
+              image: eaistack/backend:latest
+              readinessProbe:
+                httpGet:
+                  path: /health
+                  port: 8000
+                  scheme: HTTPS
+"""
+        assert "eaistack-retention-sweep" in violation_messages(rendered)
+
+
+@pytest.mark.unit
 class TestNamespaceIsEaistack:
     """Rule 4: everything lands in the eaistack namespace."""
 

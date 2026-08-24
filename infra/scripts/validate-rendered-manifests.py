@@ -22,6 +22,8 @@ Rules enforced (Phase 5, Decision 7):
     5. Every PersistentVolumeClaim names a StorageClass (Decision 6).
     6. The rendered database-url uses sslmode=verify-full + sslrootcert
        (Decision 10).
+    7. Every workload whose probes claim scheme: HTTPS actually mounts a
+       Secret-backed volume for TLS, and a container references that mount.
 
 Known limits, stated rather than papered over — a static check on rendered YAML
 proves configuration, not effect:
@@ -33,6 +35,10 @@ proves configuration, not effect:
     - Rule 3 pairs a Deployment with a same-named Certificate. It cannot prove
       the certificate's SANs match the DNS name the client actually dials,
       which is where first-deploy friction concentrates.
+    - Rule 7 proves a Secret-backed volume is mounted somewhere a probe expects
+      TLS. It cannot prove the mounted Secret's key pair is the one the
+      container process actually passes to its TLS listener (that requires
+      reading the entrypoint script, not the rendered YAML).
 """
 
 import base64
@@ -235,6 +241,129 @@ def check_https_deployments_have_certificates(
     return violations
 
 
+def _probes_claim_https(pod_spec: dict[str, Any]) -> bool:
+    """True if any container's readiness/liveness probe declares scheme: HTTPS.
+
+    A pod cannot pass such a probe unless something inside it actually speaks
+    TLS on that port - this is the tell that a workload claims to serve TLS.
+    """
+    for container in _containers(pod_spec):
+        for probe_name in ("readinessProbe", "livenessProbe"):
+            scheme = container.get(probe_name, {}).get("httpGet", {}).get("scheme")
+            if scheme == "HTTPS":
+                return True
+    return False
+
+
+def _volume_names_sourced_from_secret(pod_spec: dict[str, Any], secret_name: str) -> set[str]:
+    """Names of volumes in this pod spec that mount the given Secret by name."""
+    return {
+        volume.get("name")
+        for volume in pod_spec.get("volumes", [])
+        if volume.get("secret", {}).get("secretName") == secret_name
+    }
+
+
+def _mounted_volume_names(pod_spec: dict[str, Any]) -> set[str]:
+    """Names of volumes actually referenced by a volumeMounts entry in any container."""
+    return {
+        mount.get("name")
+        for container in _containers(pod_spec)
+        for mount in container.get("volumeMounts", [])
+    }
+
+
+def check_tls_enabled_deployments_mount_their_certificate(
+    documents: list[dict[str, Any]],
+) -> list[Violation]:
+    """Rule 7: a workload that claims to serve HTTPS must actually mount its Certificate.
+
+    This is the inverse of Rule 3, and catches a different failure mode: a
+    chart can render `scheme: HTTPS` on its probes (declaring "I serve TLS")
+    while never mounting the cert-manager Secret that would let the container
+    actually terminate TLS. A pod in that state can never pass its readiness
+    check on a real cluster - exactly the bug that shipped for doc-search,
+    backend, and frontend earlier on this branch, fixed by adding a
+    Secret-backed volume and a matching volumeMount alongside the HTTPS
+    scheme. This rule guards against that regressing silently.
+
+    The check is scoped to the *specific* Secret that workload's own
+    cert-manager Certificate provisions (matched by name, same convention
+    Rule 3 uses to pair a Deployment with its Certificate) - not "any"
+    Secret-backed volume. Most workloads here also mount an unrelated
+    Secret-backed volume (the internal CA trust bundle, for verifying
+    outbound connections), which is irrelevant to whether this pod can
+    terminate inbound TLS; checking "any" would let an unmounted
+    certificate hide behind that unrelated mount.
+    """
+    certificates_by_name = {
+        doc.get("metadata", {}).get("name"): doc
+        for doc in documents
+        if doc.get("kind") == "Certificate"
+    }
+
+    violations = []
+    for document in documents:
+        if document.get("kind") not in WORKLOAD_KINDS:
+            continue
+        pod_spec = _pod_spec(document)
+        if not _probes_claim_https(pod_spec):
+            continue
+
+        name = document.get("metadata", {}).get("name")
+        certificate = certificates_by_name.get(name)
+        if certificate is None:
+            # No same-named Certificate at all is Rule 3's concern for a
+            # client-side https:// reference; here it means this workload
+            # cannot possibly have cert-manager material to mount.
+            violations.append(
+                Violation(
+                    rule="tlsCertificateMounted",
+                    message=(
+                        f"{_resource_label(document)}: a probe declares "
+                        f"scheme: HTTPS but no Certificate named '{name}' was "
+                        f"rendered, so there is no cert-manager Secret this pod "
+                        f"could mount to terminate TLS."
+                    ),
+                )
+            )
+            continue
+
+        secret_name = certificate.get("spec", {}).get("secretName")
+        secret_volume_names = _volume_names_sourced_from_secret(pod_spec, secret_name)
+        mounted_volumes = _mounted_volume_names(pod_spec)
+
+        if not secret_volume_names:
+            violations.append(
+                Violation(
+                    rule="tlsCertificateMounted",
+                    message=(
+                        f"{_resource_label(document)}: a probe declares "
+                        f"scheme: HTTPS and Certificate '{name}' provisions "
+                        f"Secret '{secret_name}', but the pod spec has no volume "
+                        f"sourced from that Secret. A container here can never "
+                        f"terminate TLS, so the pod can never pass this probe on "
+                        f"a real cluster."
+                    ),
+                )
+            )
+        elif not secret_volume_names & mounted_volumes:
+            violations.append(
+                Violation(
+                    rule="tlsCertificateMounted",
+                    message=(
+                        f"{_resource_label(document)}: a probe declares "
+                        f"scheme: HTTPS and the pod spec defines a volume "
+                        f"sourced from Certificate '{name}''s Secret "
+                        f"'{secret_name}', but no container's volumeMounts "
+                        f"references it. An unmounted certificate secret is an "
+                        f"orphaned Certificate: issued but unused."
+                    ),
+                )
+            )
+    return violations
+
+
 def check_namespace(documents: list[dict[str, Any]]) -> list[Violation]:
     """Rule 4: everything lands in the eaistack namespace.
 
@@ -395,6 +524,7 @@ def validate_manifests(rendered_yaml: str) -> list[Violation]:
         check_run_as_non_root(documents)
         + check_credentials_use_secret_key_ref(documents)
         + check_https_deployments_have_certificates(documents)
+        + check_tls_enabled_deployments_mount_their_certificate(documents)
         + check_namespace(documents)
         + check_persistent_volume_claims_have_storage_class(documents)
         + check_database_url_verifies_tls(documents)
