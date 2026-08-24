@@ -315,6 +315,40 @@ spec:
 """
         assert "MINIO_SECRET_KEY" in violation_messages(rendered)
 
+    def test_accepts_non_credential_env_vars_under_a_credential_prefix(self):
+        """MINIO_*/POSTGRES_* prefix matching must not sweep up the hostnames,
+        resource names, and config strings that share those prefixes with real
+        credentials (MINIO_URL, MINIO_BUCKET, POSTGRES_DB,
+        POSTGRES_INITDB_ARGS) — found by running the validator end-to-end
+        against the actual rendered umbrella chart, where the broad prefix
+        match produced false positives the hand-picked fixtures above never
+        exercised."""
+        rendered = """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eaistack-backend
+  namespace: eaistack
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: eaistack/backend:latest
+          env:
+            - name: MINIO_URL
+              value: "eaistack-minio:9000"
+            - name: MINIO_BUCKET
+              value: "documents"
+            - name: POSTGRES_DB
+              value: "eaistack"
+            - name: POSTGRES_INITDB_ARGS
+              value: "-c ssl=on -c ssl_cert_file=/etc/ssl/postgres/tls.crt -c ssl_key_file=/etc/ssl/postgres/tls.key"
+"""
+        assert validator.validate_manifests(rendered) == []
+
     def test_accepts_non_credential_env_var_with_literal_value(self):
         """Non-secret config is legitimately a literal; the rule must not fire on it."""
         rendered = """

@@ -21,12 +21,20 @@ Compliance rules under test (see CLAUDE.md, AGENTS.md, Phase 5 plan):
 - CA bundle mount + env var for backend/doc-search
 """
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 import yaml
+
+_VALIDATOR_PATH = Path(__file__).parent.parent / "scripts" / "validate-rendered-manifests.py"
+_validator_spec = importlib.util.spec_from_file_location(
+    "validate_rendered_manifests_e2e", _VALIDATOR_PATH
+)
+_validator = importlib.util.module_from_spec(_validator_spec)
+_validator_spec.loader.exec_module(_validator)
 
 
 CHARTS_DIR = Path(__file__).parent.parent / "helm" / "charts"
@@ -813,6 +821,36 @@ class TestUmbrellaChart:
         )
         assert "custom-pg-name-test." in kc_db_url, \
             f"keycloak's KC_DB_URL did not follow postgres's overridden hostname: {kc_db_url}"
+
+    def test_rendered_umbrella_passes_manifest_compliance_validator(self):
+        """End-to-end proof: `helm template` output for the real umbrella
+        chart, with TLS enabled, passes every rule in
+        infra/scripts/validate-rendered-manifests.py — not just the
+        validator's own hand-picked fixtures.
+
+        This is the gap that let a real bug ship silently: the validator's
+        MINIO_*/POSTGRES_* credential-prefix match flagged MINIO_URL,
+        MINIO_BUCKET, POSTGRES_DB, and POSTGRES_INITDB_ARGS as hardcoded
+        credentials, because no test had ever run the validator against the
+        actual chart's full env-var list — only against synthetic fixtures
+        that happened not to include those specific names. Rendering the
+        real chart here means a future template or validator change that
+        reintroduces a false positive (or a real compliance gap) fails this
+        test immediately.
+        """
+        cmd = [
+            "helm", "template", "test", str(UMBRELLA_CHART),
+            "-f", str(VALUES_CI),
+            "--namespace", "eaistack",
+            "--set", "backend.tls.enabled=true",
+            "--set", "doc-search.tls.enabled=true",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.skip(f"Umbrella chart render failed: {result.stderr}")
+
+        violations = _validator.validate_manifests(result.stdout)
+        assert violations == [], "\n".join(v.message for v in violations)
 
 
 if __name__ == "__main__":
