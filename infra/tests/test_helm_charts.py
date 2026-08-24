@@ -46,11 +46,20 @@ CHART_SPECS = {
 }
 
 
-def render_chart(chart_path: Path, values_file: Path = None) -> list[dict]:
-    """Render a Helm chart and return parsed YAML documents."""
+def render_chart(chart_path: Path, values_file: Path = None, extra_set: dict = None) -> list[dict]:
+    """Render a Helm chart and return parsed YAML documents.
+
+    extra_set: optional {"some.values.path": value} dict applied via `helm
+    template --set`, layered on top of values_file. Used to render the same
+    chart under both tls.enabled: true/false without needing a second values
+    file (e.g. verifying probe scheme flips correctly with the flag).
+    """
     cmd = ["helm", "template", str(chart_path)]
     if values_file:
         cmd.extend(["-f", str(values_file)])
+    if extra_set:
+        for key, value in extra_set.items():
+            cmd.extend(["--set", f"{key}={str(value).lower() if isinstance(value, bool) else value}"])
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -386,6 +395,177 @@ class TestBackend:
         cronjobs = [doc for doc in docs if doc.get("kind") == "CronJob"]
         assert len(cronjobs) > 0, "No CronJob found in backend chart (retention sweep)"
 
+    def test_doc_search_url_env_var_name_matches_settings_field(self):
+        """Test: the env var pointing at doc-search is named DOC_SEARCH_MCP_URL, matching
+        Settings.doc_search_mcp_url in backend/app/core/config.py (pydantic-settings has
+        no env_prefix configured there). Regression guard for Bug 3: the chart previously
+        set MCP_DOC_SEARCH_URL, a name pydantic-settings never reads, so the backend
+        silently fell back to its localhost default and every knowledge-base call broke
+        inside the cluster."""
+        chart_path = CHARTS_DIR / "backend"
+        docs = render_chart(chart_path, VALUES_CI)
+
+        deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+        assert len(deployments) > 0, "No Deployment found in backend chart"
+
+        for deployment in deployments:
+            pod_spec = get_pod_spec(deployment)
+            containers = get_containers(pod_spec)
+
+            for container in containers:
+                env_names = [env.get("name") for env in container.get("env", [])]
+                assert "DOC_SEARCH_MCP_URL" in env_names, \
+                    "DOC_SEARCH_MCP_URL env var missing (must match Settings.doc_search_mcp_url)"
+                assert "MCP_DOC_SEARCH_URL" not in env_names, \
+                    "Stale MCP_DOC_SEARCH_URL env var still set; pydantic-settings never reads it"
+
+    def test_doc_search_url_uses_https(self):
+        """Test: backend reaches doc-search over https://, not plaintext http://.
+        Regression guard for Bug 2: doc-search always serves TLS (Decision 1, compliance
+        requirement), so backend's own hardcoded endpoint must match that scheme."""
+        chart_path = CHARTS_DIR / "backend"
+        docs = render_chart(chart_path, VALUES_CI)
+
+        deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+        for deployment in deployments:
+            pod_spec = get_pod_spec(deployment)
+            containers = get_containers(pod_spec)
+
+            for container in containers:
+                doc_search_env = [
+                    env for env in container.get("env", [])
+                    if env.get("name") == "DOC_SEARCH_MCP_URL"
+                ]
+                assert len(doc_search_env) > 0, "DOC_SEARCH_MCP_URL env var not found"
+                url = doc_search_env[0].get("value", "")
+                assert url.startswith("https://"), \
+                    f"DOC_SEARCH_MCP_URL must use https://, got: {url}"
+                assert url.endswith("/mcp"), \
+                    f"DOC_SEARCH_MCP_URL should end with /mcp (matches the code default path), got: {url}"
+
+    def test_tls_cert_mounted_when_enabled(self):
+        """Test: with tls.enabled true (VALUES_CI's default for backend), the
+        Deployment actually mounts the cert-manager-issued Secret that the
+        chart's certificate.yaml provisions, and points uvicorn at it via
+        SSL_CERTFILE/SSL_KEYFILE (see backend/docker-entrypoint.sh). Regression
+        guard: previously the chart set scheme: HTTPS on both probes with
+        nothing in the container actually terminating TLS, so the pod could
+        never pass its readiness/liveness checks on a real cluster."""
+        chart_path = CHARTS_DIR / "backend"
+        docs = render_chart(chart_path, VALUES_CI)
+
+        deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+        assert len(deployments) > 0, "No Deployment found in backend chart"
+
+        for deployment in deployments:
+            pod_spec = get_pod_spec(deployment)
+            containers = get_containers(pod_spec)
+            volumes = pod_spec.get("volumes", [])
+
+            tls_volumes = [v for v in volumes if v.get("secret", {}).get("secretName") == "eaistack-backend-tls"]
+            assert len(tls_volumes) > 0, "backend-tls Secret not mounted as a volume"
+
+            for container in containers:
+                volume_mounts = container.get("volumeMounts", [])
+                tls_mounts = [vm for vm in volume_mounts if vm.get("name") == tls_volumes[0].get("name")]
+                assert len(tls_mounts) > 0, f"TLS cert volume not mounted into container {container.get('name')}"
+
+                env_names = [env.get("name") for env in container.get("env", [])]
+                assert "SSL_CERTFILE" in env_names, "SSL_CERTFILE env var missing (uvicorn TLS termination)"
+                assert "SSL_KEYFILE" in env_names, "SSL_KEYFILE env var missing (uvicorn TLS termination)"
+
+    def test_probe_scheme_matches_tls_enabled(self):
+        """Test: readiness/liveness probes only claim scheme: HTTPS when
+        tls.enabled is actually true, since an HTTPS probe against a
+        container not configured to terminate TLS fails the handshake and
+        the pod never becomes Ready."""
+        chart_path = CHARTS_DIR / "backend"
+
+        for tls_enabled, expect_https in [(True, True), (False, False)]:
+            docs = render_chart(chart_path, VALUES_CI, extra_set={"tls.enabled": tls_enabled})
+            deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+            assert len(deployments) > 0, "No Deployment found in backend chart"
+
+            for deployment in deployments:
+                pod_spec = get_pod_spec(deployment)
+                for container in get_containers(pod_spec):
+                    readiness_scheme = container.get("readinessProbe", {}).get("httpGet", {}).get("scheme")
+                    liveness_scheme = container.get("livenessProbe", {}).get("httpGet", {}).get("scheme")
+                    if expect_https:
+                        assert readiness_scheme == "HTTPS", \
+                            f"Expected HTTPS readiness probe scheme when tls.enabled=true, got {readiness_scheme}"
+                        assert liveness_scheme == "HTTPS", \
+                            f"Expected HTTPS liveness probe scheme when tls.enabled=true, got {liveness_scheme}"
+                    else:
+                        assert readiness_scheme != "HTTPS", \
+                            "HTTPS readiness probe scheme set but tls.enabled=false: pod can never become Ready"
+                        assert liveness_scheme != "HTTPS", \
+                            "HTTPS liveness probe scheme set but tls.enabled=false: pod can never become Ready"
+
+
+class TestFrontendTls:
+    """Frontend TLS-serving tests (mirrors TestBackend's TLS coverage above)."""
+
+    def test_tls_cert_mounted_when_enabled(self):
+        """Test: with tls.enabled true (VALUES_CI's default for frontend), the
+        Deployment actually mounts the cert-manager-issued Secret that the
+        chart's certificate.yaml provisions, and points the Vite dev server at
+        it via SSL_CERTFILE/SSL_KEYFILE (see frontend/vite.config.ts and
+        frontend/docker-entrypoint.sh). Regression guard: previously the chart
+        set scheme: HTTPS on both probes with nothing in the container
+        actually terminating TLS, so the pod could never pass its
+        readiness/liveness checks on a real cluster."""
+        chart_path = CHARTS_DIR / "frontend"
+        docs = render_chart(chart_path, VALUES_CI)
+
+        deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+        assert len(deployments) > 0, "No Deployment found in frontend chart"
+
+        for deployment in deployments:
+            pod_spec = get_pod_spec(deployment)
+            containers = get_containers(pod_spec)
+            volumes = pod_spec.get("volumes", [])
+
+            tls_volumes = [v for v in volumes if v.get("secret", {}).get("secretName") == "eaistack-frontend-tls"]
+            assert len(tls_volumes) > 0, "frontend-tls Secret not mounted as a volume"
+
+            for container in containers:
+                volume_mounts = container.get("volumeMounts", [])
+                tls_mounts = [vm for vm in volume_mounts if vm.get("name") == tls_volumes[0].get("name")]
+                assert len(tls_mounts) > 0, f"TLS cert volume not mounted into container {container.get('name')}"
+
+                env_names = [env.get("name") for env in container.get("env", [])]
+                assert "SSL_CERTFILE" in env_names, "SSL_CERTFILE env var missing (Vite dev server TLS termination)"
+                assert "SSL_KEYFILE" in env_names, "SSL_KEYFILE env var missing (Vite dev server TLS termination)"
+
+    def test_probe_scheme_matches_tls_enabled(self):
+        """Test: readiness/liveness probes only claim scheme: HTTPS when
+        tls.enabled is actually true, since an HTTPS probe against a
+        container not configured to terminate TLS fails the handshake and
+        the pod never becomes Ready."""
+        chart_path = CHARTS_DIR / "frontend"
+
+        for tls_enabled, expect_https in [(True, True), (False, False)]:
+            docs = render_chart(chart_path, extra_set={"tls.enabled": tls_enabled})
+            deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+            assert len(deployments) > 0, "No Deployment found in frontend chart"
+
+            for deployment in deployments:
+                pod_spec = get_pod_spec(deployment)
+                for container in get_containers(pod_spec):
+                    readiness_scheme = container.get("readinessProbe", {}).get("httpGet", {}).get("scheme")
+                    liveness_scheme = container.get("livenessProbe", {}).get("httpGet", {}).get("scheme")
+                    if expect_https:
+                        assert readiness_scheme == "HTTPS", \
+                            f"Expected HTTPS readiness probe scheme when tls.enabled=true, got {readiness_scheme}"
+                        assert liveness_scheme == "HTTPS", \
+                            f"Expected HTTPS liveness probe scheme when tls.enabled=true, got {liveness_scheme}"
+                    else:
+                        assert readiness_scheme != "HTTPS", \
+                            "HTTPS readiness probe scheme set but tls.enabled=false: pod can never become Ready"
+                        assert liveness_scheme != "HTTPS", \
+                            "HTTPS liveness probe scheme set but tls.enabled=false: pod can never become Ready"
+
 
 class TestDocSearch:
     """doc-search specific tests."""
@@ -435,6 +615,55 @@ class TestDocSearch:
                 path = probe.get("httpGet", {}).get("path")
                 assert path == "/healthz", \
                     f"doc-search probe path should be /healthz, got {path}"
+
+    def test_tls_secret_mounted_when_enabled(self):
+        """Test: with tls.enabled: true (doc-search's own default, per values.yaml's
+        "TLS is always enabled for doc-search" comment), the Deployment mounts the
+        cert-manager-issued Secret and passes its path to the container via env vars
+        the docker-entrypoint.sh script reads (mirrors llama-server/embedding-server)."""
+        chart_path = CHARTS_DIR / "doc-search"
+        docs = render_chart(chart_path, VALUES_CI)
+
+        deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+        assert len(deployments) > 0, "No Deployment found in doc-search chart"
+
+        for deployment in deployments:
+            pod_spec = get_pod_spec(deployment)
+            containers = get_containers(pod_spec)
+
+            for container in containers:
+                volume_mounts = container.get("volumeMounts", [])
+                tls_mounts = [vm for vm in volume_mounts if vm.get("name") == "doc-search-tls"]
+                assert len(tls_mounts) > 0, \
+                    "doc-search TLS secret volume not mounted despite tls.enabled: true"
+
+                env_names = {env.get("name") for env in container.get("env", [])}
+                assert "TLS_ENABLED" in env_names, "TLS_ENABLED env var missing in doc-search"
+                assert "TLS_CERT_FILE" in env_names, "TLS_CERT_FILE env var missing in doc-search"
+                assert "TLS_KEY_FILE" in env_names, "TLS_KEY_FILE env var missing in doc-search"
+
+        volumes = deployments[0]["spec"]["template"]["spec"].get("volumes", [])
+        tls_volumes = [v for v in volumes if v.get("name") == "doc-search-tls"]
+        assert len(tls_volumes) > 0, "doc-search-tls volume missing from pod spec"
+        assert tls_volumes[0]["secret"]["secretName"] == "eaistack-doc-search-tls"
+
+    def test_probes_use_https_scheme_when_tls_enabled(self):
+        """Test: readiness/liveness probes target HTTPS once doc-search actually
+        terminates TLS itself (regression guard for Bug 1: probes previously stayed
+        plain HTTP even though tls.enabled was true)."""
+        chart_path = CHARTS_DIR / "doc-search"
+        docs = render_chart(chart_path, VALUES_CI)
+
+        deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+        for deployment in deployments:
+            pod_spec = get_pod_spec(deployment)
+            containers = get_containers(pod_spec)
+
+            for container in containers:
+                for probe_name in ("readinessProbe", "livenessProbe"):
+                    scheme = container.get(probe_name, {}).get("httpGet", {}).get("scheme")
+                    assert scheme == "HTTPS", \
+                        f"doc-search {probe_name} should use HTTPS scheme when tls.enabled, got {scheme}"
 
 
 class TestUmbrellaChart:

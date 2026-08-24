@@ -72,12 +72,24 @@ spec:
               key: minio-secret-key
         - name: MINIO_BUCKET
           value: "documents"
-        # MCP doc-search endpoint
-        - name: MCP_DOC_SEARCH_URL
-          value: "http://{{ include "doc-search.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8100"
+        # MCP doc-search endpoint. Env var name must match Settings.doc_search_mcp_url
+        # in backend/app/core/config.py (pydantic-settings resolves the field name to
+        # DOC_SEARCH_MCP_URL — no env_prefix is configured on that Settings class).
+        # doc-search always serves TLS (Decision 1), so this is always https://.
+        - name: DOC_SEARCH_MCP_URL
+          value: "https://{{ include "doc-search.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8100/mcp"
         # CA bundle for TLS verification (Decision 2)
         - name: CA_BUNDLE_PATH
           value: "/etc/ssl/eaistack/ca.crt"
+        {{- if .Values.tls.enabled }}
+        # Server-side TLS termination (uvicorn --ssl-certfile/--ssl-keyfile,
+        # see backend/docker-entrypoint.sh): the mounted cert-manager Secret
+        # below, read by the readiness/liveness probes' HTTPS scheme.
+        - name: SSL_CERTFILE
+          value: "/etc/ssl/backend/tls.crt"
+        - name: SSL_KEYFILE
+          value: "/etc/ssl/backend/tls.key"
+        {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         volumeMounts:
@@ -85,11 +97,19 @@ spec:
         - name: ca-bundle
           mountPath: /etc/ssl/eaistack
           readOnly: true
+        {{- if .Values.tls.enabled }}
+        # Server-side TLS certificate mount (conditional)
+        - name: backend-tls
+          mountPath: /etc/ssl/backend
+          readOnly: true
+        {{- end }}
         readinessProbe:
           httpGet:
             path: /health
             port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
             scheme: HTTPS
+            {{- end }}
           initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
           periodSeconds: {{ .Values.probe.periodSeconds }}
           timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
@@ -98,7 +118,9 @@ spec:
           httpGet:
             path: /health
             port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
             scheme: HTTPS
+            {{- end }}
           initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
           periodSeconds: {{ .Values.probe.periodSeconds }}
           timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
@@ -111,3 +133,10 @@ spec:
           items:
           - key: ca.crt
             path: ca.crt
+      {{- if .Values.tls.enabled }}
+      # Server-side TLS certificate: cert-manager-issued Secret (conditional)
+      - name: backend-tls
+        secret:
+          secretName: {{ include "backend.certificateSecretName" . }}
+          defaultMode: 0600
+      {{- end }}
