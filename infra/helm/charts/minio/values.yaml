@@ -1,0 +1,40 @@
+# MinIO chart values
+
+image:
+  repository: minio/minio
+  tag: latest
+  pullPolicy: IfNotPresent
+
+port: 9000
+consolePort: 9001
+
+# Storage configuration: PVC backing the minio Deployment
+storage:
+  size: 50Gi
+  storageClassName: ""  # Must be set to an encrypted StorageClass at install time (Decision 6)
+  mountPath: /data
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Readiness/liveness probe timings
+probe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context: minio runs as UID 1000
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# External hostname for MinIO's SANs (if exposed outside the cluster)
+externalHostname: ""

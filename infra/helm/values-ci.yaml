@@ -1,0 +1,120 @@
+# values-ci.yaml: Placeholder values for helm lint/template in CI.
+#
+# This file satisfies `{{ required ... }}` fields in chart templates so CI can
+# run `helm lint` and `helm template` without the full secrets needed for a real
+# deployment. It is NEVER used for actual installation and must never be copied
+# to any secrets-managing system.
+#
+# Explicitly non-secret, CI-only placeholders: if any of these leak, the
+# deployment cannot run (no real credentials here).
+
+namespace: eaistack
+
+global:
+  postgresPassword: "CHANGEME-ci-only-postgres"
+  miniRootUser: "CHANGEME-ci-only-minio-user"
+  miniRootPassword: "CHANGEME-ci-only-minio-password"
+  keycloakAdminPassword: "CHANGEME-ci-only-keycloak-admin"
+  keycloakClientSecret: "CHANGEME-ci-only-client-secret"
+
+postgres:
+  enabled: true
+  image:
+    repository: pgvector/pgvector
+    tag: pg16
+    pullPolicy: IfNotPresent
+  storage:
+    size: 10Gi
+    storageClassName: "standard"  # CI placeholder
+
+keycloak:
+  enabled: true
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: "22.0.0"
+    pullPolicy: IfNotPresent
+  externalHostname: ""
+
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: latest
+    pullPolicy: IfNotPresent
+  storage:
+    size: 50Gi
+    storageClassName: "standard"  # CI placeholder
+  consolePort: 9001
+
+llama_server:
+  enabled: true
+  image:
+    repository: ghcr.io/ggml-org/llama.cpp
+    tag: server-latest
+    pullPolicy: IfNotPresent
+  port: 8000
+  modelPath: /models
+  tls:
+    enabled: false
+  url: "http://eaistack-llama-server:8000"
+
+embedding_server:
+  enabled: true
+  image:
+    repository: ghcr.io/ggml-org/llama.cpp
+    tag: server-latest
+    pullPolicy: IfNotPresent
+  port: 8000
+  modelPath: /models
+  tls:
+    enabled: false
+  url: "http://eaistack-embedding-server:8000/v1"
+
+backend:
+  enabled: true
+  image:
+    repository: eaistack/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8000
+  llm:
+    provider: "llama-cpp"
+    url: "http://eaistack-llama-server:8000"
+  embedding:
+    provider: "llama-cpp"
+    url: "http://eaistack-embedding-server:8000/v1"
+  mcp:
+    url: "http://eaistack-doc-search:8100"
+  tls:
+    enabled: true
+
+doc_search:
+  enabled: true
+  image:
+    repository: eaistack/doc-search
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8100
+  embedding:
+    provider: "llama-cpp"
+    url: "http://eaistack-embedding-server:8000/v1"
+  tls:
+    enabled: true
+
+frontend:
+  enabled: true
+  image:
+    repository: eaistack/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 3000
+  apiUrl: "https://localhost:8000"
+  tls:
+    enabled: true
+
+podSecurityContext:
+  fsGroup: 1000
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

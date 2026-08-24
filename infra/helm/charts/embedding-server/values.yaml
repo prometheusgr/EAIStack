@@ -1,0 +1,46 @@
+# embedding-server chart values
+
+image:
+  repository: ghcr.io/ggml-org/llama.cpp
+  tag: server-latest
+  pullPolicy: IfNotPresent
+
+port: 8000
+
+# Model file mount path inside container
+modelPath: /models
+
+# Volume for model files (hostPath, PVC, etc.)
+# Example:
+#   hostPath:
+#     path: /path/to/embedding-models
+#     type: DirectoryOrCreate
+modelVolume: {}
+
+# Resource requests and limits (embedding inference is CPU/memory intensive)
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+# Readiness/liveness probe timings
+probe:
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# Pod security context: embedding-server runs as UID 1000
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# Optional TLS for embedding-server (default: disabled for local dev)
+tls:
+  enabled: false  # Set to true only if embedding-server's TLS support is verified
+
+# External hostname for embedding-server's SANs (if exposed outside the cluster)
+externalHostname: ""

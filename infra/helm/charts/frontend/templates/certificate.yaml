@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "frontend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "frontend.certificateSecretName" . }}
+  issuerRef:
+    name: eaistack-ca-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  # In-cluster service DNS names (Decision 1: both short and fully-qualified)
+  - {{ include "frontend.fullname" . }}
+  - {{ include "frontend.fullname" . }}.{{ .Release.Namespace }}.svc
+  - {{ include "frontend.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  {{- if .Values.externalHostname }}
+  - {{ .Values.externalHostname }}
+  {{- end }}

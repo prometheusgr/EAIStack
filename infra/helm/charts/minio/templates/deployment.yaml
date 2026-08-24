@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minio.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "minio.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "minio.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: minio
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.port }}
+          name: minio
+        - containerPort: {{ .Values.consolePort }}
+          name: console
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "minio.secretName" . }}
+              key: root-user
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "minio.secretName" . }}
+              key: root-password
+        # MinIO TLS: minio auto-detects TLS from /root/.minio/certs/public.crt and private.key (Decision 10)
+        args:
+        - server
+        - {{ .Values.storage.mountPath }}
+        - --console-address
+        - ":{{ .Values.consolePort }}"
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        volumeMounts:
+        - name: minio-data
+          mountPath: {{ .Values.storage.mountPath }}
+        # TLS certificate mount for MinIO (Decision 10): minio looks for /root/.minio/certs/public.crt + private.key
+        - name: minio-tls
+          mountPath: /root/.minio/certs
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: {{ .Values.port }}
+            scheme: HTTPS
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: {{ .Values.port }}
+            scheme: HTTPS
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+      volumes:
+      # Persistent storage for objects
+      - name: minio-data
+        persistentVolumeClaim:
+          claimName: {{ include "minio.fullname" . }}-pvc
+      # TLS certificate: cert-manager-issued Secret (Decision 1, Decision 10)
+      # MinIO expects tls.crt as public.crt and tls.key as private.key
+      - name: minio-tls
+        secret:
+          secretName: {{ include "minio.certificateSecretName" . }}
+          defaultMode: 0600
+          items:
+          - key: tls.crt
+            path: public.crt
+          - key: tls.key
+            path: private.key
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "minio.fullname" . }}-pvc
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: [ "ReadWriteOnce" ]
+  storageClassName: {{ required "persistence.storageClassName must be set to an encrypted StorageClass - see docs/SECURITY.md" .Values.storage.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}

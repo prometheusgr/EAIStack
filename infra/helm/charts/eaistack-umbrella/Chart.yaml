@@ -1,0 +1,47 @@
+apiVersion: v2
+name: eaistack-umbrella
+description: EAIStack - Enterprise AI application platform
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+dependencies:
+- name: postgres
+  version: "1.0.0"
+  repository: "file://../postgres"
+  condition: postgres.enabled
+
+- name: keycloak
+  version: "1.0.0"
+  repository: "file://../keycloak"
+  condition: keycloak.enabled
+
+- name: minio
+  version: "1.0.0"
+  repository: "file://../minio"
+  condition: minio.enabled
+
+- name: llama-server
+  version: "1.0.0"
+  repository: "file://../llama-server"
+  condition: llama_server.enabled
+
+- name: embedding-server
+  version: "1.0.0"
+  repository: "file://../embedding-server"
+  condition: embedding_server.enabled
+
+- name: backend
+  version: "1.0.0"
+  repository: "file://../backend"
+  condition: backend.enabled
+
+- name: doc-search
+  version: "1.0.0"
+  repository: "file://../doc-search"
+  condition: doc_search.enabled
+
+- name: frontend
+  version: "1.0.0"
+  repository: "file://../frontend"
+  condition: frontend.enabled

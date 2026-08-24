@@ -1,0 +1,42 @@
+# Frontend chart values
+
+image:
+  repository: eaistack/frontend
+  tag: latest
+  pullPolicy: IfNotPresent
+
+port: 3000
+
+# Backend API URL (as seen by browser clients)
+apiUrl: "https://localhost:8000"
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# Readiness/liveness probe timings (frontend is lightweight)
+probe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context: frontend runs as UID 1000
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# External hostname for frontend's SANs (if exposed outside the cluster)
+externalHostname: ""
+
+# Replica count
+replicas: 1
+
+# TLS is always enabled for frontend (compliance requirement, Decision 1)
+tls:
+  enabled: true

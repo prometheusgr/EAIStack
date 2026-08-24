@@ -1,0 +1,50 @@
+# Keycloak chart values
+
+image:
+  repository: quay.io/keycloak/keycloak
+  tag: "22.0.0"
+  pullPolicy: IfNotPresent
+
+port: 8080
+
+# OIDC client configuration (will be templated into realm JSON)
+oidcClient:
+  clientId: eaistack-backend
+  # clientSecret is pulled from .Values.global.keycloakClientSecret
+  redirectUris:
+  - "http://localhost:3000/*"
+  - "http://localhost:8000/*"
+  webOrigins:
+  - "http://localhost:3000"
+  - "http://localhost:8000"
+
+# For K8s deployments, override these with actual hostnames
+# externalHostname: "keycloak.example.com"
+# redirectUris:
+# - "https://keycloak.example.com/*"
+# webOrigins:
+# - "https://keycloak.example.com"
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Readiness/liveness probe timings
+probe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context: keycloak runs as UID 1000
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# External hostname for Keycloak's SANs (if exposed outside the cluster)
+externalHostname: ""

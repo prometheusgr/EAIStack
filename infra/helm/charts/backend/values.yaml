@@ -1,0 +1,59 @@
+# Backend chart values
+
+image:
+  repository: eaistack/backend
+  tag: latest
+  pullPolicy: IfNotPresent
+
+port: 8000
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Readiness/liveness probe timings
+probe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context: backend runs as UID 1000
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# External hostname for backend's SANs (if exposed outside the cluster)
+externalHostname: ""
+
+# OIDC client configuration
+oidcClient:
+  clientId: "eaistack-backend"
+
+# Replica count
+replicas: 1
+
+# TLS is always enabled for backend (compliance requirement, Decision 1)
+tls:
+  enabled: true
+
+# Data retention sweep job (CronJob)
+# Runs hourly, purges expired conversations per SECURITY.md retention policy
+retention:
+  enabled: true
+  schedule: "0 * * * *"  # Hourly
+  image:
+    repository: eaistack/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi

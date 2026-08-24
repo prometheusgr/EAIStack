@@ -1,0 +1,39 @@
+# doc-search chart values
+
+image:
+  repository: eaistack/doc-search
+  tag: latest
+  pullPolicy: IfNotPresent
+
+port: 8100
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+# Readiness/liveness probe timings
+probe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context: doc-search runs as UID 1000
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# External hostname for doc-search's SANs (if exposed outside the cluster)
+externalHostname: ""
+
+# Replica count
+replicas: 1
+
+# TLS is always enabled for doc-search (compliance requirement, Decision 1)
+tls:
+  enabled: true

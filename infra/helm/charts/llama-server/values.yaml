@@ -1,0 +1,47 @@
+# llama-server chart values
+
+image:
+  repository: ghcr.io/ggml-org/llama.cpp
+  tag: server-latest
+  pullPolicy: IfNotPresent
+
+port: 8000
+
+# Model file mount path inside container
+modelPath: /models
+
+# Volume for model files (hostPath, PVC, etc.)
+# Example:
+#   hostPath:
+#     path: /path/to/models
+#     type: DirectoryOrCreate
+modelVolume: {}
+
+# Resource requests and limits (LLM inference is CPU/memory intensive)
+resources:
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+  limits:
+    memory: 4Gi
+
+# Readiness/liveness probe timings (inference startup may take time)
+probe:
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# Pod security context: llama-server runs as UID 1000
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# Optional TLS for llama-server (default: disabled for local dev)
+# Note: llama.cpp's native TLS support is limited and usually terminated by a proxy
+tls:
+  enabled: false  # Set to true only if llama-server's TLS support is verified
+
+# External hostname for llama-server's SANs (if exposed outside the cluster)
+externalHostname: ""

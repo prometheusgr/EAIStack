@@ -1,0 +1,6 @@
+apiVersion: v2
+name: keycloak
+description: Keycloak OIDC provider for EAIStack
+type: application
+version: 1.0.0
+appVersion: "22.0.0"

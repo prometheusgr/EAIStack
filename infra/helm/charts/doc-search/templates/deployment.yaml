@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "doc-search.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "doc-search.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "doc-search.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "doc-search.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: doc-search
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.port }}
+          name: http
+        env:
+        # Database connection (Decision 10: includes sslmode=verify-full)
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "backend.secretName" . }}
+              key: database-url
+        # Keycloak configuration (doc-search verifies its own tokens)
+        - name: KEYCLOAK_URL
+          value: "https://{{ include "keycloak.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8080"
+        - name: KEYCLOAK_REALM
+          value: "eaistack"
+        # Embedding provider configuration (for query-time embeddings)
+        - name: EMBEDDING_PROVIDER
+          value: "llama-cpp"
+        - name: EMBEDDING_URL
+          value: "http://{{ include "embedding-server.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8000/v1"
+        - name: EMBEDDING_MODEL
+          value: "nomic-embed-text-v1.5.Q4_K_M.gguf"
+        # CA bundle for TLS verification (Decision 2)
+        - name: CA_BUNDLE_PATH
+          value: "/etc/ssl/eaistack/ca.crt"
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        volumeMounts:
+        # CA bundle mount for TLS verification (Decision 2)
+        - name: ca-bundle
+          mountPath: /etc/ssl/eaistack
+          readOnly: true
+        readinessProbe:
+          # /healthz is the one path BearerTokenMiddleware exempts from
+          # token verification (see mcp-servers/doc-search/app/server.py).
+          httpGet:
+            path: /healthz
+            port: {{ .Values.port }}
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.port }}
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+      volumes:
+      # CA bundle: mounted from the bootstrap eaistack-ca-key-pair Secret (Decision 2)
+      - name: ca-bundle
+        secret:
+          secretName: eaistack-ca-key-pair
+          items:
+          - key: ca.crt
+            path: ca.crt

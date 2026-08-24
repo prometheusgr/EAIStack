@@ -1,0 +1,6 @@
+apiVersion: v2
+name: doc-search
+description: MCP server for pgvector-backed knowledge base search in EAIStack
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

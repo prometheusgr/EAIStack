@@ -1,0 +1,173 @@
+# values-airgap.yaml: Deployment-specific overrides for air-gapped K8s deployments.
+#
+# This file is the main configuration entry point for `helm install eaistack`.
+# It defines all shared credentials and service-specific settings in a single
+# place, fanning values down to per-service subcharts via Helm's standard
+# namespacing (e.g., `backend: {...}`, `postgres: {...}`).
+#
+# All credential values below are intentionally empty/unset to force explicit
+# `--set` or a sealed-values file at install time. Committing real secrets here
+# is the footgun this discipline exists to prevent (see CLAUDE.md, Decision 3).
+
+namespace: eaistack
+
+global:
+  # Cross-chart shared secrets: used by multiple services (postgres password is
+  # needed by both postgres and backend, keycloak secrets by keycloak and
+  # backend's realm templating, etc.). Each must be overridden at install time.
+  postgresPassword: ""  # Required: password for postgres user
+  miniRootUser: ""      # Required: root-user for MinIO
+  miniRootPassword: ""  # Required: root-password for MinIO
+  keycloakAdminPassword: ""  # Required: admin password for Keycloak
+  keycloakClientSecret: ""   # Required: OIDC client secret for eaistack-backend
+
+# Per-service chart value groups. Each chart's values.yaml references these
+# at the chart level (e.g., `postgres.storage.storageClassName`).
+
+postgres:
+  enabled: true
+  image:
+    repository: pgvector/pgvector
+    tag: pg16
+    pullPolicy: IfNotPresent
+
+  storage:
+    size: 10Gi
+    storageClassName: ""  # Must be overridden with an encrypted StorageClass name (Decision 6)
+
+keycloak:
+  enabled: true
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: "22.0.0"
+    pullPolicy: IfNotPresent
+
+  # External hostname for Keycloak's SANs (only used if set; in-cluster DNS names are always included)
+  externalHostname: ""  # e.g., "keycloak.example.com" for production
+
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  storage:
+    size: 50Gi
+    storageClassName: ""  # Must be overridden with an encrypted StorageClass name (Decision 6)
+
+  # MinIO console port (typically 9001)
+  consolePort: 9001
+
+llama_server:
+  enabled: true
+  image:
+    repository: ghcr.io/ggml-org/llama.cpp
+    tag: server-latest
+    pullPolicy: IfNotPresent
+
+  port: 8000
+
+  # Model volume: mount a PV/PVC or hostPath containing model files
+  modelPath: /models
+  modelVolume: {}
+    # Example: hostPath or PVC reference (depends on cluster setup)
+
+  # Optional TLS for llama-server (default: disabled for local dev compatibility)
+  tls:
+    enabled: false  # Set to true to enforce TLS on llama-server
+
+  # Plain HTTP URL to llama-server (used by embedding and LLM clients in the backend)
+  url: "http://eaistack-llama-server:8000"
+
+embedding_server:
+  enabled: true
+  image:
+    repository: ghcr.io/ggml-org/llama.cpp
+    tag: server-latest
+    pullPolicy: IfNotPresent
+
+  port: 8000
+
+  # Model volume: mount a PV/PVC or hostPath containing embedding model files
+  modelPath: /models
+  modelVolume: {}
+    # Example: hostPath or PVC reference (depends on cluster setup)
+
+  # Optional TLS for embedding-server (default: disabled)
+  tls:
+    enabled: false
+
+  # Plain HTTP URL to embedding-server (used by backend, doc-search)
+  url: "http://eaistack-embedding-server:8000/v1"
+
+backend:
+  enabled: true
+  image:
+    repository: eaistack/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  port: 8000
+
+  # LLM provider config (llama-cpp, openai-compatible, fake)
+  llm:
+    provider: "llama-cpp"
+    url: "http://eaistack-llama-server:8000"  # May be upgraded to https:// if llama-server TLS is enabled
+
+  # Embedding provider config (llama-cpp, openai-compatible)
+  embedding:
+    provider: "llama-cpp"
+    url: "http://eaistack-embedding-server:8000/v1"
+
+  # MCP doc-search endpoint
+  mcp:
+    url: "http://eaistack-doc-search:8100"  # May be upgraded to https:// once doc-search TLS is verified
+
+  # TLS is always enabled for backend (compliance requirement)
+  tls:
+    enabled: true
+
+doc_search:
+  enabled: true
+  image:
+    repository: eaistack/doc-search
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  port: 8100
+
+  # Embedding provider config (must match backend's)
+  embedding:
+    provider: "llama-cpp"
+    url: "http://eaistack-embedding-server:8000/v1"
+
+  # TLS is always enabled for doc-search (compliance requirement)
+  tls:
+    enabled: true
+
+frontend:
+  enabled: true
+  image:
+    repository: eaistack/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  port: 3000
+
+  # Backend API endpoint (as seen by the browser client)
+  apiUrl: "https://localhost:8000"  # Override for your ingress/LB hostname
+
+  # TLS is always enabled for frontend (compliance requirement)
+  tls:
+    enabled: true
+
+# Global settings for every pod
+podSecurityContext:
+  # runAsNonRoot is per-container (see chart templates), but shared fsGroup
+  # can go here if needed
+  fsGroup: 1000
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

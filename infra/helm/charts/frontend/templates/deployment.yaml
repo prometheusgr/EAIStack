@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "frontend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontend.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: frontend
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.port }}
+          name: http
+        env:
+        # Backend API URL (frontend makes HTTP/HTTPS calls from browser)
+        - name: REACT_APP_API_URL
+          value: {{ .Values.apiUrl | quote }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.port }}
+            scheme: HTTPS
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.port }}
+            scheme: HTTPS
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
