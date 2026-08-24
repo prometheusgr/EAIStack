@@ -8,9 +8,16 @@ Expand the name of the chart.
 {{/*
 Create a default fully qualified app name.
 */}}
+{{/*
+Resolution order: see the matching comment on postgres.fullname in
+postgres/templates/_helpers.tpl for why the global.fullnameOverrides branch
+exists (subcharts can't see a sibling's own .Values, only `global`).
+*/}}
 {{- define "keycloak.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if dig "fullnameOverrides" "keycloak" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "keycloak" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
@@ -63,14 +70,30 @@ eaistack-keycloak-tls
 {{- end }}
 
 {{/*
-Postgres fullname helper (for cross-chart reference)
+Postgres fullname helper (for cross-chart reference).
+
+This chart (keycloak) cannot see postgres's own .Values - Helm only shares
+`global` across sibling subcharts - so it can't directly call postgres's
+"fullname" logic against postgres's own values. This duplicate MUST stay
+in lock-step with postgres/templates/_helpers.tpl's own postgres.fullname
+(same resolution order, same global.fullnameOverrides.postgres key) or the
+two computed names silently diverge and KC_DB_URL points at a hostname
+that doesn't exist. It intentionally does NOT check
+.Values.fullnameOverride/.Values.nameOverride here - those belong to
+whoever installs the postgres chart directly, and keycloak has no way to
+read them; the global.fullnameOverrides.postgres branch is the one channel
+both charts can agree on.
 */}}
 {{- define "postgres.fullname" -}}
+{{- if dig "fullnameOverrides" "postgres" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "postgres" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- else }}
 {{- $name := "postgres" }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
 {{- end }}
 {{- end }}
 

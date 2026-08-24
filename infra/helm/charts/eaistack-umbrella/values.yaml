@@ -13,6 +13,11 @@ global:
   miniRootPassword: ""
   keycloakAdminPassword: ""
   keycloakClientSecret: ""
+  # Optional per-chart Service/StatefulSet hostname overrides, e.g.
+  # `postgres: my-custom-pg`. See values-airgap.yaml for the full
+  # explanation of why this lives under `global` instead of each chart's
+  # own `fullnameOverride`.
+  fullnameOverrides: {}
 
 # Subchart enable/disable flags (all enabled by default)
 postgres:

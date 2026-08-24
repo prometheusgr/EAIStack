@@ -21,6 +21,27 @@ global:
   keycloakAdminPassword: ""  # Required: admin password for Keycloak
   keycloakClientSecret: ""   # Required: OIDC client secret for eaistack-backend
 
+  # Optional: override a subchart's computed Service/StatefulSet hostname.
+  # Leave unset to use each chart's default ({{ .Release.Name }}-<chart>).
+  #
+  # A subchart cannot see a sibling subchart's own values (Helm only shares
+  # `global` across subcharts), so a peer chart's `fullnameOverride` (e.g.
+  # `postgres.fullnameOverride: my-custom-pg` below) is NOT visible to
+  # backend, doc-search, or keycloak's cross-chart references to it - only
+  # `global.fullnameOverrides.<chart>` is. Every chart that references a
+  # peer's hostname reads this same map, so setting it here is the only way
+  # to rename a peer chart's Service and have every consumer (backend's
+  # DATABASE_URL/DOC_SEARCH_MCP_URL, keycloak's KC_DB_URL, etc.) agree on
+  # the new name. See postgres/templates/_helpers.tpl for the full
+  # resolution order.
+  fullnameOverrides: {}
+  #   postgres: my-custom-pg
+  #   keycloak: my-custom-keycloak
+  #   minio: my-custom-minio
+  #   llama-server: my-custom-llama-server
+  #   embedding-server: my-custom-embedding-server
+  #   doc-search: my-custom-doc-search
+
 # Per-service chart value groups. Each chart's values.yaml references these
 # at the chart level (e.g., `postgres.storage.storageClassName`).
 

@@ -16,6 +16,9 @@ global:
   miniRootPassword: "CHANGEME-ci-only-minio-password"
   keycloakAdminPassword: "CHANGEME-ci-only-keycloak-admin"
   keycloakClientSecret: "CHANGEME-ci-only-client-secret"
+  # See values-airgap.yaml for what this controls. Left empty here so CI
+  # exercises the default (release-name-based) hostname resolution path.
+  fullnameOverrides: {}
 
 postgres:
   enabled: true

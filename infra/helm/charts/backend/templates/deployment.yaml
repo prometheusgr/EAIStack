@@ -37,7 +37,7 @@ spec:
         - name: KEYCLOAK_REALM
           value: "eaistack"
         - name: KEYCLOAK_CLIENT_ID
-          value: "{{ .Values.oidcClient.clientId | default "eaistack-backend" }}"
+          value: "{{ include "backend.oidcClient.clientId" . }}"
         - name: KEYCLOAK_CLIENT_SECRET
           valueFrom:
             secretKeyRef:

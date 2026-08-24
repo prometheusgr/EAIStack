@@ -8,9 +8,16 @@ Expand the name of the chart.
 {{/*
 Create a default fully qualified app name.
 */}}
+{{/*
+Resolution order: see the matching comment on postgres.fullname in
+postgres/templates/_helpers.tpl for why the global.fullnameOverrides branch
+exists (subcharts can't see a sibling's own .Values, only `global`).
+*/}}
 {{- define "llama-server.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if dig "fullnameOverrides" "llama-server" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "llama-server" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}

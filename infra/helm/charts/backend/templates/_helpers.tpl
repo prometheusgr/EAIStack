@@ -63,14 +63,30 @@ eaistack-backend-tls
 {{- end }}
 
 {{/*
-Postgres fullname helper (for cross-chart reference)
+Postgres fullname helper (for cross-chart reference).
+
+This chart (backend) cannot see postgres's own .Values - Helm only shares
+`global` across sibling subcharts - so it can't directly call postgres's
+"fullname" logic against postgres's own values. This duplicate MUST stay
+in lock-step with postgres/templates/_helpers.tpl's postgres.fullname
+(same resolution order, same global.fullnameOverrides.postgres key) or the
+two computed names silently diverge and DATABASE_URL points at a hostname
+that doesn't exist. It intentionally does NOT check
+.Values.fullnameOverride/.Values.nameOverride here - those belong to
+whoever installs the postgres chart directly, and backend has no way to
+read them; the global.fullnameOverrides.postgres branch is the one channel
+both charts can agree on.
 */}}
 {{- define "postgres.fullname" -}}
+{{- if dig "fullnameOverrides" "postgres" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "postgres" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- else }}
 {{- $name := "postgres" }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
 {{- end }}
 {{- end }}
 
@@ -82,9 +98,14 @@ eaistack-postgres
 {{- end }}
 
 {{/*
-Keycloak fullname helper (for cross-chart reference)
+Keycloak fullname helper (for cross-chart reference). See the
+postgres.fullname comment above for why this must stay in lock-step with
+keycloak/templates/_helpers.tpl's own keycloak.fullname.
 */}}
 {{- define "keycloak.fullname" -}}
+{{- if dig "fullnameOverrides" "keycloak" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "keycloak" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- else }}
 {{- $name := "keycloak" }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
@@ -92,11 +113,17 @@ Keycloak fullname helper (for cross-chart reference)
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
+{{- end }}
 
 {{/*
-llama-server fullname helper (for cross-chart reference)
+llama-server fullname helper (for cross-chart reference). See the
+postgres.fullname comment above for why this must stay in lock-step with
+llama-server/templates/_helpers.tpl's own llama-server.fullname.
 */}}
 {{- define "llama-server.fullname" -}}
+{{- if dig "fullnameOverrides" "llama-server" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "llama-server" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- else }}
 {{- $name := "llama-server" }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
@@ -104,11 +131,17 @@ llama-server fullname helper (for cross-chart reference)
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
+{{- end }}
 
 {{/*
-embedding-server fullname helper (for cross-chart reference)
+embedding-server fullname helper (for cross-chart reference). See the
+postgres.fullname comment above for why this must stay in lock-step with
+embedding-server/templates/_helpers.tpl's own embedding-server.fullname.
 */}}
 {{- define "embedding-server.fullname" -}}
+{{- if dig "fullnameOverrides" "embedding-server" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "embedding-server" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- else }}
 {{- $name := "embedding-server" }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
@@ -116,11 +149,17 @@ embedding-server fullname helper (for cross-chart reference)
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
+{{- end }}
 
 {{/*
-minio fullname helper (for cross-chart reference)
+minio fullname helper (for cross-chart reference). See the
+postgres.fullname comment above for why this must stay in lock-step with
+minio/templates/_helpers.tpl's own minio.fullname.
 */}}
 {{- define "minio.fullname" -}}
+{{- if dig "fullnameOverrides" "minio" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "minio" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- else }}
 {{- $name := "minio" }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
@@ -128,11 +167,17 @@ minio fullname helper (for cross-chart reference)
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
+{{- end }}
 
 {{/*
-doc-search fullname helper (for cross-chart reference)
+doc-search fullname helper (for cross-chart reference). See the
+postgres.fullname comment above for why this must stay in lock-step with
+doc-search/templates/_helpers.tpl's own doc-search.fullname.
 */}}
 {{- define "doc-search.fullname" -}}
+{{- if dig "fullnameOverrides" "doc-search" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "doc-search" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- else }}
 {{- $name := "doc-search" }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
@@ -140,10 +185,15 @@ doc-search fullname helper (for cross-chart reference)
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
+{{- end }}
 
 {{/*
-OIDC client configuration helper
+OIDC client ID: defaults to "eaistack-backend" but stays overridable via
+values.yaml's oidcClient.clientId, since keycloak's realm-import ConfigMap
+(keycloak/templates/realm-import-configmap.yaml) reads
+.Values.oidcClient.clientId directly and must register the same client ID
+backend authenticates as.
 */}}
 {{- define "backend.oidcClient.clientId" -}}
-eaistack-backend
+{{- .Values.oidcClient.clientId | default "eaistack-backend" }}
 {{- end }}

@@ -253,6 +253,74 @@ class TestChartCompliance:
                 f"Missing namespace for {kind}/{doc.get('metadata', {}).get('name')}"
 
 
+def render_chart_expecting_failure(
+    chart_path: Path, values_file: Path = None, extra_set: dict = None
+) -> subprocess.CompletedProcess:
+    """Run `helm template` and return the raw result, without render_chart's
+    pytest.skip-on-nonzero-exit behavior.
+
+    render_chart() treats a non-zero exit as "chart not implemented yet" and
+    skips — the right call for compliance assertions, which need a
+    successful render to inspect. But a `{{ required }}` guard test needs
+    the opposite: it must render, deliberately without a required value, and
+    prove the failure is the one the guard is supposed to produce. Skipping
+    on failure would make that test pass no matter what caused it to fail
+    (or trivially pass if the guard were deleted).
+    """
+    cmd = ["helm", "template", str(chart_path)]
+    if values_file:
+        cmd.extend(["-f", str(values_file)])
+    if extra_set:
+        for key, value in extra_set.items():
+            cmd.extend(["--set", f"{key}={str(value).lower() if isinstance(value, bool) else value}"])
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+@pytest.mark.parametrize(
+    "chart_name,required_value_key,other_required_values",
+    [
+        ("postgres", "global.postgresPassword", {"storage.storageClassName": "standard"}),
+        ("keycloak", "global.keycloakAdminPassword", {}),
+        ("minio", "global.miniRootUser", {"storage.storageClassName": "standard"}),
+        ("minio", "global.miniRootPassword", {"storage.storageClassName": "standard"}),
+    ],
+)
+class TestRequiredValueGuards:
+    """Every chart-level `{{ required "..." }}` guard actually stops the render.
+
+    Previously each of these three charts had its own shallow test
+    (test_postgres_password_required, test_admin_password_required,
+    test_minio_credentials_required) whose docstring claimed to verify the
+    `{{ required }}` guard, but whose body only asserted `len(secrets) > 0`
+    against VALUES_CI - which already supplies every required value. That
+    proves a Secret exists when its input is present; it never omits the
+    value, so it could never have caught the guard being deleted from the
+    template. This test renders each chart with VALUES_CI providing every
+    *other* required value, but the one under test explicitly nulled via
+    `--set key=null`, and asserts the render actually fails.
+    """
+
+    def test_required_value_guard_fails_render_when_omitted(
+        self, chart_name: str, required_value_key: str, other_required_values: dict
+    ):
+        chart_path = CHARTS_DIR / chart_name
+        extra_set = {**other_required_values, required_value_key: "null"}
+
+        result = render_chart_expecting_failure(chart_path, VALUES_CI, extra_set)
+
+        assert result.returncode != 0, (
+            f"{chart_name}: expected `helm template` to fail with "
+            f"{required_value_key} unset, but it rendered successfully. The "
+            f"{{{{ required }}}} guard is missing or no longer enforced."
+        )
+        assert required_value_key in result.stderr, (
+            f"{chart_name}: render failed as expected, but the error didn't "
+            f"name {required_value_key} - got: {result.stderr!r}. This means "
+            f"some other required value (not the one under test) caused the "
+            f"failure, so this test isn't actually proving this guard works."
+        )
+
+
 class TestPostgres:
     """Postgres-specific tests."""
 
@@ -269,15 +337,6 @@ class TestPostgres:
             assert storage_class and storage_class.strip(), \
                 f"PVC {pvc.get('metadata', {}).get('name')} has empty storageClassName"
 
-    def test_postgres_password_required(self):
-        """Test: postgres Secret uses {{ required }} for password."""
-        chart_path = CHARTS_DIR / "postgres"
-        # This test checks that {{ required }} causes failure if value not set
-        # With CI values set, it should pass; without values, it should fail
-        docs = render_chart(chart_path, VALUES_CI)
-        secrets = [doc for doc in docs if doc.get("kind") == "Secret"]
-        assert len(secrets) > 0, "No Secret found in postgres chart"
-
 
 class TestKeycloak:
     """Keycloak-specific tests."""
@@ -290,13 +349,6 @@ class TestKeycloak:
         configmaps = [doc for doc in docs if doc.get("kind") == "ConfigMap"]
         assert any("realm" in doc.get("metadata", {}).get("name", "") for doc in configmaps), \
             "No realm-import ConfigMap found in keycloak chart"
-
-    def test_admin_password_required(self):
-        """Test: Keycloak Secret uses {{ required }} for admin password."""
-        chart_path = CHARTS_DIR / "keycloak"
-        docs = render_chart(chart_path, VALUES_CI)
-        secrets = [doc for doc in docs if doc.get("kind") == "Secret"]
-        assert len(secrets) > 0, "No Secret found in keycloak chart"
 
 
 class TestMinio:
@@ -315,13 +367,6 @@ class TestMinio:
             assert storage_class and storage_class.strip(), \
                 f"PVC {pvc.get('metadata', {}).get('name')} has empty storageClassName"
 
-    def test_minio_credentials_required(self):
-        """Test: MinIO Secret uses {{ required }} for root-user and root-password."""
-        chart_path = CHARTS_DIR / "minio"
-        docs = render_chart(chart_path, VALUES_CI)
-        secrets = [doc for doc in docs if doc.get("kind") == "Secret"]
-        assert len(secrets) > 0, "No Secret found in minio chart"
-
 
 class TestLLMServers:
     """llama-server and embedding-server specific tests."""
@@ -331,11 +376,21 @@ class TestLLMServers:
         """Test: Certificate only rendered when tls.enabled: true."""
         chart_path = CHARTS_DIR / chart_name
 
-        # With tls.enabled: false (default), no Certificate
-        docs = render_chart(chart_path, VALUES_CI)
-        certs = [doc for doc in docs if doc.get("kind") == "Certificate"]
-        # Should be no certs since VALUES_CI has tls.enabled: false
-        # But test gracefully skips if chart not yet complete
+        # With tls.enabled: false (VALUES_CI's default for these two charts),
+        # no Certificate should be rendered at all.
+        docs_disabled = render_chart(chart_path, VALUES_CI)
+        certs_disabled = [doc for doc in docs_disabled if doc.get("kind") == "Certificate"]
+        assert len(certs_disabled) == 0, (
+            f"{chart_name}: expected no Certificate when tls.enabled=false, "
+            f"found {len(certs_disabled)}"
+        )
+
+        # With tls.enabled: true, the chart must actually render one.
+        docs_enabled = render_chart(chart_path, VALUES_CI, extra_set={"tls.enabled": True})
+        certs_enabled = [doc for doc in docs_enabled if doc.get("kind") == "Certificate"]
+        assert len(certs_enabled) > 0, (
+            f"{chart_name}: expected a Certificate when tls.enabled=true, found none"
+        )
 
 
 class TestBackend:
@@ -706,6 +761,58 @@ class TestUmbrellaChart:
 
         assert values.get("namespace") == "eaistack", \
             "Umbrella values.yaml should set namespace: eaistack"
+
+    def test_postgres_fullname_override_agrees_across_charts(self):
+        """Regression guard: postgres, backend, and keycloak each compute a
+        peer's Service/StatefulSet hostname independently (a subchart cannot
+        read a sibling subchart's own .Values.fullnameOverride - Helm only
+        shares `global` across subcharts - so each cross-chart reference to
+        "postgres.fullname" is a separate, duplicated template definition;
+        see the comments in postgres/backend/keycloak's _helpers.tpl).
+
+        Before this fix, those duplicates hardcoded the release-name-based
+        default and ignored any override entirely, AND - because Helm merges
+        every subchart's _helpers.tpl into one shared template namespace -
+        having the same template name ("postgres.fullname") defined multiple
+        times made it unspecified which definition even applied, including
+        for postgres's own StatefulSet/Service. Setting
+        global.fullnameOverrides.postgres must now rename postgres's own
+        resources AND flow through to every consumer's hostname reference
+        identically.
+        """
+        docs = render_chart(
+            UMBRELLA_CHART,
+            VALUES_CI,
+            extra_set={"global.fullnameOverrides.postgres": "custom-pg-name-test"},
+        )
+
+        statefulsets = [doc for doc in docs if doc.get("kind") == "StatefulSet"]
+        postgres_statefulsets = [sts for sts in statefulsets if sts.get("metadata", {}).get("name") == "custom-pg-name-test"]
+        assert len(postgres_statefulsets) > 0, \
+            "postgres's own StatefulSet did not pick up global.fullnameOverrides.postgres"
+
+        services = [doc for doc in docs if doc.get("kind") == "Service"]
+        postgres_services = [svc for svc in services if svc.get("metadata", {}).get("name") == "custom-pg-name-test"]
+        assert len(postgres_services) > 0, \
+            "postgres's own Service did not pick up global.fullnameOverrides.postgres"
+
+        secrets = [doc for doc in docs if doc.get("kind") == "Secret"]
+        backend_secrets = [s for s in secrets if s.get("metadata", {}).get("name") == "eaistack-backend"]
+        assert len(backend_secrets) > 0, "backend Secret not found"
+        database_url = backend_secrets[0].get("stringData", {}).get("database-url", "")
+        assert "custom-pg-name-test." in database_url, \
+            f"backend's database-url did not follow postgres's overridden hostname: {database_url}"
+
+        deployments = [doc for doc in docs if doc.get("kind") == "Deployment"]
+        keycloak_deployments = [d for d in deployments if d.get("metadata", {}).get("name") == "release-name-keycloak"]
+        assert len(keycloak_deployments) > 0, "keycloak Deployment not found"
+        keycloak_containers = get_containers(get_pod_spec(keycloak_deployments[0]))
+        kc_db_url = next(
+            env.get("value", "") for env in keycloak_containers[0].get("env", [])
+            if env.get("name") == "KC_DB_URL"
+        )
+        assert "custom-pg-name-test." in kc_db_url, \
+            f"keycloak's KC_DB_URL did not follow postgres's overridden hostname: {kc_db_url}"
 
 
 if __name__ == "__main__":
