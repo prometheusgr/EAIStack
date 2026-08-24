@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "keycloak.fullname" . }}-realm-import
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+data:
+  realm.json: |
+    {
+      "realm": "eaistack",
+      "enabled": true,
+      "displayName": "EAIStack Realm",
+      "displayNameHtml": "<b>Enterprise AI Stack</b>",
+      "sslRequired": "external",
+      "roles": {
+        "realm": [
+          {
+            "name": "admin",
+            "description": "Grants access to admin-only screens (e.g. runtime LLM/embedding provider settings)"
+          }
+        ]
+      },
+      "clients": [
+        {
+          "clientId": "{{ .Values.oidcClient.clientId }}",
+          "name": "EAIStack API Server",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": true,
+          "serviceAccountsEnabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": {{ .Values.global.keycloakClientSecret | quote }},
+          "protocolMappers": [
+            {
+              "name": "audience-eaistack-api",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "eaistack-api",
+                "id.token.claim": "false",
+                "access.token.claim": "true"
+              }
+            }
+          ],
+          "access": {
+            "view": true,
+            "configure": true,
+            "manage": true
+          }
+        },
+        {
+          "clientId": "eaistack-web",
+          "name": "EAIStack Web Frontend",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "redirectUris": {{ .Values.oidcClient.redirectUris | toJson }},
+          "webOrigins": {{ .Values.oidcClient.webOrigins | toJson }},
+          "protocolMappers": [
+            {
+              "name": "audience-eaistack-api",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "eaistack-api",
+                "id.token.claim": "false",
+                "access.token.claim": "true"
+              }
+            }
+          ],
+          "access": {
+            "view": true,
+            "configure": true,
+            "manage": true
+          }
+        }
+      ],
+      "users": [
+        {
+          "username": "testuser",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "testuser@eaistack.local",
+          "firstName": "Test",
+          "lastName": "User",
+          "credentials": [
+            {
+              "type": "password",
+              "value": "testpassword",
+              "temporary": false,
+              "userLabel": "password"
+            }
+          ],
+          "requiredActions": [],
+          "realmRoles": ["admin"]
+        }
+      ]
+    }

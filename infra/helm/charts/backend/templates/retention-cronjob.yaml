@@ -1,0 +1,62 @@
+{{- if .Values.retention.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "backend.fullname" . }}-retention-sweep
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+spec:
+  # Hourly sweep schedule (configurable)
+  schedule: {{ .Values.retention.schedule | quote }}
+
+  # Never run two sweeps at once to avoid overlapping DELETEs
+  concurrencyPolicy: Forbid
+
+  # Missed sweep is not worth backfilling
+  startingDeadlineSeconds: 300
+
+  # Keep history for debugging
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  jobTemplate:
+    spec:
+      # Retry a failed sweep a couple of times
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+          - name: retention-sweep
+            image: "{{ .Values.retention.image.repository }}:{{ .Values.retention.image.tag }}"
+            imagePullPolicy: {{ .Values.retention.image.pullPolicy }}
+            command: ["python", "-m", "app.cli.retention_sweep"]
+            env:
+            # Database connection (same as backend Deployment)
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "backend.secretName" . }}
+                  key: database-url
+            # CA bundle for TLS verification (Decision 2)
+            - name: CA_BUNDLE_PATH
+              value: "/etc/ssl/eaistack/ca.crt"
+            resources:
+              {{- toYaml .Values.retention.resources | nindent 14 }}
+            volumeMounts:
+            # CA bundle mount for TLS verification (Decision 2)
+            - name: ca-bundle
+              mountPath: /etc/ssl/eaistack
+              readOnly: true
+          volumes:
+          # CA bundle: mounted from the bootstrap eaistack-ca-key-pair Secret (Decision 2)
+          - name: ca-bundle
+            secret:
+              secretName: eaistack-ca-key-pair
+              items:
+              - key: ca.crt
+                path: ca.crt
+{{- end }}

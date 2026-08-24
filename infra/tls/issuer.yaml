@@ -1,0 +1,28 @@
+# Stage 3 of the internal certificate authority: the issuer every EAIStack
+# service actually uses.
+#
+# Read ca-cert.yaml first — it creates the root CA keypair this file consumes.
+# The ordering matters: this ClusterIssuer is only usable once the Secret named
+# below exists and has been populated by cert-manager. `kubectl apply -f
+# infra/tls/` applies both files at once, and this one may briefly report
+# NotReady while Stage 2 finishes. That is expected and self-corrects within a
+# few seconds; see infra/tls/README.md's troubleshooting section.
+#
+# Once ready, every per-service Certificate in the Helm charts references this
+# issuer by name (`eaistack-ca-issuer`) and gets a certificate signed by the
+# internal root — no internet, no ACME, no manual openssl.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: eaistack-ca-issuer
+spec:
+  ca:
+    # Must match `spec.secretName` in ca-cert.yaml exactly. cert-manager reads
+    # the signing key from this Secret in its own namespace (the
+    # `--cluster-resource-namespace` flag, default `cert-manager`) — which is
+    # why ca-cert.yaml pins its Certificate to `namespace: cert-manager`.
+    #
+    # If this name and that one drift apart, nothing errors loudly: this issuer
+    # simply stays NotReady with a "secret not found" message, and every
+    # per-service Certificate waits forever in a Pending state.
+    secretName: eaistack-ca-key-pair

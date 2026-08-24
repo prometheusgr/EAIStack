@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "keycloak.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "keycloak.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "keycloak.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: keycloak
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.port }}
+          name: http
+        env:
+        - name: KEYCLOAK_ADMIN
+          value: "admin"
+        - name: KEYCLOAK_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "keycloak.secretName" . }}
+              key: admin-password
+        - name: KC_DB
+          value: "postgres"
+        - name: KC_DB_URL
+          value: "jdbc:postgresql://{{ include "postgres.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/eaistack"
+        - name: KC_DB_USERNAME
+          value: "postgres"
+        - name: KC_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "postgres.secretName" . }}
+              key: postgres-password
+        - name: KC_HTTPS_CERTIFICATE_FILE
+          value: "/etc/ssl/keycloak/tls.crt"
+        - name: KC_HTTPS_CERTIFICATE_KEY_FILE
+          value: "/etc/ssl/keycloak/tls.key"
+        - name: KC_PROXY
+          value: "edge"  # Keycloak is behind a reverse proxy/ingress
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        volumeMounts:
+        # Realm import ConfigMap (Decision 4)
+        - name: realm-import
+          mountPath: /opt/keycloak/data/import
+          readOnly: true
+        # TLS certificate mount for keycloak (Decision 1)
+        - name: keycloak-tls
+          mountPath: /etc/ssl/keycloak
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: {{ .Values.port }}
+            scheme: HTTPS
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: {{ .Values.port }}
+            scheme: HTTPS
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+      volumes:
+      # Templated realm import (Decision 4)
+      - name: realm-import
+        configMap:
+          name: {{ include "keycloak.fullname" . }}-realm-import
+      # TLS certificate: cert-manager-issued Secret (Decision 1)
+      - name: keycloak-tls
+        secret:
+          secretName: {{ include "keycloak.certificateSecretName" . }}
+          defaultMode: 0600

@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "frontend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontend.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: frontend
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.port }}
+          name: http
+        env:
+        # Backend API URL (frontend makes HTTP/HTTPS calls from browser)
+        - name: REACT_APP_API_URL
+          value: {{ .Values.apiUrl | quote }}
+        {{- if .Values.tls.enabled }}
+        # Server-side TLS termination (Vite dev server's server.https option,
+        # see frontend/vite.config.ts and frontend/docker-entrypoint.sh): the
+        # mounted cert-manager Secret below, read by the readiness/liveness
+        # probes' HTTPS scheme.
+        - name: SSL_CERTFILE
+          value: "/etc/ssl/frontend/tls.crt"
+        - name: SSL_KEYFILE
+          value: "/etc/ssl/frontend/tls.key"
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        {{- if .Values.tls.enabled }}
+        volumeMounts:
+        # Server-side TLS certificate mount (conditional)
+        - name: frontend-tls
+          mountPath: /etc/ssl/frontend
+          readOnly: true
+        {{- end }}
+        readinessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+      {{- if .Values.tls.enabled }}
+      volumes:
+      # Server-side TLS certificate: cert-manager-issued Secret (conditional)
+      - name: frontend-tls
+        secret:
+          secretName: {{ include "frontend.certificateSecretName" . }}
+          defaultMode: 0600
+      {{- end }}

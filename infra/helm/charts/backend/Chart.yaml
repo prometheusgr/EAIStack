@@ -1,0 +1,6 @@
+apiVersion: v2
+name: backend
+description: EAIStack FastAPI backend with LangGraph agents
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

@@ -13,4 +13,13 @@ RUN pip install --no-cache-dir -e .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# TLS is optional and controlled entirely by environment variables so that
+# docker-compose / local dev (no SSL_CERTFILE/SSL_KEYFILE set) keeps serving
+# plain HTTP, while the Helm-deployed container (which mounts a cert-manager
+# Secret and sets these vars, see infra/helm/charts/backend/templates/deployment.yaml)
+# serves HTTPS on the same port 8000 that the readiness/liveness probes and
+# Service expect. docker-entrypoint.sh builds the uvicorn command line from
+# these vars at container start.
+RUN chmod +x /app/docker-entrypoint.sh
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

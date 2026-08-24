@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llama-server.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "llama-server.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "llama-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "llama-server.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: llama-server
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.port }}
+          name: http
+        {{- if .Values.tls.enabled }}
+        args:
+        - --server
+        - --model
+        - "{{ .Values.modelPath }}/model.gguf"
+        - --port
+        - "{{ .Values.port }}"
+        - --ssl-cert-file
+        - "/etc/ssl/llama-server/tls.crt"
+        - --ssl-key-file
+        - "/etc/ssl/llama-server/tls.key"
+        {{- else }}
+        args:
+        - --server
+        - --model
+        - "{{ .Values.modelPath }}/model.gguf"
+        - --port
+        - "{{ .Values.port }}"
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        volumeMounts:
+        - name: models
+          mountPath: {{ .Values.modelPath }}
+          readOnly: true
+        {{- if .Values.tls.enabled }}
+        # TLS certificate mount (conditional)
+        - name: llama-server-tls
+          mountPath: /etc/ssl/llama-server
+          readOnly: true
+        {{- end }}
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+      volumes:
+      # Model files (read-only mount)
+      - name: models
+        {{- if .Values.modelVolume }}
+        {{- toYaml .Values.modelVolume | nindent 8 }}
+        {{- else }}
+        # Placeholder: user must provide modelVolume in values
+        emptyDir: {}
+        {{- end }}
+      {{- if .Values.tls.enabled }}
+      # TLS certificate: cert-manager-issued Secret (Decision 1, conditional)
+      - name: llama-server-tls
+        secret:
+          secretName: {{ include "llama-server.certificateSecretName" . }}
+          defaultMode: 0600
+      {{- end }}

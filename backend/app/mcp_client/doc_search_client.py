@@ -19,8 +19,10 @@ from datetime import timedelta
 import httpx
 from langchain_core.tools import StructuredTool
 from mcp import ClientSession
-from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
+from mcp.client.streamable_http import streamable_http_client
 from pydantic import BaseModel, Field
+
+from app.core.tls import get_ssl_context
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,12 @@ MCP_CALL_TIMEOUT = timedelta(seconds=30)
 # because the current streamable_http_client takes a caller-built httpx
 # client instead of timeout arguments, and letting them fall back to httpx's
 # own defaults would silently change behavior.
+#
+# The client is built with httpx.AsyncClient directly rather than the SDK's
+# create_mcp_http_client helper: that helper accepts only headers/timeout/auth,
+# with no way to pass verify=, so it cannot carry the internal CA bundle
+# (Phase 5, Decision 2). follow_redirects=True below is the one default the
+# helper supplied that we must reproduce by hand.
 _CONNECT_TIMEOUT_SECONDS = 30.0
 _SSE_READ_TIMEOUT_SECONDS = 300.0
 
@@ -55,9 +63,15 @@ async def _open_doc_search_session(token: str, mcp_url: str, query: str, top_k: 
     outside this codebase's control, and so the only part whose exceptions
     should be caught and turned into the agent's "unavailable" fallback.
     """
-    http_client = create_mcp_http_client(
+    # get_ssl_context() (not the raw path) because this session is opened on
+    # every knowledge-base tool call, potentially several times per chat
+    # turn — reusing the cached, already-parsed trust store avoids re-reading
+    # the CA bundle PEM file from disk on every single call.
+    http_client = httpx.AsyncClient(
         headers={"Authorization": f"Bearer {token}"},
         timeout=httpx.Timeout(_CONNECT_TIMEOUT_SECONDS, read=_SSE_READ_TIMEOUT_SECONDS),
+        follow_redirects=True,
+        verify=get_ssl_context(),
     )
     async with http_client:
         async with streamable_http_client(mcp_url, http_client=http_client) as (

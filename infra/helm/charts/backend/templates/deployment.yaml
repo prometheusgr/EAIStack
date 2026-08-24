@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "backend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "backend.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: backend
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.port }}
+          name: http
+        env:
+        # Database connection (Decision 10: includes sslmode=verify-full)
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "backend.secretName" . }}
+              key: database-url
+        # Keycloak configuration
+        - name: KEYCLOAK_URL
+          value: "https://{{ include "keycloak.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8080"
+        - name: KEYCLOAK_REALM
+          value: "eaistack"
+        - name: KEYCLOAK_CLIENT_ID
+          value: "{{ include "backend.oidcClient.clientId" . }}"
+        - name: KEYCLOAK_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "backend.secretName" . }}
+              key: keycloak-client-secret
+        # LLM configuration
+        - name: LLM_PROVIDER
+          value: "llama-cpp"
+        - name: LLM_URL
+          value: "http://{{ include "llama-server.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8000"
+        - name: LLM_MODEL
+          value: "model.gguf"
+        # Embedding configuration
+        - name: EMBEDDING_PROVIDER
+          value: "llama-cpp"
+        - name: EMBEDDING_URL
+          value: "http://{{ include "embedding-server.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8000/v1"
+        - name: EMBEDDING_MODEL
+          value: "nomic-embed-text-v1.5.Q4_K_M.gguf"
+        # MinIO configuration
+        - name: MINIO_URL
+          value: "https://{{ include "minio.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:9000"
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "backend.secretName" . }}
+              key: minio-access-key
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "backend.secretName" . }}
+              key: minio-secret-key
+        - name: MINIO_BUCKET
+          value: "documents"
+        # MCP doc-search endpoint. Env var name must match Settings.doc_search_mcp_url
+        # in backend/app/core/config.py (pydantic-settings resolves the field name to
+        # DOC_SEARCH_MCP_URL — no env_prefix is configured on that Settings class).
+        # doc-search always serves TLS (Decision 1), so this is always https://.
+        - name: DOC_SEARCH_MCP_URL
+          value: "https://{{ include "doc-search.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8100/mcp"
+        # CA bundle for TLS verification (Decision 2)
+        - name: CA_BUNDLE_PATH
+          value: "/etc/ssl/eaistack/ca.crt"
+        {{- if .Values.tls.enabled }}
+        # Server-side TLS termination (uvicorn --ssl-certfile/--ssl-keyfile,
+        # see backend/docker-entrypoint.sh): the mounted cert-manager Secret
+        # below, read by the readiness/liveness probes' HTTPS scheme.
+        - name: SSL_CERTFILE
+          value: "/etc/ssl/backend/tls.crt"
+        - name: SSL_KEYFILE
+          value: "/etc/ssl/backend/tls.key"
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        volumeMounts:
+        # CA bundle mount for TLS verification (Decision 2)
+        - name: ca-bundle
+          mountPath: /etc/ssl/eaistack
+          readOnly: true
+        {{- if .Values.tls.enabled }}
+        # Server-side TLS certificate mount (conditional)
+        - name: backend-tls
+          mountPath: /etc/ssl/backend
+          readOnly: true
+        {{- end }}
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.probe.periodSeconds }}
+          timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
+          failureThreshold: {{ .Values.probe.failureThreshold }}
+      volumes:
+      # CA bundle: mounted from the bootstrap eaistack-ca-key-pair Secret (Decision 2)
+      - name: ca-bundle
+        secret:
+          secretName: eaistack-ca-key-pair
+          items:
+          - key: ca.crt
+            path: ca.crt
+      {{- if .Values.tls.enabled }}
+      # Server-side TLS certificate: cert-manager-issued Secret (conditional)
+      - name: backend-tls
+        secret:
+          secretName: {{ include "backend.certificateSecretName" . }}
+          defaultMode: 0600
+      {{- end }}

@@ -1,0 +1,45 @@
+# values.yaml: Default values for EAIStack umbrella chart
+#
+# This file defines defaults for the umbrella chart only. For deployment
+# configuration, use values-airgap.yaml or create your own overrides with
+# --set flags at install time.
+
+namespace: eaistack
+
+# Global values shared across all subcharts (credentials, etc.)
+global:
+  postgresPassword: ""
+  miniRootUser: ""
+  miniRootPassword: ""
+  keycloakAdminPassword: ""
+  keycloakClientSecret: ""
+  # Optional per-chart Service/StatefulSet hostname overrides, e.g.
+  # `postgres: my-custom-pg`. See values-airgap.yaml for the full
+  # explanation of why this lives under `global` instead of each chart's
+  # own `fullnameOverride`.
+  fullnameOverrides: {}
+
+# Subchart enable/disable flags (all enabled by default)
+postgres:
+  enabled: true
+
+keycloak:
+  enabled: true
+
+minio:
+  enabled: true
+
+llama-server:
+  enabled: true
+
+embedding-server:
+  enabled: true
+
+backend:
+  enabled: true
+
+doc-search:
+  enabled: true
+
+frontend:
+  enabled: true

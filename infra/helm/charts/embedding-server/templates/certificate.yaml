@@ -1,0 +1,22 @@
+{{- if .Values.tls.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "embedding-server.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "embedding-server.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "embedding-server.certificateSecretName" . }}
+  issuerRef:
+    name: eaistack-ca-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  # In-cluster service DNS names (Decision 1: both short and fully-qualified)
+  - {{ include "embedding-server.fullname" . }}
+  - {{ include "embedding-server.fullname" . }}.{{ .Release.Namespace }}.svc
+  - {{ include "embedding-server.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  {{- if .Values.externalHostname }}
+  - {{ .Values.externalHostname }}
+  {{- end }}
+{{- end }}

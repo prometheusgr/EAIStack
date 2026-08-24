@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y \
 COPY pyproject.toml .
 COPY . .
 RUN pip install --no-cache-dir -e .
+RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 8100
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100"]
+ENTRYPOINT ["./docker-entrypoint.sh"]

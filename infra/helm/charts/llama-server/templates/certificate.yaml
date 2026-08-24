@@ -1,0 +1,22 @@
+{{- if .Values.tls.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "llama-server.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "llama-server.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "llama-server.certificateSecretName" . }}
+  issuerRef:
+    name: eaistack-ca-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  # In-cluster service DNS names (Decision 1: both short and fully-qualified)
+  - {{ include "llama-server.fullname" . }}
+  - {{ include "llama-server.fullname" . }}.{{ .Release.Namespace }}.svc
+  - {{ include "llama-server.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  {{- if .Values.externalHostname }}
+  - {{ .Values.externalHostname }}
+  {{- end }}
+{{- end }}

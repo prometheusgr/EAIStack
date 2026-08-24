@@ -1,0 +1,40 @@
+# Postgres (pgvector) chart values
+# Thin wrapper over pgvector/pgvector:pg16 official image
+
+image:
+  repository: pgvector/pgvector
+  tag: pg16
+  pullPolicy: IfNotPresent
+
+port: 5432
+
+# Storage configuration: PVC backing the postgres StatefulSet
+storage:
+  size: 10Gi
+  storageClassName: ""  # Must be set to an encrypted StorageClass at install time (Decision 6)
+
+# Database initialization
+database:
+  name: eaistack
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Readiness/liveness probe timings
+probe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context: postgres runs as UID 999 in the pgvector image
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  runAsGroup: 999
+  fsGroup: 999

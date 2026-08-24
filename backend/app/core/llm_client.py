@@ -2,12 +2,14 @@
 
 from typing import Any, List, Optional, Sequence
 
+import httpx
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from sqlalchemy.orm import Session
 
+from app.core.tls import get_ssl_context
 from app.services.system_settings_service import resolve_llm_config
 
 
@@ -72,12 +74,27 @@ def get_llm_client(db: Session):
         from langchain_openai import ChatOpenAI
         from pydantic import SecretStr
 
+        # ChatOpenAI takes no verify= of its own, so the internal CA bundle
+        # (Phase 5, Decision 2) has to arrive as preconfigured httpx clients,
+        # which langchain-openai hands straight to the OpenAI SDK. Both the
+        # sync and async kwargs are set: chat inference runs on the async
+        # path, but leaving the sync one unconfigured would silently skip the
+        # bundle for any synchronous invocation.
+        #
+        # get_ssl_context() (not the raw path) because this factory runs on
+        # every chat request and builds two clients each time — reusing the
+        # cached, already-parsed trust store avoids re-reading the CA bundle
+        # PEM file from disk on every single chat turn.
+        verify = get_ssl_context()
+
         return ChatOpenAI(
             base_url=config.url,
             api_key=SecretStr(config.api_key or "not-needed"),
             model=config.model,
             temperature=0.7,
             timeout=config.timeout,
+            http_client=httpx.Client(verify=verify),
+            http_async_client=httpx.AsyncClient(verify=verify),
         )
     else:
         raise ValueError(f"Unknown llm_provider: {config.provider}")
