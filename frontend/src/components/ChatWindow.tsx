@@ -1,17 +1,48 @@
 import { useEffect, useState } from "react";
 import { useChatService } from "../hooks/useChatService";
 import { useThreadsService } from "../hooks/useThreadsService";
+import { useIsMounted } from "../hooks/useIsMounted";
 import { ChatMessage } from "../types/chat";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { ApiError } from "../api/authorizedFetch";
+
+// Maps the backend's machine-readable guardrail reason codes (see
+// backend/app/guardrails/input_guardrail.py) to user-facing text. The raw
+// code is never shown directly -- it's an internal contract between the
+// guardrail and the audit log, not a message written for an end user.
+const GUARDRAIL_REJECTION_MESSAGES: Record<string, string> = {
+  prompt_injection_suspected:
+    "That message couldn't be sent. Please rephrase your question.",
+  input_too_long: "That message is too long. Please shorten it and try again.",
+  input_empty: "That message couldn't be sent. Please enter a question.",
+};
+
+const GENERIC_ERROR_MESSAGE = "Something went wrong and your message failed to send. Please try again.";
+
+function isApiError(error: unknown): error is ApiError {
+  return typeof error === "object" && error !== null && "detail" in error;
+}
+
+function describeSendError(error: unknown): string {
+  if (isApiError(error)) {
+    const friendlyMessage = GUARDRAIL_REJECTION_MESSAGES[error.detail];
+    if (friendlyMessage) {
+      return friendlyMessage;
+    }
+  }
+  return GENERIC_ERROR_MESSAGE;
+}
 
 export function ChatWindow() {
-  const { mutateAsync: sendMessage, isPending, error: apiError } = useChatService();
+  const { mutateAsync: sendMessage, isPending } = useChatService();
   const { listThreads, getThreadHistory } = useThreadsService();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [threadId, setThreadId] = useState<string>("");
   const [hasLoadedInitialThread, setHasLoadedInitialThread] = useState(false);
+  const [sendErrorMessage, setSendErrorMessage] = useState<string | null>(null);
+  const isMounted = useIsMounted();
 
   useEffect(() => {
     listThreads.execute();
@@ -31,8 +62,8 @@ export function ChatWindow() {
 
   const loadThread = async (id: string) => {
     const history = await getThreadHistory.mutateAsync(id);
-    setThreadId(history.id);
-    setMessages(history.messages);
+    if (isMounted()) setThreadId(history.id);
+    if (isMounted()) setMessages(history.messages);
   };
 
   const handleSelectThread = (id: string) => {
@@ -56,15 +87,17 @@ export function ChatWindow() {
     const currentThreadId = threadId || undefined;
 
     try {
+      setSendErrorMessage(null);
       setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
       setInputValue("");
 
       const result = await sendMessage({ message: userMessage, threadId: currentThreadId });
-      setThreadId(result.threadId);
-      setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
+      if (isMounted()) setThreadId(result.threadId);
+      if (isMounted()) setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
       listThreads.execute();
-    } catch {
-      setMessages((prev) => prev.slice(0, -1));
+    } catch (error) {
+      if (isMounted()) setMessages((prev) => prev.slice(0, -1));
+      if (isMounted()) setSendErrorMessage(describeSendError(error));
     }
   };
 
@@ -129,9 +162,9 @@ export function ChatWindow() {
               </div>
             </div>
           )}
-          {apiError && (
+          {sendErrorMessage && (
             <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm">
-              Error: {apiError.message}
+              {sendErrorMessage}
             </div>
           )}
         </div>
