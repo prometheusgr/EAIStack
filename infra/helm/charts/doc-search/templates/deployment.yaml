@@ -46,6 +46,17 @@ spec:
         # CA bundle for TLS verification (Decision 2)
         - name: CA_BUNDLE_PATH
           value: "/etc/ssl/eaistack/ca.crt"
+        {{- if .Values.tls.enabled }}
+        # TLS is always enabled for doc-search (compliance requirement, Decision 1).
+        # Read by mcp-servers/doc-search/docker-entrypoint.sh to add uvicorn's
+        # --ssl-certfile/--ssl-keyfile args.
+        - name: TLS_ENABLED
+          value: "true"
+        - name: TLS_CERT_FILE
+          value: "/etc/ssl/doc-search/tls.crt"
+        - name: TLS_KEY_FILE
+          value: "/etc/ssl/doc-search/tls.key"
+        {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         volumeMounts:
@@ -53,12 +64,21 @@ spec:
         - name: ca-bundle
           mountPath: /etc/ssl/eaistack
           readOnly: true
+        {{- if .Values.tls.enabled }}
+        # TLS certificate mount (conditional)
+        - name: doc-search-tls
+          mountPath: /etc/ssl/doc-search
+          readOnly: true
+        {{- end }}
         readinessProbe:
           # /healthz is the one path BearerTokenMiddleware exempts from
           # token verification (see mcp-servers/doc-search/app/server.py).
           httpGet:
             path: /healthz
             port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
           initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
           periodSeconds: {{ .Values.probe.periodSeconds }}
           timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
@@ -67,6 +87,9 @@ spec:
           httpGet:
             path: /healthz
             port: {{ .Values.port }}
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
           initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
           periodSeconds: {{ .Values.probe.periodSeconds }}
           timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
@@ -79,3 +102,10 @@ spec:
           items:
           - key: ca.crt
             path: ca.crt
+      {{- if .Values.tls.enabled }}
+      # TLS certificate: cert-manager-issued Secret (Decision 1, conditional)
+      - name: doc-search-tls
+        secret:
+          secretName: {{ include "doc-search.certificateSecretName" . }}
+          defaultMode: 0600
+      {{- end }}
