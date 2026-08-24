@@ -21,12 +21,7 @@ from pathlib import Path
 
 import pytest
 
-_VALIDATOR_PATH = (
-    Path(__file__).parent.parent.parent.parent
-    / "infra"
-    / "scripts"
-    / "validate-rendered-manifests.py"
-)
+_VALIDATOR_PATH = Path(__file__).parent.parent / "scripts" / "validate-rendered-manifests.py"
 
 # The script's filename contains hyphens, so it isn't importable by name.
 # Load it by path instead of renaming the file, which the CI job invokes

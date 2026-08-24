@@ -140,6 +140,15 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install infra test dependencies
+        run: pip install pytest pyyaml
+
       - name: Lint Helm charts
         run: |
           for chart in infra/helm/charts/*; do
@@ -148,7 +157,5 @@ jobs:
             fi
           done
 
-      - name: Validate Kubernetes manifests
-        run: |
-          # TODO: Add validation once we have real manifests
-          echo "Infra validation placeholder"
+      - name: Run infra tests
+        run: pytest infra/tests/ -v
