@@ -1,0 +1,91 @@
+# Stage 1 and Stage 2 of the internal certificate authority.
+#
+# EAIStack runs air-gapped, so the usual way of getting TLS certificates —
+# asking Let's Encrypt over the internet (ACME) — is not available. Instead the
+# cluster runs its own certificate authority (CA): one root certificate that
+# EAIStack itself creates, and which every EAIStack pod is told to trust. Every
+# per-service certificate (backend, postgres, minio, ...) is then signed by that
+# root, so services can verify each other's identity without ever leaving the
+# cluster.
+#
+# Creating that CA is a two-step dance because of a chicken-and-egg problem:
+# cert-manager's "ca" issuer type signs certificates using a CA keypair that
+# must already exist in a Secret. But the only sane way to produce that keypair
+# is to have cert-manager issue it as a Certificate — which needs an issuer.
+# cert-manager breaks the loop with the "selfSigned" issuer type, which signs a
+# certificate with its own private key and needs no CA at all.
+#
+#   Stage 1 (this file): a selfSigned ClusterIssuer, used exactly once.
+#   Stage 2 (this file): the root CA Certificate, signed by that selfSigned
+#                        issuer, written into Secret `eaistack-ca-key-pair`.
+#   Stage 3 (issuer.yaml): the real `eaistack-ca-issuer`, which reads that
+#                        Secret and signs every per-service certificate.
+#
+# See infra/tls/README.md for what to run and how to verify each stage.
+
+# --- Stage 1: bootstrap issuer -----------------------------------------------
+#
+# A ClusterIssuer (not a namespaced Issuer) because the root CA Certificate
+# below is created in cert-manager's own namespace, while per-service
+# Certificates are created in `eaistack`. A namespaced Issuer can only be used
+# by Certificates in its own namespace; a ClusterIssuer works from anywhere.
+#
+# `selfSigned: {}` is not a placeholder — an empty object is the complete and
+# correct configuration for this issuer type. It has nothing to configure
+# because it signs with the requesting certificate's own key.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: eaistack-selfsigned-bootstrap
+spec:
+  selfSigned: {}
+---
+# --- Stage 2: the root CA certificate ----------------------------------------
+#
+# Namespace: `cert-manager`, NOT `eaistack`. A ClusterIssuer of kind `ca` looks
+# for its keypair Secret in the namespace cert-manager itself runs in (the
+# `--cluster-resource-namespace` flag, which defaults to `cert-manager`).
+# Putting this Certificate anywhere else produces a Secret the ClusterIssuer in
+# issuer.yaml cannot find, and every per-service Certificate then hangs
+# unissued. This is the single most common way this setup fails.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eaistack-ca
+  namespace: cert-manager
+spec:
+  # `isCA: true` is what makes this a certificate authority rather than an
+  # ordinary server certificate: it sets the X.509 basicConstraints CA flag, so
+  # certificates signed by this one are trusted by anything trusting the root.
+  # Without it cert-manager issues a perfectly valid certificate that simply
+  # cannot sign anything, and Stage 3 fails at signing time rather than here.
+  isCA: true
+
+  # The human-readable name that shows up in `openssl x509 -text` output and in
+  # browser certificate viewers. Not a DNS name and never resolved — a root CA
+  # identifies an organization, not a host, so no `dnsNames` belong here.
+  commonName: eaistack-internal-ca
+
+  # THIS is the wire that issuer.yaml depends on. cert-manager writes the
+  # issued keypair into a Secret of this exact name (containing `tls.crt`,
+  # `tls.key`, and `ca.crt`), and issuer.yaml's ClusterIssuer reads it back by
+  # the same name. Renaming it here means renaming it there too.
+  secretName: eaistack-ca-key-pair
+
+  # Ten years. Renewing a root CA means re-trusting it on every pod that mounts
+  # the bundle, so a long life is deliberate: this is the anchor of trust, not
+  # a leaf certificate. Per-service certificates issued from it use cert-manager
+  # defaults (90 days) and rotate automatically without any of that disruption.
+  duration: 87600h # 10 years
+  renewBefore: 720h # 30 days
+
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+  # Points at Stage 1. This is the only Certificate in the whole system that
+  # uses the bootstrap issuer; everything else uses `eaistack-ca-issuer`.
+  issuerRef:
+    name: eaistack-selfsigned-bootstrap
+    kind: ClusterIssuer
+    group: cert-manager.io
