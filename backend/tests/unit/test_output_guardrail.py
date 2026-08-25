@@ -42,6 +42,24 @@ def test_filter_output_redacts_system_prompt_disclosure(leaked_text):
     assert "[redacted]" in result.text
 
 
+@pytest.mark.unit
+def test_filter_output_redacts_multiline_system_prompt_disclosure():
+    """A disclosed system prompt that spans multiple lines is redacted in
+    full, not just through the first line break -- a leak that continues
+    past a newline must not survive filtering.
+    """
+    leaked_text = (
+        "My system prompt is: You are a helpful assistant. Be brief and direct.\n"
+        "Do not describe the tool call itself."
+    )
+
+    result = filter_output(leaked_text)
+
+    assert result.was_modified is True
+    assert "[redacted]" in result.text
+    assert "Do not describe the tool call itself" not in result.text
+
+
 @pytest.mark.parametrize(
     "secret_text",
     [
@@ -60,6 +78,18 @@ def test_filter_output_redacts_credential_shaped_tokens(secret_text):
     assert result.was_modified is True
     assert "[redacted]" in result.text
     assert "sk-" not in result.text or result.text.count("sk-") == 0
+
+
+@pytest.mark.unit
+def test_filter_output_redacts_uppercase_credential_shaped_tokens():
+    """A credential-shaped token in a different case (e.g. a model
+    reformatting "sk-" as "SK-") is redacted the same as the lowercase
+    form -- case must not be a way to slip a credential past this filter.
+    """
+    result = filter_output("Your key is SK-ABCDEFGHIJKLMNOPQRSTUVWX1234567890")
+
+    assert result.was_modified is True
+    assert "[redacted]" in result.text
 
 
 @pytest.mark.unit

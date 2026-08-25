@@ -29,16 +29,23 @@ _REDACTED = "[redacted]"
 # own wording ("You are a helpful assistant...") is not matched separately;
 # catching the disclosure phrase is what generalizes to a differently-worded
 # system prompt introduced later without editing this pattern.
+#
+# re.DOTALL so the trailing .* also consumes newlines: a disclosed prompt
+# that spans multiple lines must be redacted in full, not just through the
+# first line break (see test_filter_output_redacts_multiline_system_prompt).
 _SYSTEM_PROMPT_DISCLOSURE_PATTERN = re.compile(
     r"(my system prompt is|here is my system prompt|system prompt)\s*:.*",
-    re.IGNORECASE,
+    re.IGNORECASE | re.DOTALL,
 )
 
 # Matches the shape of common API-key formats (e.g. OpenAI-style sk-...)
 # rather than the word "key", which appears constantly in ordinary text
 # (e.g. "primary key") -- see
 # test_filter_output_does_not_flag_ordinary_mentions_of_the_word_key.
-_CREDENTIAL_TOKEN_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")
+# re.IGNORECASE so an upper-cased or mixed-case token (e.g. a model
+# reformatting "sk-" as "SK-") is still caught, consistent with every other
+# pattern in this codebase's guardrails.
+_CREDENTIAL_TOKEN_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)

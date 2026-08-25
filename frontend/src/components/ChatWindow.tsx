@@ -5,31 +5,17 @@ import { useIsMounted } from "../hooks/useIsMounted";
 import { ChatMessage } from "../types/chat";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { ApiError } from "../api/authorizedFetch";
-
-// Maps the backend's machine-readable guardrail reason codes (see
-// backend/app/guardrails/input_guardrail.py) to user-facing text. The raw
-// code is never shown directly -- it's an internal contract between the
-// guardrail and the audit log, not a message written for an end user.
-const GUARDRAIL_REJECTION_MESSAGES: Record<string, string> = {
-  prompt_injection_suspected:
-    "That message couldn't be sent. Please rephrase your question.",
-  input_too_long: "That message is too long. Please shorten it and try again.",
-  input_empty: "That message couldn't be sent. Please enter a question.",
-};
+import { ApiErrorImpl } from "../api/authorizedFetch";
 
 const GENERIC_ERROR_MESSAGE = "Something went wrong and your message failed to send. Please try again.";
 
-function isApiError(error: unknown): error is ApiError {
-  return typeof error === "object" && error !== null && "detail" in error;
-}
-
+// A raw HTTP status/reason string (ApiErrorImpl's fallback when the backend
+// doesn't supply a human-readable message, e.g. a 500) is not fit to show a
+// user -- only a guardrail-style 4xx rejection carries a message worth
+// displaying, so anything else still falls back to the generic text.
 function describeSendError(error: unknown): string {
-  if (isApiError(error)) {
-    const friendlyMessage = GUARDRAIL_REJECTION_MESSAGES[error.detail];
-    if (friendlyMessage) {
-      return friendlyMessage;
-    }
+  if (error instanceof ApiErrorImpl && error.status >= 400 && error.status < 500 && error.message) {
+    return error.message;
   }
   return GENERIC_ERROR_MESSAGE;
 }
@@ -70,6 +56,7 @@ export function ChatWindow() {
     if (id === threadId) {
       return;
     }
+    setSendErrorMessage(null);
     if (!id) {
       setThreadId("");
       setMessages([]);
