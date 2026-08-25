@@ -20,7 +20,7 @@ test.describe('Complete Login/Logout Flow', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
     await expect(page.locator('text=Welcome')).toBeVisible({ timeout: 10000 })
@@ -73,7 +73,7 @@ test.describe('Complete Login/Logout Flow', () => {
       // If form is visible, fill it
       await usernameInput.fill('testuser')
       await page.locator('input[name="password"]').fill('testpassword')
-      await page.locator('button[type="submit"]').click()
+      await page.locator('input[type="submit"]').click()
       console.log('[test] Filled login form on second attempt')
     } else {
       console.log('[test] Keycloak auto-logged in (session persistence)')

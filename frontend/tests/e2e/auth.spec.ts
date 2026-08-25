@@ -58,7 +58,7 @@ test.describe('Authentication Flow - Login Paths', () => {
     // Submit login with correct credentials
     await usernameInput.fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
     console.log('[test] Submitted login form')
 
     // Should redirect back to app
@@ -99,7 +99,7 @@ test.describe('Authentication Flow - Login Paths', () => {
     // Submit with wrong password
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('wrongpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
     console.log('[test] Submitted wrong password')
 
     // Should see Keycloak error message
@@ -126,7 +126,7 @@ test.describe('Authentication Flow - Login Paths', () => {
     // Submit with nonexistent user
     await page.locator('input[name="username"]').fill('nonexistentuser12345')
     await page.locator('input[name="password"]').fill('anypassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
     console.log('[test] Submitted nonexistent user')
 
     // Should see error
@@ -149,7 +149,7 @@ test.describe('Authentication Flow - Login Paths', () => {
     // First attempt: wrong password
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('wrongpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
     console.log('[test] First attempt: wrong password')
 
     // Wait for error
@@ -166,7 +166,7 @@ test.describe('Authentication Flow - Login Paths', () => {
     await passwordInput.clear()
     await usernameInput.fill('testuser')
     await passwordInput.fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
     console.log('[test] Second attempt: correct password')
 
     // Should succeed this time
@@ -203,7 +203,7 @@ test.describe('Authentication Flow - Logout Paths', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
     console.log('[test] Logged in')
 
     // Wait for authenticated state
@@ -267,7 +267,7 @@ test.describe('Authentication Flow - Logout Paths', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     // Wait for authenticated state
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
@@ -309,7 +309,7 @@ test.describe('Authentication Flow - Logout Paths', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     // Wait for authenticated state
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
@@ -346,7 +346,7 @@ test.describe('Authentication Flow - Logout Paths', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     // Wait for authenticated state
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
@@ -392,7 +392,7 @@ test.describe('Authentication Flow - Logout Paths', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
     await expect(page.locator('text=Welcome')).toBeVisible({ timeout: 10000 })
@@ -414,7 +414,7 @@ test.describe('Authentication Flow - Logout Paths', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     // Should succeed again
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
@@ -440,7 +440,7 @@ test.describe('Authentication Flow - Chat Integration', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     // Chat should be visible after login
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
@@ -468,7 +468,7 @@ test.describe('Authentication Flow - Chat Integration', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     // Wait for authenticated state
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
@@ -505,7 +505,7 @@ test.describe('Authentication Flow - Chat Integration', () => {
     await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
     await page.locator('input[name="username"]').fill('testuser')
     await page.locator('input[name="password"]').fill('testpassword')
-    await page.locator('button[type="submit"]').click()
+    await page.locator('input[type="submit"]').click()
 
     // Wait for authenticated state
     await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
