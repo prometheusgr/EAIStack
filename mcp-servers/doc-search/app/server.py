@@ -17,6 +17,7 @@ import contextvars
 
 import anyio.to_thread
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -84,7 +85,22 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
 
 
 def _build_mcp() -> FastMCP:
-    mcp = FastMCP(name="doc-search", stateless_http=True)
+    # The MCP SDK's DNS-rebinding protection defaults to only accepting a
+    # Host header of "127.0.0.1"/"localhost"/"::1" -- a guard against a
+    # malicious webpage in someone's browser making a request that lands on
+    # a server it believes is same-origin. That threat model doesn't apply
+    # here: this server is never reached from a browser, only from the
+    # backend's server-side HTTP client, reaching it by its docker-compose
+    # service name ("doc-search") or K8s Service DNS name
+    # ("eaistack-doc-search"), neither of which the default allowlist
+    # recognizes -- every real cross-network request would otherwise be
+    # rejected with 421 before BearerTokenMiddleware (this service's actual
+    # access control, see README.md's "Security model") ever runs.
+    mcp = FastMCP(
+        name="doc-search",
+        stateless_http=True,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
 
     @mcp.tool(
         name="search_knowledge_base",
