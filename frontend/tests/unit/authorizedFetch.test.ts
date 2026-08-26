@@ -69,4 +69,43 @@ describe('authorizedFetch', () => {
       detail: 'name is required',
     })
   })
+
+  it('carries an endpoint-supplied human-readable message alongside detail when present', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      json: async () => ({
+        detail: 'prompt_injection_suspected',
+        message: "That message couldn't be sent. Please rephrase your question.",
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const onRefresh = vi.fn().mockResolvedValue(true)
+
+    await expect(authorizedFetch('/api/thing', 'token', onRefresh)).rejects.toMatchObject({
+      status: 400,
+      detail: 'prompt_injection_suspected',
+      message: "That message couldn't be sent. Please rephrase your question.",
+    })
+  })
+
+  it('leaves message empty (never falling back to detail) when the endpoint does not supply one', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({ detail: 'Thread not found' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const onRefresh = vi.fn().mockResolvedValue(true)
+
+    await expect(authorizedFetch('/api/thing', 'token', onRefresh)).rejects.toMatchObject({
+      status: 404,
+      detail: 'Thread not found',
+      message: '',
+    })
+  })
 })

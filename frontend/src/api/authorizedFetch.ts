@@ -3,28 +3,45 @@ export type AuthRefresh = () => Promise<boolean>
 export interface ApiError extends Error {
   status: number
   detail: string
+  message: string
 }
 
 export class ApiErrorImpl extends Error implements ApiError {
   constructor(
     public status: number,
-    public detail: string
+    public detail: string,
+    message?: string
   ) {
-    super(detail)
+    // Never fall back to `detail` here: `detail` is a stable, internal,
+    // machine-readable code and may not be fit for a user to see (see
+    // parseErrorBody below). Leaving `message` as '' when the caller didn't
+    // supply one lets callers like ChatWindow's describeSendError use a
+    // plain truthiness check to tell "no message was provided" apart from
+    // an endpoint-supplied human-readable string.
+    super(message ?? '')
     this.name = 'ApiError'
   }
 }
 
-async function parseErrorDetail(response: Response): Promise<string> {
+interface ParsedErrorBody {
+  detail: string
+  message?: string
+}
+
+async function parseErrorBody(response: Response): Promise<ParsedErrorBody> {
   try {
     const data = await response.json()
     if (data.detail) {
-      return data.detail
+      // message is an optional, endpoint-specific human-readable string
+      // alongside the stable machine-readable detail code (see
+      // backend/app/api/agents.py's guardrail rejection response) -- not
+      // every endpoint sets it, so callers fall back to detail/statusText.
+      return { detail: data.detail, message: typeof data.message === 'string' ? data.message : undefined }
     }
   } catch {
     // Response body isn't JSON; fall back to statusText.
   }
-  return response.statusText
+  return { detail: response.statusText }
 }
 
 export async function authorizedFetch(
@@ -62,8 +79,8 @@ export async function authorizedFetch(
   }
 
   if (!response.ok) {
-    const detail = await parseErrorDetail(response)
-    throw new ApiErrorImpl(response.status, detail)
+    const body = await parseErrorBody(response)
+    throw new ApiErrorImpl(response.status, body.detail, body.message)
   }
 
   return response

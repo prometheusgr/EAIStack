@@ -2,7 +2,7 @@
 
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import AIMessage, AnyMessage, SystemMessage
+from langchain_core.messages import AIMessage, AnyMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -11,20 +11,9 @@ from sqlalchemy.orm import Session
 from app.agents.checkpointer import SqlAlchemyCheckpointSaver
 from app.core.llm_client import get_llm_client
 from app.mcp_client import make_search_knowledge_base_tool
+from app.prompts.chat_prompts import CHAT_AGENT_SYSTEM_PROMPT
 
 MAX_TOOL_CALL_ROUNDS = 5
-
-# Some local models (verified: Llama 3.1 8B Instruct via llama.cpp --jinja) will
-# describe a tool call's JSON instead of answering from its result unless told
-# explicitly to do otherwise. This is prepended per-invocation rather than
-# stored in state, so it isn't duplicated across tool-call rounds.
-SYSTEM_PROMPT = SystemMessage(
-    content=(
-        "You are a helpful assistant. Be brief and direct. When a tool returns results, use that "
-        "information directly to answer the user's question in plain language. "
-        "Do not describe the tool call itself."
-    )
-)
 
 
 class ChatState(TypedDict):
@@ -66,7 +55,7 @@ def create_chat_agent(db: Session, token: str, mcp_url: str):
     llm = get_llm_client(db).bind_tools(tools)
 
     def call_agent(state: ChatState) -> ChatState:
-        response = llm.invoke([SYSTEM_PROMPT, *state["messages"]])
+        response = llm.invoke([CHAT_AGENT_SYSTEM_PROMPT.render(), *state["messages"]])
         return {**state, "messages": [response]}
 
     def route_after_agent(state: ChatState) -> str:

@@ -95,6 +95,10 @@ npm test                 # Run all tests
 npm run test:ui         # Run with interactive UI
 npm test -- filename.test.ts  # Single test file
 
+# End-to-end tests (requires the real stack: docker-compose up)
+npx playwright test tests/e2e/          # Full e2e suite, real Keycloak login + backend
+npx playwright test tests/e2e/foo.spec.ts  # Single e2e spec
+
 # Linting & building
 npm run lint            # Check
 npm run build           # Production build

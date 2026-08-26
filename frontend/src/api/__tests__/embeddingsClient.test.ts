@@ -78,7 +78,10 @@ describe('embeddingsClient', () => {
         const apiError = error as { status: number; detail: string; message: string }
         expect(apiError.status).toBe(401)
         expect(apiError.detail).toBe('Invalid credentials')
-        expect(apiError.message).toBe('Invalid credentials')
+        // detail is the internal machine-readable code; message must stay
+        // empty (not silently default to detail) when the backend response
+        // has no message field.
+        expect(apiError.message).toBe('')
       }
     })
 

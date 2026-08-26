@@ -1,6 +1,10 @@
-# Independent Agent Prompts for Architecture Improvements
+# Archived: Delegation Prompts for the 2026-08-19 Architecture Review
 
-These prompts are designed to be copy/pasted directly into separate agent invocations. Each prompt is self-contained and includes all necessary context.
+**Archived, historical document — not a live prompt library.** These are copy/paste prompts written to delegate five specific refactors identified by `ARCHITECTURE_REVIEW_2026-08-19.md` (service layer extraction, repository pattern, frontend service/hooks layers, Alembic migrations) to separate coding-agent sessions. All five tasks are complete and are now documented as standing project conventions in [docs/BACKEND_SERVICES.md](../BACKEND_SERVICES.md), [docs/REPOSITORY_PATTERN.md](../REPOSITORY_PATTERN.md), and [docs/FRONTEND_ARCHITECTURE.md](../FRONTEND_ARCHITECTURE.md) — read those instead for the current pattern.
+
+This file is kept only for historical record of how that one review's backlog was delegated. It has no relationship to the LLM's own system/agent prompts — for that, see `backend/app/prompts/` (the prompt library) and [docs/AGENT_LIBRARY.md](../AGENT_LIBRARY.md) (the agent-scaffolding pattern), introduced in Phase 4.
+
+These prompts were designed to be copy/pasted directly into separate agent invocations. Each prompt is self-contained and includes all necessary context.
 
 ---
 

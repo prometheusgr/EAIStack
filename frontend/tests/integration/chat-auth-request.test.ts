@@ -266,8 +266,12 @@ describe('Chat Message Authentication - Integration Test', () => {
         await sendChatMessage('test', undefined, 'invalid_token', mockRefresh)
         expect.fail('Should have thrown')
       } catch (error: Error | unknown) {
-        const apiError = error as { message: string; status: number }
-        expect(apiError.message).toBe('Token has expired')
+        // `detail` carries the backend's raw string; `message` stays empty
+        // since this plain HTTPException response has no `message` field --
+        // it must never silently default to `detail` (see ApiErrorImpl).
+        const apiError = error as { message: string; detail: string; status: number }
+        expect(apiError.detail).toBe('Token has expired')
+        expect(apiError.message).toBe('')
         expect(apiError.status).toBe(401)
       }
     })
@@ -306,7 +310,7 @@ describe('Chat Message Authentication - Integration Test', () => {
       expect(result.response).toBe('Agent response')
     })
 
-    it('should include backend error detail in exception message', async () => {
+    it('should include backend error detail on the thrown error', async () => {
       const { sendChatMessage } = await import('@/api/agentsClient')
 
       global.fetch = vi.fn(() =>
@@ -323,8 +327,11 @@ describe('Chat Message Authentication - Integration Test', () => {
         await sendChatMessage('test', undefined, 'token', mockRefresh)
         expect.fail('Should have thrown')
       } catch (error: Error | unknown) {
-        const apiError = error as { message: string }
-        expect(apiError.message).toBe('Database connection failed')
+        // detail (not message) carries the raw backend string when no
+        // endpoint-supplied human-readable message was provided.
+        const apiError = error as { message: string; detail: string }
+        expect(apiError.detail).toBe('Database connection failed')
+        expect(apiError.message).toBe('')
       }
     })
   })

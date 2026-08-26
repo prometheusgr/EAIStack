@@ -13,6 +13,7 @@ This file defines coding standards and development process for EAIStack contribu
 2. Run the test and confirm it fails (red)
 3. Implement the minimum code to make it pass (green)
 4. Refactor for clarity and maintainability without changing behavior (refactor)
+5. If the feature is user-facing (a new UI flow, or a change to an existing one), add or update an e2e test against the real running stack once the UI exists (see "End-to-End (E2E) Tests" below) — this step comes after green, not before, since there's normally no working UI to drive until the feature is built
 
 **For bugs**:
 1. Write a failing test that reproduces the bug
@@ -215,6 +216,40 @@ function useThing() {
 
 Applied in `AuthContext.tsx` (auth init, token refresh, logout) and available to any hook via `useApiCall`/`useApiMutation` or direct use of `useIsMounted()`.
 
+### End-to-End (E2E) Tests
+
+Unit tests (backend `tests/unit/`, frontend Vitest) mock at the LLM boundary and, for the frontend, mock the Keycloak provider and API clients — by design, so they stay fast and gate every commit. Neither layer ever proves the real stack works together: a real Keycloak login, a real JWT reaching the real backend, a real chat request through the real guardrails. That gap is what `frontend/tests/e2e/` (Playwright) closes.
+
+**TDD-first doesn't cleanly apply here, but TDD-after does — don't skip the test because you can't write it first.** There is normally no UI to drive until the feature exists, so the usual red-green-refactor order inverts for e2e specifically:
+1. Build the feature and its unit tests as usual (red → green → refactor)
+2. Once the UI/flow is real and running, write (or update) an e2e spec that exercises it exactly the way a user would
+3. Run it against the real dev stack (`docker-compose up`) and confirm it passes for the right reason — not just that it doesn't crash
+
+A UI feature isn't done until this step happens. "We can't TDD the UI" is not a reason to skip validating it end-to-end; it's a reason the e2e test comes after, not before.
+
+**When to add or update an e2e spec:**
+- A new user-facing flow (a new page, a new guardrail behavior visible in the UI, a new auth path)
+- A change to how an existing flow behaves from the user's perspective (not internal refactors that don't change behavior)
+- A bug that could only have been caught by driving the real UI against the real backend (a unit test with mocks wouldn't have reproduced it)
+
+**Conventions** (see `frontend/tests/e2e/*.spec.ts` for worked examples):
+- Real login through the real Keycloak flow (seeded `testuser`/`testpassword` from `infra/keycloak/realm-import.json`), real backend, no mocked service layer — that's the entire point of this layer.
+- Assert on user-visible behavior (text on screen, a banner, an element's visibility), never on internal state or implementation details.
+- A test documenting a known, intentional gap (e.g. "PII is not yet redacted") is legitimate and valuable: write it as an explicit assertion of today's behavior, with a comment explaining why, so closing the gap later fails the test on purpose instead of the gap silently persisting forever.
+- **Start each test from a clean, known state it controls** (e.g. click "New chat" before sending a message) rather than assuming an empty page. The seeded test account's data (chat threads, uploaded documents, etc.) persists in the same Postgres across every run and every spec file — a fixed message string or an assumption of zero prior history will eventually collide with another test's leftover state or a prior run's data, and a growing page can even cause unrelated elements (like a footer) to intercept clicks.
+- Prefer resilient locators (`getByText`, `getByRole`, a stable `placeholder`/`aria-label`) over CSS classes, which drift as components are restyled. When a selector assumption turns out to be wrong (e.g. a login form's submit control being an `<input type="submit">`, not a `<button>`), fix it at the root across every spec that shares it, not just the one you're currently writing — a stale selector fails the same way (silently, via timeout) in every other spec depending on the same page.
+
+**Test commands**:
+```bash
+docker-compose up            # Real stack must be running first
+cd frontend
+npx playwright test tests/e2e/                    # Full e2e suite
+npx playwright test tests/e2e/guardrails.spec.ts   # Single spec file
+npm run test:e2e:ui                                # Interactive UI mode
+```
+
+Not currently gated by CI (no Keycloak/backend/frontend stack available in the GitHub Actions runner) — run locally against `docker-compose up` before merging a UI-facing change.
+
 ### MCP doc-search server (Phase 3+)
 
 - TDD pgvector query logic against test Postgres
@@ -277,6 +312,7 @@ issue if applicable. Focus on the decision, not the implementation.
 - [ ] Tests specify behavior, not implementation (would pass if refactored correctly)
 - [ ] No test-only mocking that wouldn't apply to production code
 - [ ] Coverage: all new code paths have corresponding tests
+- [ ] If this change is user-facing: an e2e spec exists or was updated, run against the real stack (see "End-to-End (E2E) Tests")
 
 ### Readability & Maintainability
 
@@ -321,6 +357,7 @@ The patterns below are **mandatory shapes**, not suggestions — each has a cano
 | Add or change a frontend API call | [docs/FRONTEND_ARCHITECTURE.md](../docs/FRONTEND_ARCHITECTURE.md) | API client → service → hook → component layering, full worked example, testing each layer |
 | Add a new database query used by an endpoint | [docs/REPOSITORY_PATTERN.md](../docs/REPOSITORY_PATTERN.md) | Repository class shape, user-isolation and soft-delete query patterns |
 | Write a time-dependent function | [docs/TIME_INJECTION.md](../docs/TIME_INJECTION.md) | Time injection pattern, pytest fixtures, testability without mocking |
+| Add a second LangGraph agent alongside `chat_agent` | [docs/AGENT_LIBRARY.md](../docs/AGENT_LIBRARY.md) | Agent module/prompt module shape, factory signature, registry, no-premature-abstraction guidance |
 
 **Why this matters:** these four areas are exactly where inconsistent one-off implementations creep in — a service with FastAPI imports, a component with a raw `fetch()`, a query written inline in an endpoint instead of a repository. The guides exist so every instance looks the same. If you find yourself deviating from the documented shape, that's a signal to either follow it or flag the guide as outdated — not to invent a new shape silently.
 

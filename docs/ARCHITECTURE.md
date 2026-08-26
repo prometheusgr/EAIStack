@@ -112,8 +112,8 @@ User (browser)
 2. **Phase 1**: Local dev (docker-compose, all services running)
 3. **Phase 2**: LangGraph + llama-server integration
 4. **Phase 3**: MCP + pgvector doc search ✓ complete
-5. **Phase 4**: Guardrails, prompt library, agent library scaffolding
-6. **Phase 4a**: Session/context lifecycle (configurable cleanup)
+5. **Phase 4**: Guardrails, prompt library, agent library scaffolding ✓ complete
+6. **Phase 4a**: Session/context lifecycle (configurable cleanup) ✓ complete
 7. **Phase 5**: Kubernetes + air-gap packaging + encryption
 
 See `/.claude/plans/indexed-tinkering-babbage.md` for detailed phase breakdown.

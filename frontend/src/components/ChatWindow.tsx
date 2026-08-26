@@ -1,17 +1,43 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChatService } from "../hooks/useChatService";
 import { useThreadsService } from "../hooks/useThreadsService";
+import { useIsMounted } from "../hooks/useIsMounted";
 import { ChatMessage } from "../types/chat";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { ApiErrorImpl } from "../api/authorizedFetch";
+
+const GENERIC_ERROR_MESSAGE = "Something went wrong and your message failed to send. Please try again.";
+
+// A raw HTTP status/reason string (ApiErrorImpl's fallback when the backend
+// doesn't supply a human-readable message, e.g. a 500) is not fit to show a
+// user -- only a guardrail-style 4xx rejection carries a message worth
+// displaying, so anything else still falls back to the generic text.
+function describeSendError(error: unknown): string {
+  if (error instanceof ApiErrorImpl && error.status >= 400 && error.status < 500 && error.message) {
+    return error.message;
+  }
+  return GENERIC_ERROR_MESSAGE;
+}
 
 export function ChatWindow() {
-  const { mutateAsync: sendMessage, isPending, error: apiError } = useChatService();
+  const { mutateAsync: sendMessage, isPending } = useChatService();
   const { listThreads, getThreadHistory } = useThreadsService();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [threadId, setThreadId] = useState<string>("");
   const [hasLoadedInitialThread, setHasLoadedInitialThread] = useState(false);
+  const [sendErrorMessage, setSendErrorMessage] = useState<string | null>(null);
+  const isMounted = useIsMounted();
+  // Tracks which thread is currently active, independent of React's render
+  // cycle. handleSend's catch block closes over `threadId` state at the
+  // moment the send *started* -- if the user switches threads (or starts a
+  // new chat) while that send is still in flight, `threadId` state moves on,
+  // but the closure's copy is stale. Comparing against this ref (updated
+  // synchronously by handleSelectThread/loadThread) lets the catch block
+  // detect "the user has since navigated away" and skip mutating whatever
+  // thread is now on screen.
+  const activeThreadIdRef = useRef<string>("");
 
   useEffect(() => {
     listThreads.execute();
@@ -31,14 +57,16 @@ export function ChatWindow() {
 
   const loadThread = async (id: string) => {
     const history = await getThreadHistory.mutateAsync(id);
-    setThreadId(history.id);
-    setMessages(history.messages);
+    if (isMounted()) setThreadId(history.id);
+    if (isMounted()) setMessages(history.messages);
   };
 
   const handleSelectThread = (id: string) => {
     if (id === threadId) {
       return;
     }
+    activeThreadIdRef.current = id;
+    setSendErrorMessage(null);
     if (!id) {
       setThreadId("");
       setMessages([]);
@@ -54,17 +82,30 @@ export function ChatWindow() {
 
     const userMessage = inputValue;
     const currentThreadId = threadId || undefined;
+    // Snapshot which thread this send belongs to. If the user switches
+    // threads (or starts a new chat) before this request settles, this
+    // request's outcome must not be applied to whatever thread is showing
+    // by the time it resolves/rejects -- see activeThreadIdRef above.
+    const sendThreadId = threadId;
+    activeThreadIdRef.current = sendThreadId;
 
     try {
+      setSendErrorMessage(null);
       setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
       setInputValue("");
 
       const result = await sendMessage({ message: userMessage, threadId: currentThreadId });
-      setThreadId(result.threadId);
-      setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
+      const stillOnSameThread = activeThreadIdRef.current === sendThreadId;
+      if (isMounted() && stillOnSameThread) {
+        activeThreadIdRef.current = result.threadId;
+        setThreadId(result.threadId);
+        setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
+      }
       listThreads.execute();
-    } catch {
-      setMessages((prev) => prev.slice(0, -1));
+    } catch (error) {
+      const stillOnSameThread = activeThreadIdRef.current === sendThreadId;
+      if (isMounted() && stillOnSameThread) setMessages((prev) => prev.slice(0, -1));
+      if (isMounted() && stillOnSameThread) setSendErrorMessage(describeSendError(error));
     }
   };
 
@@ -129,9 +170,9 @@ export function ChatWindow() {
               </div>
             </div>
           )}
-          {apiError && (
+          {sendErrorMessage && (
             <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm">
-              Error: {apiError.message}
+              {sendErrorMessage}
             </div>
           )}
         </div>
