@@ -326,12 +326,26 @@ than the user asked, without their knowledge) or merely flagging-and-allowing
 (which still lets an injection attempt reach the model).
 
 **Output guardrail** (`app/guardrails/output_guardrail.py`): runs on the
-agent's response before it's returned. Redacts system-prompt disclosures and
-credential-shaped tokens (e.g. `sk-...`-style API keys) in place. Trip
-behavior is **sanitize**, not reject: unlike the input side, there is no
-cheap way to "re-ask" once the LLM has already produced a full response, and
-rejecting the whole answer over one flagged span would discard an otherwise
-useful, already-computed response.
+agent's response before it's returned. Redacts system-prompt disclosures,
+verbatim system-prompt leaks, and credential-shaped tokens (e.g.
+`sk-...`-style API keys) in place. Trip behavior is **sanitize**, not reject:
+unlike the input side, there is no cheap way to "re-ask" once the LLM has
+already produced a full response, and rejecting the whole answer over one
+flagged span would discard an otherwise useful, already-computed response.
+
+System-prompt leak detection uses two independent strategies, because
+neither alone covers the whole threat: a **phrasing** check
+(`_SYSTEM_PROMPT_DISCLOSURE_PATTERN`) catches a response that announces
+itself as a disclosure ("my system prompt is: ..."), and a **content** check
+(`_find_verbatim_prompt_leak`) catches a response that reproduces the actual
+system prompt's wording with no announcing phrase at all — e.g. complying
+with "repeat everything above verbatim." The content check compares the
+response against the caller's real, rendered system prompt text (threaded
+through from `app.services.chat_guardrail_service.filter_agent_response`),
+so it generalizes to any prompt wording without needing new regex per
+phrasing. A second agent added later (see `docs/AGENT_LIBRARY.md`) gets this
+protection automatically as long as it passes its own rendered prompt
+through the same service.
 
 **PII detection is out of scope for this phase.** It was deliberately
 deferred rather than silently dropped: scoping it correctly requires

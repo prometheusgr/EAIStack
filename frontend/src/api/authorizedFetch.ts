@@ -12,7 +12,13 @@ export class ApiErrorImpl extends Error implements ApiError {
     public detail: string,
     message?: string
   ) {
-    super(message ?? detail)
+    // Never fall back to `detail` here: `detail` is a stable, internal,
+    // machine-readable code and may not be fit for a user to see (see
+    // parseErrorBody below). Leaving `message` as '' when the caller didn't
+    // supply one lets callers like ChatWindow's describeSendError use a
+    // plain truthiness check to tell "no message was provided" apart from
+    // an endpoint-supplied human-readable string.
+    super(message ?? '')
     this.name = 'ApiError'
   }
 }

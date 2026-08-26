@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChatService } from "../hooks/useChatService";
 import { useThreadsService } from "../hooks/useThreadsService";
 import { useIsMounted } from "../hooks/useIsMounted";
@@ -29,6 +29,15 @@ export function ChatWindow() {
   const [hasLoadedInitialThread, setHasLoadedInitialThread] = useState(false);
   const [sendErrorMessage, setSendErrorMessage] = useState<string | null>(null);
   const isMounted = useIsMounted();
+  // Tracks which thread is currently active, independent of React's render
+  // cycle. handleSend's catch block closes over `threadId` state at the
+  // moment the send *started* -- if the user switches threads (or starts a
+  // new chat) while that send is still in flight, `threadId` state moves on,
+  // but the closure's copy is stale. Comparing against this ref (updated
+  // synchronously by handleSelectThread/loadThread) lets the catch block
+  // detect "the user has since navigated away" and skip mutating whatever
+  // thread is now on screen.
+  const activeThreadIdRef = useRef<string>("");
 
   useEffect(() => {
     listThreads.execute();
@@ -56,6 +65,7 @@ export function ChatWindow() {
     if (id === threadId) {
       return;
     }
+    activeThreadIdRef.current = id;
     setSendErrorMessage(null);
     if (!id) {
       setThreadId("");
@@ -72,6 +82,12 @@ export function ChatWindow() {
 
     const userMessage = inputValue;
     const currentThreadId = threadId || undefined;
+    // Snapshot which thread this send belongs to. If the user switches
+    // threads (or starts a new chat) before this request settles, this
+    // request's outcome must not be applied to whatever thread is showing
+    // by the time it resolves/rejects -- see activeThreadIdRef above.
+    const sendThreadId = threadId;
+    activeThreadIdRef.current = sendThreadId;
 
     try {
       setSendErrorMessage(null);
@@ -79,12 +95,17 @@ export function ChatWindow() {
       setInputValue("");
 
       const result = await sendMessage({ message: userMessage, threadId: currentThreadId });
-      if (isMounted()) setThreadId(result.threadId);
-      if (isMounted()) setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
+      const stillOnSameThread = activeThreadIdRef.current === sendThreadId;
+      if (isMounted() && stillOnSameThread) {
+        activeThreadIdRef.current = result.threadId;
+        setThreadId(result.threadId);
+        setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
+      }
       listThreads.execute();
     } catch (error) {
-      if (isMounted()) setMessages((prev) => prev.slice(0, -1));
-      if (isMounted()) setSendErrorMessage(describeSendError(error));
+      const stillOnSameThread = activeThreadIdRef.current === sendThreadId;
+      if (isMounted() && stillOnSameThread) setMessages((prev) => prev.slice(0, -1));
+      if (isMounted() && stillOnSameThread) setSendErrorMessage(describeSendError(error));
     }
   };
 

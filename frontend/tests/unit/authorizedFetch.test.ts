@@ -91,7 +91,7 @@ describe('authorizedFetch', () => {
     })
   })
 
-  it('falls back to detail as the message when the endpoint does not supply one', async () => {
+  it('leaves message empty (never falling back to detail) when the endpoint does not supply one', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 404,
@@ -105,7 +105,7 @@ describe('authorizedFetch', () => {
     await expect(authorizedFetch('/api/thing', 'token', onRefresh)).rejects.toMatchObject({
       status: 404,
       detail: 'Thread not found',
-      message: 'Thread not found',
+      message: '',
     })
   })
 })

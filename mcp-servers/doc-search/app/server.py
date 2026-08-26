@@ -85,21 +85,51 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
 
 
 def _build_mcp() -> FastMCP:
-    # The MCP SDK's DNS-rebinding protection defaults to only accepting a
-    # Host header of "127.0.0.1"/"localhost"/"::1" -- a guard against a
-    # malicious webpage in someone's browser making a request that lands on
-    # a server it believes is same-origin. That threat model doesn't apply
-    # here: this server is never reached from a browser, only from the
-    # backend's server-side HTTP client, reaching it by its docker-compose
-    # service name ("doc-search") or K8s Service DNS name
-    # ("eaistack-doc-search"), neither of which the default allowlist
-    # recognizes -- every real cross-network request would otherwise be
-    # rejected with 421 before BearerTokenMiddleware (this service's actual
-    # access control, see README.md's "Security model") ever runs.
+    # The MCP SDK's DNS-rebinding protection validates the Host header
+    # against an explicit allowlist -- a guard against a malicious webpage
+    # in someone's browser making a request that lands on a server it
+    # believes is same-origin. That threat model doesn't fully evaporate
+    # just because this server is normally reached by the backend's
+    # server-side HTTP client: docker-compose.yml publishes this port to the
+    # host ("8100:8100", for curl/direct debugging), which also makes
+    # http://localhost:8100 directly reachable from any browser tab. So the
+    # fix is to allowlist every real Host value this server is legitimately
+    # reached under, not to disable the check:
+    #   - "doc-search:8100"            docker-compose service DNS name
+    #   - "eaistack-doc-search"        K8s Service short name (in-namespace)
+    #   - "eaistack-doc-search:8100"   K8s Service short name with port
+    #   - "127.0.0.1"/"localhost"/"::1" (with wildcard port) local/dev access
+    #     via the published host port -- these mirror FastMCP's own default
+    #     allowlist for a localhost-bound server (see
+    #     mcp.server.fastmcp.server.FastMCP.__init__), which we must restate
+    #     explicitly here because supplying our own TransportSecuritySettings
+    #     replaces that default rather than extending it (confirmed against
+    #     mcp.server.transport_security.TransportSecurityMiddleware._validate_host,
+    #     which only ever consults self.settings.allowed_hosts).
+    # allowed_hosts supports a ":*" suffix to match any port for a given
+    # host (see _validate_host's wildcard-port branch), which is why the
+    # docker-compose/K8s entries below are listed both bare and with the
+    # concrete port: DNS-name Host headers are sent with the port already
+    # attached by an HTTP client talking to a non-default port, but the
+    # wildcard form keeps this working if the port ever changes.
     mcp = FastMCP(
         name="doc-search",
         stateless_http=True,
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[
+                "doc-search",
+                "doc-search:*",
+                "eaistack-doc-search",
+                "eaistack-doc-search:*",
+                "127.0.0.1",
+                "127.0.0.1:*",
+                "localhost",
+                "localhost:*",
+                "[::1]",
+                "[::1]:*",
+            ],
+        ),
     )
 
     @mcp.tool(
