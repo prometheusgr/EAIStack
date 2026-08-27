@@ -5,6 +5,12 @@
 # Audit records are never purged by this job — the sweep has no code path that
 # can delete them.
 #
+# Since issue #13, the sweep also deletes the MinIO object backing any
+# file-uploaded knowledge_base document it purges (see
+# app.services.retention_service.purge_expired_knowledge_base) — so this Job
+# needs the same MinIO connection details and CA bundle as the backend
+# Deployment, not just DATABASE_URL.
+#
 # A CronJob rather than an in-process scheduler inside the API pods: an
 # in-process scheduler runs in every replica, so a multi-replica Deployment
 # would fire concurrent sweeps issuing overlapping DELETEs unless a distributed
@@ -55,12 +61,39 @@ spec:
                     secretKeyRef:
                       name: eaistack-backend
                       key: database-url
+                - name: MINIO_URL
+                  value: "https://eaistack-minio.eaistack.svc.cluster.local:9000"
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: eaistack-backend
+                      key: minio-access-key
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: eaistack-backend
+                      key: minio-secret-key
+                - name: MINIO_BUCKET
+                  value: "documents"
+                - name: CA_BUNDLE_PATH
+                  value: "/etc/ssl/eaistack/ca.crt"
               resources:
                 requests:
                   cpu: 50m
                   memory: 128Mi
                 limits:
                   memory: 256Mi
+              volumeMounts:
+                - name: ca-bundle
+                  mountPath: /etc/ssl/eaistack
+                  readOnly: true
+          volumes:
+            - name: ca-bundle
+              secret:
+                secretName: eaistack-ca-key-pair
+                items:
+                  - key: ca.crt
+                    path: ca.crt
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

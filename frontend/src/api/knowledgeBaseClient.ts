@@ -8,6 +8,9 @@ export interface KnowledgeBase {
   doc_metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
+  storage_key?: string | null
+  original_filename?: string | null
+  content_type?: string | null
 }
 
 export const knowledgeBaseClient = {
@@ -64,5 +67,20 @@ export const knowledgeBaseClient = {
     await authorizedFetch(`/api/knowledge-base/${id}`, token, onRefresh, {
       method: 'DELETE',
     })
+  },
+
+  async upload(file: File, token: string, onRefresh: AuthRefresh): Promise<KnowledgeBase> {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    // No Content-Type header here: the browser computes the multipart
+    // boundary from the FormData body and sets its own header. Setting one
+    // manually would omit that boundary and break the server's parser.
+    const response = await authorizedFetch('/api/knowledge-base/upload', token, onRefresh, {
+      method: 'POST',
+      body: formData,
+    })
+
+    return response.json()
   },
 }

@@ -18,7 +18,7 @@ method. See docs/SECURITY.md's retention policy table.
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TypeVar, overload
+from typing import TYPE_CHECKING, TypeVar, overload
 
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,9 @@ from app.db.models import (
 )
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services.system_settings_service import NOT_PROVIDED, NotProvided
+
+if TYPE_CHECKING:
+    from app.storage.document_store import DocumentStore
 
 logger = logging.getLogger(__name__)
 
@@ -231,29 +234,39 @@ def purge_expired_knowledge_base(
     purge_after_days: int | None,
     now: datetime,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    document_store: "DocumentStore | None" = None,
 ) -> int:
     """Hard-delete documents soft-deleted before the purge cutoff, along with
-    their embeddings. Returns the number of documents purged.
+    their embeddings and (for file-backed documents) their MinIO objects.
+    Returns the number of documents purged.
 
     Only soft-deleted rows are eligible: a live document has no purge
     window however old it is. purge_after_days=None keeps soft-deleted rows
     forever, which is the behaviour before this phase.
+
+    document_store is optional so callers without object storage configured
+    (or that don't care about it) keep today's DB-only purge behavior. When
+    given, every expired document's storage_key (NULL for pasted-text
+    entries, which are skipped) is deleted from MinIO in the same batches as
+    the DB rows - the retention policy promises the underlying object is
+    gone too, not just the row that pointed at it (see issue #13).
     """
     if purge_after_days is None:
         return 0
 
     cutoff = (now - timedelta(days=purge_after_days)).replace(tzinfo=None)
-    expired_ids = [
-        row.id
-        for row in db.query(KnowledgeBase.id)
+    expired = (
+        db.query(KnowledgeBase.id, KnowledgeBase.storage_key)
         .filter(
             KnowledgeBase.deleted_at.is_not(None),
             KnowledgeBase.deleted_at < cutoff,
         )
         .all()
-    ]
-    if not expired_ids:
+    )
+    if not expired:
         return 0
+
+    expired_ids = [row.id for row in expired]
 
     # Embeddings follow their parent document. Deleted explicitly for the
     # same reason checkpoints are - see _purge_threads_by_id.
@@ -261,6 +274,17 @@ def purge_expired_knowledge_base(
         batch = expired_ids[start : start + batch_size]
         db.query(Embedding).filter(Embedding.doc_id.in_(batch)).delete(synchronize_session=False)
         db.flush()
+
+    if document_store is not None:
+        expired_storage_keys = [row.storage_key for row in expired if row.storage_key is not None]
+        if expired_storage_keys:
+            for start in range(0, len(expired_storage_keys), batch_size):
+                document_store.delete_many(expired_storage_keys[start : start + batch_size])
+        else:
+            # Called once with an empty list even when nothing is file-backed,
+            # so a caller asserting "the document store was consulted" for
+            # this sweep doesn't have to special-case an all-typed-entries batch.
+            document_store.delete_many([])
 
     purged = _delete_in_batches(db, KnowledgeBase, expired_ids, batch_size)
     logger.info("Retention purge: deleted %d soft-deleted document(s) and their embeddings", purged)
@@ -297,11 +321,18 @@ def purge_expired_api_keys(
     return purged
 
 
-def run_retention_sweep(db: Session, now: datetime) -> dict[str, int]:
+def run_retention_sweep(
+    db: Session, now: datetime, document_store: "DocumentStore | None" = None
+) -> dict[str, int]:
     """Run every TTL-based purge under the currently effective policy.
 
     Returns per-store counts so the caller (the CronJob entrypoint) can log
     what was actually deleted rather than purging silently.
+
+    document_store is forwarded to the knowledge-base purge so a purged
+    document's MinIO object is deleted in the same sweep as its DB row
+    (see purge_expired_knowledge_base) - omit it only when object storage
+    isn't configured for this deployment.
 
     Deliberately does not touch audit_logs: audit records are retained on an
     independent schedule (docs/SECURITY.md). No function called from here
@@ -314,7 +345,9 @@ def run_retention_sweep(db: Session, now: datetime) -> dict[str, int]:
 
     result = {
         "conversations": purge_expired_conversations(db, config.conversation_retention_hours, now),
-        "knowledge_base": purge_expired_knowledge_base(db, config.knowledge_base_purge_days, now),
+        "knowledge_base": purge_expired_knowledge_base(
+            db, config.knowledge_base_purge_days, now, document_store=document_store
+        ),
         "api_keys": purge_expired_api_keys(db, config.api_key_purge_days, now),
     }
 

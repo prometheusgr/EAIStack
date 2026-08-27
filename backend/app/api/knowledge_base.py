@@ -1,19 +1,44 @@
 """API endpoints for Knowledge Base management."""
 
+import io
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.schemas import KnowledgeBaseCreate, KnowledgeBaseResponse
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import Embedding, KnowledgeBase
 from app.repositories import KnowledgeBaseRepository
 from app.services import generate_embedding
+from app.storage.dependencies import get_document_store
+from app.storage.document_store import DocumentStore
+from app.storage.text_extraction import UnsupportedContentTypeError, extract_text
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
+
+
+def _generate_and_attach_embedding(db: Session, kb: KnowledgeBase, text: str) -> None:
+    """Generate an embedding for `text` and stage it for insert alongside `kb`.
+
+    Shared by both creation paths (paste-text and file-upload): each tags
+    Embedding.embed_metadata with the provider/model that produced the
+    vector, so a later runtime provider switch (Settings screen) is
+    detectable instead of silently mixing incompatible vectors in the same
+    knowledge base. Does not commit; the caller owns the transaction.
+    """
+    embedding_result = generate_embedding(db, text)
+    embedding = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=embedding_result.vector,
+        embed_metadata=embedding_result.as_embed_metadata(),
+    )
+    db.add(embedding)
 
 
 def _to_response(kb: KnowledgeBase) -> KnowledgeBaseResponse:
@@ -26,6 +51,9 @@ def _to_response(kb: KnowledgeBase) -> KnowledgeBaseResponse:
         doc_metadata=kb.doc_metadata or {},
         created_at=kb.created_at.isoformat(),
         updated_at=kb.updated_at.isoformat(),
+        storage_key=kb.storage_key,
+        original_filename=kb.original_filename,
+        content_type=kb.content_type,
     )
 
 
@@ -50,20 +78,104 @@ async def create_knowledge_base(
         doc_metadata=payload.metadata or {},
     )
 
-    # Generate and store embedding, tagged with the provider/model that
-    # produced it so a later runtime provider switch (Settings screen) is
-    # detectable instead of silently mixing incompatible vectors.
-    embedding_result = generate_embedding(db, payload.content)
-    embedding = Embedding(
-        id=str(uuid4()),
-        doc_id=kb.id,
-        embedding=embedding_result.vector,
-        embed_metadata=embedding_result.as_embed_metadata(),
-    )
-    db.add(embedding)
+    _generate_and_attach_embedding(db, kb, payload.content)
 
     created = repo.create(kb)
     db.commit()
+    db.refresh(created)
+    return _to_response(created)
+
+
+@router.post("/upload", status_code=201, response_model=KnowledgeBaseResponse)
+async def upload_knowledge_base_document(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    document_store: DocumentStore = Depends(get_document_store),
+):
+    """Create a knowledge base entry from an uploaded file.
+
+    - Validates content type and size at the boundary, before reading the
+      full file into memory or attempting extraction.
+    - Extracts searchable text from the file (PDF, DOCX, or plain text) and
+      stores it as `content`, exactly as the paste-text flow does - the
+      rest of the ingestion/search pipeline (embedding, semantic search)
+      doesn't need to know a document came from a file upload.
+    - Stores the original file bytes in MinIO under a key scoped to the
+      caller's own user_id (see app.storage.object_keys), never a
+      client-supplied path.
+    """
+    if file.content_type not in settings.knowledge_base_upload_allowed_content_types:
+        return JSONResponse(
+            status_code=415,
+            content={
+                "detail": "unsupported_content_type",
+                "message": f"Unsupported file type: {file.content_type}",
+            },
+        )
+
+    max_bytes = settings.knowledge_base_upload_max_bytes
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "detail": "file_too_large",
+                "message": f"File exceeds the maximum allowed size of {max_bytes} bytes",
+            },
+        )
+
+    try:
+        extracted_text = extract_text(data, content_type=file.content_type)
+    except UnsupportedContentTypeError as e:
+        return JSONResponse(
+            status_code=415,
+            content={"detail": "unsupported_content_type", "message": str(e)},
+        )
+
+    # FastAPI's own request validation rejects a multipart file part with no
+    # filename (422) before this handler runs, so filename is always a str
+    # here - this assertion documents that guarantee for mypy rather than
+    # re-validating something the framework already enforced.
+    assert file.filename is not None
+
+    repo = KnowledgeBaseRepository(db)
+    kb_id = str(uuid4())
+    storage_key = document_store.upload(
+        user_id=user["user_id"],
+        kb_id=kb_id,
+        filename=file.filename,
+        data=io.BytesIO(data),
+        length=len(data),
+        content_type=file.content_type,
+    )
+
+    # From here on, the MinIO object already exists. If anything below
+    # fails, no KnowledgeBase row is ever created to reference it, and the
+    # retention sweep only ever finds objects via a row's storage_key - so
+    # a failure here would otherwise leak the object in MinIO forever.
+    # Delete it and let the original exception propagate as a 500.
+    try:
+        kb = KnowledgeBase(
+            id=kb_id,
+            user_id=user["user_id"],
+            title=file.filename,
+            content=extracted_text,
+            storage_key=storage_key,
+            original_filename=file.filename,
+            content_type=file.content_type,
+            doc_metadata={},
+        )
+
+        _generate_and_attach_embedding(db, kb, extracted_text)
+
+        created = repo.create(kb)
+        db.commit()
+    except Exception:
+        db.rollback()
+        document_store.delete(storage_key)
+        raise
+
     db.refresh(created)
     return _to_response(created)
 

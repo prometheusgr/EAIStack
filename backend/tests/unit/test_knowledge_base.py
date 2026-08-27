@@ -8,6 +8,7 @@ import pytest
 from app.core.auth import get_current_user
 from app.db.models import Embedding, KnowledgeBase
 from app.main import app
+from app.repositories import KnowledgeBaseRepository
 
 
 @pytest.mark.unit
@@ -26,6 +27,50 @@ def test_knowledge_base_model_creation(db_session):
     assert retrieved is not None
     assert retrieved.title == "Test Document"
     assert retrieved.content == "This is test content"
+
+
+@pytest.mark.unit
+def test_knowledge_base_model_stores_object_storage_fields(db_session):
+    """Test: KnowledgeBase model persists storage_key/original_filename/content_type
+    for a document backed by an uploaded file, alongside its extracted text.
+    """
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-123",
+        title="Uploaded Spec.pdf",
+        content="Extracted text from the PDF",
+        storage_key="user-123/doc-id/Uploaded Spec.pdf",
+        original_filename="Uploaded Spec.pdf",
+        content_type="application/pdf",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    retrieved = db_session.query(KnowledgeBase).filter_by(user_id="user-123").first()
+    assert retrieved is not None
+    assert retrieved.storage_key == "user-123/doc-id/Uploaded Spec.pdf"
+    assert retrieved.original_filename == "Uploaded Spec.pdf"
+    assert retrieved.content_type == "application/pdf"
+
+
+@pytest.mark.unit
+def test_knowledge_base_model_storage_fields_default_to_none_for_typed_entries(db_session):
+    """Test: pasted-text entries (no file upload) leave the storage fields NULL,
+    not empty string - distinguishing "no file" from "file with no name".
+    """
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-123",
+        title="Typed Note",
+        content="Just typed text",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    retrieved = db_session.query(KnowledgeBase).filter_by(user_id="user-123").first()
+    assert retrieved.storage_key is None
+    assert retrieved.original_filename is None
+    assert retrieved.content_type is None
 
 
 @pytest.mark.unit
@@ -390,6 +435,31 @@ def test_delete_excludes_from_list(client, db_session):
         assert len(data) == 0
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_knowledge_base_repository_create_persists_storage_fields(db_session):
+    """Test: KnowledgeBaseRepository.create() round-trips storage_key,
+    original_filename, and content_type for a file-backed entry.
+    """
+    repo = KnowledgeBaseRepository(db_session)
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="user-1",
+        title="spec.pdf",
+        content="Extracted PDF text",
+        storage_key="user-1/doc-1/spec.pdf",
+        original_filename="spec.pdf",
+        content_type="application/pdf",
+    )
+
+    created = repo.create(kb)
+    db_session.commit()
+
+    retrieved = db_session.query(KnowledgeBase).filter_by(id=created.id).first()
+    assert retrieved.storage_key == "user-1/doc-1/spec.pdf"
+    assert retrieved.original_filename == "spec.pdf"
+    assert retrieved.content_type == "application/pdf"
 
 
 @pytest.mark.unit

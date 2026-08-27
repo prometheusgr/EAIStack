@@ -23,9 +23,12 @@ Exits non-zero on failure so the Job is marked failed and retried.
 import logging
 import sys
 
+from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import utc_now
 from app.services import run_retention_sweep
+from app.storage.document_store import DocumentStore
+from app.storage.minio_client import build_minio_client
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +39,19 @@ def main() -> int:
     Resolves retention config from the DB at run time, so the sweep honours
     whatever an admin last set in the settings screen without this job
     needing a redeploy.
+
+    Always runs with a real DocumentStore so a purged document's MinIO
+    object is deleted alongside its DB row - the object store is expected
+    to be reachable in every deployment where this CronJob runs (see
+    docker-compose.yml / infra/k3s/retention-cronjob.yaml).
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+    document_store = DocumentStore(client=build_minio_client(), bucket=settings.minio_bucket)
+
     db = SessionLocal()
     try:
-        result = run_retention_sweep(db, now=utc_now())
+        result = run_retention_sweep(db, now=utc_now(), document_store=document_store)
         db.commit()
     except Exception:
         db.rollback()

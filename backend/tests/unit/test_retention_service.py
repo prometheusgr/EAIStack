@@ -286,6 +286,85 @@ def test_purging_a_document_also_purges_its_embeddings(db_session):
 
 
 @pytest.mark.unit
+def test_purging_a_file_backed_document_deletes_its_minio_object(db_session):
+    """Test: purging a soft-deleted, file-backed document also deletes its
+    MinIO object - the part issue #13 calls out as most likely to be
+    missed. If the object survives, it is now an orphan no retention
+    policy covers, which is a silent data-retention violation.
+    """
+    from unittest.mock import MagicMock
+
+    doc = KnowledgeBase(
+        user_id="user-1",
+        title="spec.pdf",
+        content="Extracted text",
+        storage_key="user-1/doc-1/spec.pdf",
+        original_filename="spec.pdf",
+        content_type="application/pdf",
+        deleted_at=_naive(NOW - timedelta(days=31)),
+    )
+    db_session.add(doc)
+    db_session.commit()
+
+    document_store = MagicMock()
+    purged = purge_expired_knowledge_base(
+        db_session, purge_after_days=30, now=NOW, document_store=document_store
+    )
+    db_session.commit()
+
+    assert purged == 1
+    document_store.delete_many.assert_called_once_with(["user-1/doc-1/spec.pdf"])
+
+
+@pytest.mark.unit
+def test_purging_typed_entries_does_not_call_document_store(db_session):
+    """Test: a pasted-text (non-file-backed) document has no storage_key, so
+    purging it must not call the document store with a None key.
+    """
+    from unittest.mock import MagicMock
+
+    doc = KnowledgeBase(
+        user_id="user-1",
+        title="Typed note",
+        content="Just typed text",
+        deleted_at=_naive(NOW - timedelta(days=31)),
+    )
+    db_session.add(doc)
+    db_session.commit()
+
+    document_store = MagicMock()
+    purge_expired_knowledge_base(
+        db_session, purge_after_days=30, now=NOW, document_store=document_store
+    )
+    db_session.commit()
+
+    document_store.delete_many.assert_called_once_with([])
+
+
+@pytest.mark.unit
+def test_purge_knowledge_base_without_document_store_still_purges_db_rows(db_session):
+    """Test: document_store is optional - callers that don't care about
+    object storage (or don't have one configured) still get the DB-row
+    purge behavior unchanged.
+    """
+    doc = KnowledgeBase(
+        user_id="user-1",
+        title="Doc",
+        content="Body",
+        deleted_at=_naive(NOW - timedelta(days=31)),
+    )
+    db_session.add(doc)
+    db_session.commit()
+    doc_id = doc.id
+
+    purged = purge_expired_knowledge_base(db_session, purge_after_days=30, now=NOW)
+    db_session.commit()
+
+    assert purged == 1
+    assert db_session.query(KnowledgeBase).filter_by(id=doc_id).first() is None
+
+
+@pytest.mark.unit
 def test_live_document_is_never_purged_however_old(db_session):
     """Only soft-deleted docs are eligible; a live doc has no purge window."""
     doc = KnowledgeBase(
@@ -449,6 +528,31 @@ def test_full_sweep_with_most_aggressive_settings_never_deletes_audit_records(db
     assert db_session.query(KnowledgeBase).count() == 0
     assert db_session.query(APIKey).count() == 0
     assert db_session.query(AuditLog).filter_by(id=audit.id).first() is not None
+
+
+@pytest.mark.unit
+def test_full_sweep_forwards_document_store_to_knowledge_base_purge(db_session):
+    """Test: run_retention_sweep() passes its document_store through to the
+    knowledge-base purge, so the CronJob entrypoint's object deletion isn't
+    silently dropped by the top-level orchestrator.
+    """
+    from unittest.mock import MagicMock
+
+    doc = KnowledgeBase(
+        user_id="user-1",
+        title="spec.pdf",
+        content="Extracted text",
+        storage_key="user-1/doc-1/spec.pdf",
+        deleted_at=_naive(NOW - timedelta(days=365)),
+    )
+    db_session.add(doc)
+    db_session.commit()
+
+    document_store = MagicMock()
+    run_retention_sweep(db_session, now=NOW, document_store=document_store)
+    db_session.commit()
+
+    document_store.delete_many.assert_called_once_with(["user-1/doc-1/spec.pdf"])
 
 
 @pytest.mark.unit

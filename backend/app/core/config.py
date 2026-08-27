@@ -98,6 +98,18 @@ class Settings(BaseSettings):
     knowledge_base_purge_days: int | None = 30
     api_key_purge_days: int | None = 30
 
+    # Knowledge-base file upload limits (see app.api.knowledge_base's
+    # upload endpoint, issue #13). Enforced at the request boundary before
+    # any bytes are read into memory or handed to text extraction - an
+    # unbounded upload from an authenticated-but-untrusted-content caller
+    # is a resource-exhaustion vector.
+    knowledge_base_upload_max_bytes: int = 25 * 1024 * 1024  # 25 MiB
+    knowledge_base_upload_allowed_content_types: List[str] = [
+        "text/plain",
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
