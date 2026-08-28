@@ -41,6 +41,24 @@ spec:
                 secretKeyRef:
                   name: {{ include "backend.secretName" . }}
                   key: database-url
+            # MinIO configuration (same as backend Deployment): the sweep
+            # deletes the MinIO object backing any file-uploaded document it
+            # purges (see app.services.retention_service, issue #13), so it
+            # needs the same connection details as the API pods.
+            - name: MINIO_URL
+              value: "https://{{ include "minio.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "backend.secretName" . }}
+                  key: minio-access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "backend.secretName" . }}
+                  key: minio-secret-key
+            - name: MINIO_BUCKET
+              value: "documents"
             # CA bundle for TLS verification (Decision 2)
             - name: CA_BUNDLE_PATH
               value: "/etc/ssl/eaistack/ca.crt"

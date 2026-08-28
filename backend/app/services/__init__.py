@@ -1,7 +1,11 @@
 """Backend service layer for business logic."""
 
 from app.services.chat_guardrail_service import check_input_guardrail, filter_agent_response
-from app.services.embedding_service import EmbeddingResult, generate_embedding
+from app.services.embedding_service import (
+    EmbeddingResult,
+    generate_and_attach_embedding,
+    generate_embedding,
+)
 from app.services.retention_service import (
     RetentionConfig,
     purge_expired_api_keys,
@@ -23,6 +27,7 @@ __all__ = [
     "check_input_guardrail",
     "filter_agent_response",
     "generate_embedding",
+    "generate_and_attach_embedding",
     "EmbeddingResult",
     "RetentionConfig",
     "purge_expired_api_keys",

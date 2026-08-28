@@ -49,7 +49,24 @@ class APIKey(Base):
 
 
 class KnowledgeBase(Base):
-    """Knowledge Base entry model for storing documents."""
+    """Knowledge Base entry model for storing documents.
+
+    `content` always holds extracted, searchable text - for a pasted-text
+    entry that's the text itself; for an uploaded file it's the result of
+    app.storage.text_extraction run against the original bytes. Keeping
+    extracted text in Postgres (rather than only in MinIO) is a deliberate
+    choice: it is what embeddings and search actually operate on, so every
+    read path continues to work unchanged for uploaded documents.
+
+    storage_key/original_filename/content_type are populated only for
+    file-backed entries and are NULL (not empty string) for typed entries -
+    the distinguishing signal an endpoint uses to know whether a MinIO
+    object exists to serve back or purge. storage_key is a MinIO object
+    path scoped as f"{user_id}/{kb_id}/{filename}" (see
+    app.storage.object_keys) - callers must build it that way rather than
+    trusting a client-supplied key, since a path under the wrong prefix
+    would defeat the per-user bucket isolation this column exists to record.
+    """
 
     __tablename__ = "knowledge_base"
 
@@ -57,6 +74,9 @@ class KnowledgeBase(Base):
     user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    storage_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    original_filename: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     doc_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(

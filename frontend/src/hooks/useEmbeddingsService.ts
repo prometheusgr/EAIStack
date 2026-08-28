@@ -1,6 +1,6 @@
 import { useAuth } from '@/context/AuthContext'
 import { embeddingsClient } from '@/api/embeddingsClient'
-import { knowledgeBaseClient } from '@/api/knowledgeBaseClient'
+import { knowledgeBaseClient, type KnowledgeBase } from '@/api/knowledgeBaseClient'
 import type { EmbeddingResponse, SemanticSearchResult } from '@/types/embeddings'
 import { useApiCall } from './useApiCall'
 import { useApiMutation } from './useApiMutation'
@@ -42,6 +42,13 @@ export function useEmbeddingsService(embeddingId?: string) {
     }
   )
 
+  const uploadFile = useApiMutation<File, KnowledgeBase>(
+    async (file) => {
+      if (!token) throw new Error('No auth token available')
+      return knowledgeBaseClient.upload(file, token, refreshAccessToken)
+    }
+  )
+
   const deleteDocument = useApiMutation<string, void>(
     async (docId) => {
       if (!token) throw new Error('No auth token available')
@@ -61,6 +68,7 @@ export function useEmbeddingsService(embeddingId?: string) {
     getEmbedding,
     search,
     upload,
+    uploadFile,
     deleteDocument,
     update,
   }

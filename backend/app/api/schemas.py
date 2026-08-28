@@ -160,6 +160,9 @@ class KnowledgeBaseResponse(BaseModel):
     doc_metadata: Optional[dict] = None
     created_at: str
     updated_at: str
+    storage_key: Optional[str] = None
+    original_filename: Optional[str] = None
+    content_type: Optional[str] = None
 
 
 class ProviderOption(BaseModel):

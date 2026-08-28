@@ -13,6 +13,14 @@ All service-to-service communication is encrypted:
 - Backend ↔ llama-server: TLS (optional, can be unencrypted on private network)
 - Backend ↔ MCP servers: TLS
 
+`backend/app/storage/minio_client.py` derives its `secure`/CA-bundle
+behavior from `MINIO_URL`'s scheme, the same "let the URL decide" rule
+every other outbound client in this codebase follows — the Helm-deployed
+MinIO above is `https://`, so it always gets a TLS+CA-verified client.
+docker-compose's local MinIO is plaintext, like every other service in
+that stack; moving local dev to TLS-by-default across the board is tracked
+separately (issue #17), not built into the MinIO client itself.
+
 **Implementation**: 
 - cert-manager with self-signed internal CA (no external ACME)
 - Helm charts auto-generate certificates via ClusterIssuer
@@ -79,6 +87,7 @@ effect on the next retention sweep — no backend restart.
 | `conversation_threads` / `conversation_checkpoints` | `session_ttl_hours`, default **24h** since last update. Also purged on logout when `session_cleanup_on_logout` is on. | Yes (`conversation_retention_hours`, `cleanup_on_logout`) | `purge_expired_conversations`, `purge_user_conversations` |
 | `knowledge_base` (soft-deleted) | **30 days** after `deleted_at`, then hard-deleted. Live documents are never purged. | Yes (`knowledge_base_purge_days`) | `purge_expired_knowledge_base` |
 | `embeddings` | Follows its parent document — purged in the same batch. | Inherited | `purge_expired_knowledge_base` |
+| MinIO object (uploaded file, if any) | Follows its parent document — deleted in the same purge as the DB row. A pasted-text entry has no object (`storage_key` is NULL) and nothing is deleted for it. | Inherited | `purge_expired_knowledge_base` (via `DocumentStore.delete_many`) |
 | `api_keys` (revoked) | **30 days** after `revoked_at`, then hard-deleted. Active keys are never purged. | Yes (`api_key_purge_days`) | `purge_expired_api_keys` |
 | `system_settings` | **Forever** (configuration, single row). | n/a | Never purged |
 | `audit_logs` | **Forever** — retained on a schedule independent of session cleanup. | **No, by design** | Never purged (see below) |

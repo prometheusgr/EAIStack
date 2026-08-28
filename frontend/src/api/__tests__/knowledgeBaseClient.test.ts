@@ -147,4 +147,57 @@ describe('knowledgeBaseClient', () => {
       )
     })
   })
+
+  describe('upload', () => {
+    it('should POST the file as multipart form data to the upload endpoint', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 201,
+        ok: true,
+        json: async () => ({
+          id: 'kb-1',
+          user_id: 'user-1',
+          title: 'spec.pdf',
+          content: 'Extracted text',
+          storage_key: 'user-1/kb-1/spec.pdf',
+          original_filename: 'spec.pdf',
+          content_type: 'application/pdf',
+        }),
+      })
+
+      const file = new File(['file bytes'], 'spec.pdf', { type: 'application/pdf' })
+      const result = await knowledgeBaseClient.upload(file, mockToken, mockRefresh)
+
+      expect(result.id).toBe('kb-1')
+      expect(result.storage_key).toBe('user-1/kb-1/spec.pdf')
+
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toContain('/api/knowledge-base/upload')
+      expect(init?.method).toBe('POST')
+      expect(init?.body).toBeInstanceOf(FormData)
+      // No explicit Content-Type: the browser must set the multipart
+      // boundary itself: fetch() computes it from the FormData body, and
+      // a manually-set header here would omit that boundary and break
+      // the server's multipart parser.
+      expect((init?.headers as Record<string, string> | undefined)?.['Content-Type']).toBeUndefined()
+    })
+
+    it('should reject on 415 with the server-provided detail', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 415,
+        ok: false,
+        json: async () => ({ detail: 'Unsupported file type: application/x-executable' }),
+      })
+
+      const file = new File(['bytes'], 'virus.exe', { type: 'application/x-executable' })
+
+      try {
+        await knowledgeBaseClient.upload(file, mockToken, mockRefresh)
+        expect.fail('Should have thrown')
+      } catch (error: Error | unknown) {
+        const apiError = error as { status: number; detail: string }
+        expect(apiError.status).toBe(415)
+        expect(apiError.detail).toBe('Unsupported file type: application/x-executable')
+      }
+    })
+  })
 })
