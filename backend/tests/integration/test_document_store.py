@@ -74,7 +74,7 @@ def test_upload_then_download_round_trips_bytes(document_store):
         content_type="application/pdf",
     )
 
-    result = document_store.download(key)
+    result = document_store.download(key, user_id="user-1")
 
     assert result == b"real file bytes"
 
@@ -108,10 +108,10 @@ def test_delete_removes_the_object(document_store):
         content_type="text/plain",
     )
 
-    document_store.delete(key)
+    document_store.delete(key, user_id="user-1")
 
     with pytest.raises(Exception):
-        document_store.download(key)
+        document_store.download(key, user_id="user-1")
 
 
 @pytest.mark.integration
@@ -135,7 +135,7 @@ def test_delete_many_removes_every_object(document_store):
 
     for key in keys:
         with pytest.raises(Exception):
-            document_store.download(key)
+            document_store.download(key, user_id="user-1")
 
 
 @pytest.mark.integration
@@ -152,5 +152,5 @@ def test_delete_is_idempotent_against_a_real_server(document_store):
         content_type="text/plain",
     )
 
-    document_store.delete(key)
-    document_store.delete(key)  # must not raise
+    document_store.delete(key, user_id="user-1")
+    document_store.delete(key, user_id="user-1")  # must not raise
