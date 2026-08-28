@@ -74,6 +74,18 @@ describe('KnowledgeBaseUpload', () => {
     expect(screen.getByLabelText(/content/i)).toHaveValue('')
   })
 
+  it('does not clear paste-mode draft state when clicking the already-active tab', async () => {
+    render(<KnowledgeBaseUpload />)
+
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Draft title' } })
+    fireEvent.change(screen.getByLabelText(/content/i), { target: { value: 'Draft body' } })
+
+    fireEvent.click(screen.getByRole('tab', { name: /paste text/i }))
+
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Draft title')
+    expect(screen.getByLabelText(/content/i)).toHaveValue('Draft body')
+  })
+
   it('clears a selected file when switching away from the upload-file tab', async () => {
     render(<KnowledgeBaseUpload />)
 
@@ -106,6 +118,18 @@ describe('KnowledgeBaseUpload', () => {
     expect(screen.getByRole('tab', { name: /upload file/i })).toBeDisabled()
 
     mockUploadMutation.isPending = false
+  })
+
+  it('disables the paste-mode fields while a file upload is pending on the other tab', () => {
+    mockUploadFileMutation.isPending = true
+    render(<KnowledgeBaseUpload />)
+
+    expect(screen.getByLabelText(/title/i)).toBeDisabled()
+    expect(screen.getByLabelText(/content/i)).toBeDisabled()
+    expect(screen.getByRole('button', { name: /clear/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /create entry/i })).toBeDisabled()
+
+    mockUploadFileMutation.isPending = false
   })
 
   it('disables the upload button until a file is chosen', () => {

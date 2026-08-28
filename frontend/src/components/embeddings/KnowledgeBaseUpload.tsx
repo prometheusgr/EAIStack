@@ -24,6 +24,8 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
   const isBusy = upload.isPending || uploadFile.isPending
 
   function switchMode(next: Mode) {
+    if (next === mode) return
+
     setMode(next)
     setError(null)
     // Clear both tabs' draft state on every switch, not just the
@@ -36,6 +38,12 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
+  }
+
+  function handleUploadError(err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Upload failed'
+    if (isMounted()) setError(errorMsg)
+    onUploadError?.(errorMsg)
   }
 
   async function handlePasteSubmit(e: React.FormEvent) {
@@ -57,9 +65,7 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
 
       onUploadSuccess?.()
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Upload failed'
-      if (isMounted()) setError(errorMsg)
-      onUploadError?.(errorMsg)
+      handleUploadError(err)
     }
   }
 
@@ -84,10 +90,27 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
 
       onUploadSuccess?.()
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Upload failed'
-      if (isMounted()) setError(errorMsg)
-      onUploadError?.(errorMsg)
+      handleUploadError(err)
     }
+  }
+
+  function renderTabButton(targetMode: Mode, label: string) {
+    return (
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === targetMode}
+        onClick={() => switchMode(targetMode)}
+        disabled={isBusy}
+        className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px disabled:opacity-50 disabled:pointer-events-none ${
+          mode === targetMode
+            ? 'border-blue-600 text-blue-600'
+            : 'border-transparent text-gray-500 hover:text-gray-700'
+        }`}
+      >
+        {label}
+      </button>
+    )
   }
 
   return (
@@ -95,34 +118,8 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
       <h3 className="text-lg font-semibold mb-4">Add Knowledge Base Entry</h3>
 
       <div role="tablist" className="flex gap-1 mb-4 border-b">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'paste'}
-          onClick={() => switchMode('paste')}
-          disabled={isBusy}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px disabled:opacity-50 disabled:pointer-events-none ${
-            mode === 'paste'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Paste Text
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'file'}
-          onClick={() => switchMode('file')}
-          disabled={isBusy}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px disabled:opacity-50 disabled:pointer-events-none ${
-            mode === 'file'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Upload File
-        </button>
+        {renderTabButton('paste', 'Paste Text')}
+        {renderTabButton('file', 'Upload File')}
       </div>
 
       {error && (
@@ -142,7 +139,7 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
               placeholder="Document title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              disabled={upload.isPending}
+              disabled={isBusy}
               maxLength={500}
             />
             <p className="text-xs text-gray-500 mt-1">{title.length}/500 characters</p>
@@ -157,7 +154,7 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
               placeholder="Document content..."
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              disabled={upload.isPending}
+              disabled={isBusy}
               className="w-full p-2 border rounded-md font-mono text-sm min-h-[120px] focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <p className="text-xs text-gray-500 mt-1">{content.length} characters</p>
@@ -172,11 +169,11 @@ export function KnowledgeBaseUpload({ onUploadSuccess, onUploadError }: Knowledg
                 setContent('')
                 setError(null)
               }}
-              disabled={upload.isPending}
+              disabled={isBusy}
             >
               Clear
             </Button>
-            <Button type="submit" disabled={upload.isPending || !title.trim() || !content.trim()}>
+            <Button type="submit" disabled={isBusy || !title.trim() || !content.trim()}>
               {upload.isPending ? 'Uploading...' : 'Create Entry'}
             </Button>
           </div>
