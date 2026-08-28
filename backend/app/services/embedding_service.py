@@ -2,11 +2,13 @@
 
 import random
 from dataclasses import dataclass
+from uuid import uuid4
 
 import httpx
 from sqlalchemy.orm import Session
 
 from app.core.tls import get_ssl_context
+from app.db.models import Embedding, KnowledgeBase
 from app.services.system_settings_service import EmbeddingConfig, resolve_embedding_config
 
 EMBEDDING_DIMENSION = 768
@@ -63,6 +65,26 @@ def generate_embedding(db: Session, text: str) -> EmbeddingResult:
         raise ValueError(f"Unknown embedding_provider: {config.provider}")
 
     return EmbeddingResult(vector=vector, provider=config.provider, model=config.model)
+
+
+def generate_and_attach_embedding(db: Session, kb: KnowledgeBase, text: str) -> None:
+    """Generate an embedding for `text` and stage it for insert alongside `kb`.
+
+    Shared by both knowledge-base creation paths (paste-text and
+    file-upload; see app.api.knowledge_base) - each tags
+    Embedding.embed_metadata with the provider/model that produced the
+    vector, so a later runtime provider switch (Settings screen) is
+    detectable instead of silently mixing incompatible vectors in the same
+    knowledge base. Does not commit; the caller owns the transaction.
+    """
+    embedding_result = generate_embedding(db, text)
+    embedding = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=embedding_result.vector,
+        embed_metadata=embedding_result.as_embed_metadata(),
+    )
+    db.add(embedding)
 
 
 def _generate_fake_embedding(text: str) -> list[float]:

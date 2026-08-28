@@ -15,16 +15,25 @@ from app.core.auth import get_current_user
 from app.db.models import Embedding, KnowledgeBase
 from app.main import app
 from app.storage.dependencies import get_document_store
+from app.storage.object_keys import build_object_key
 
 
 class FakeDocumentStore:
-    """Records uploads in memory instead of talking to MinIO."""
+    """Records uploads in memory instead of talking to MinIO.
+
+    upload() delegates key construction to the real build_object_key, the
+    same as DocumentStore.upload does - so a filename that build_object_key
+    rejects (e.g. a path-traversal attempt) raises ValueError here too,
+    exercising the endpoint's own handling of that error rather than a
+    fake that always succeeds.
+    """
 
     def __init__(self):
         self.uploads: list[dict] = []
         self.deleted_keys: list[str] = []
 
     def upload(self, *, user_id, kb_id, filename, data, length, content_type):
+        key = build_object_key(user_id=user_id, kb_id=kb_id, filename=filename)
         content = data.read()
         self.uploads.append(
             {
@@ -36,9 +45,9 @@ class FakeDocumentStore:
                 "content_type": content_type,
             }
         )
-        return f"{user_id}/{kb_id}/{filename}"
+        return key
 
-    def delete(self, storage_key):
+    def delete(self, storage_key, *, user_id):
         self.deleted_keys.append(storage_key)
 
     def delete_many(self, storage_keys):
@@ -229,6 +238,54 @@ def test_upload_pdf_extracts_text_before_storing(client, db_session, fake_docume
 
 
 @pytest.mark.unit
+def test_upload_accepts_filename_containing_literal_dot_dot(
+    client, db_session, fake_document_store
+):
+    """Test: a legitimate filename that merely contains the substring ".."
+    (e.g. "report..final.pdf") uploads successfully - it is not a
+    path-traversal attempt, just a filename with two dots in it (see
+    app.storage.object_keys.build_object_key).
+    """
+    _authed()
+    try:
+        response = client.post(
+            "/api/knowledge-base/upload",
+            files={"file": ("report..final.pdf", BytesIO(b"content"), "text/plain")},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["original_filename"] == "report..final.pdf"
+        assert len(fake_document_store.uploads) == 1
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.unit
+def test_upload_rejects_path_traversal_filename_with_clean_4xx(
+    client, db_session, fake_document_store
+):
+    """Test: an actual path-traversal filename is rejected with a clean 4xx
+    response, not an unhandled 500 - build_object_key's ValueError must be
+    caught by the endpoint rather than propagating past it.
+    """
+    _authed()
+    try:
+        response = client.post(
+            "/api/knowledge-base/upload",
+            files={"file": ("../../etc/passwd", BytesIO(b"content"), "text/plain")},
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert "message" in body
+        assert len(fake_document_store.uploads) == 0
+        assert db_session.query(KnowledgeBase).count() == 0
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.unit
 def test_upload_deletes_orphaned_object_when_embedding_generation_fails(
     client, db_session, fake_document_store, monkeypatch
 ):
@@ -241,10 +298,10 @@ def test_upload_deletes_orphaned_object_when_embedding_generation_fails(
     """
     import app.api.knowledge_base as knowledge_base_module
 
-    def _boom(db, text):
+    def _boom(db, kb, text):
         raise RuntimeError("embedding service unavailable")
 
-    monkeypatch.setattr(knowledge_base_module, "generate_embedding", _boom)
+    monkeypatch.setattr(knowledge_base_module, "generate_and_attach_embedding", _boom)
 
     _authed()
     try:
@@ -261,6 +318,41 @@ def test_upload_deletes_orphaned_object_when_embedding_generation_fails(
         uploaded = fake_document_store.uploads[0]
         actual_key = f"{uploaded['user_id']}/{uploaded['kb_id']}/{uploaded['filename']}"
         assert fake_document_store.deleted_keys == [actual_key]
+
+        assert db_session.query(KnowledgeBase).count() == 0
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.unit
+def test_upload_cleanup_failure_does_not_mask_the_original_exception(
+    client, db_session, fake_document_store, monkeypatch
+):
+    """Test: if the compensating document_store.delete() call (run when an
+    error after upload forces a rollback) itself raises, the ORIGINAL
+    exception must still be what propagates - not the cleanup failure. A
+    cleanup exception replacing the real root cause would hide why the
+    request actually failed (e.g. "embedding service unavailable") behind
+    an unrelated MinIO error, making the failure much harder to diagnose.
+    """
+    import app.api.knowledge_base as knowledge_base_module
+
+    def _embedding_boom(db, kb, text):
+        raise RuntimeError("embedding service unavailable")
+
+    def _cleanup_boom(storage_key, *, user_id):
+        raise ConnectionError("MinIO transiently unreachable")
+
+    monkeypatch.setattr(knowledge_base_module, "generate_and_attach_embedding", _embedding_boom)
+    monkeypatch.setattr(fake_document_store, "delete", _cleanup_boom)
+
+    _authed()
+    try:
+        with pytest.raises(RuntimeError, match="embedding service unavailable"):
+            client.post(
+                "/api/knowledge-base/upload",
+                files={"file": ("notes.txt", BytesIO(b"content"), "text/plain")},
+            )
 
         assert db_session.query(KnowledgeBase).count() == 0
     finally:

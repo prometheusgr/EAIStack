@@ -55,12 +55,26 @@ class KnowledgeBaseRepository:
     def update(self, kb: KnowledgeBase, title: str, content: str, metadata: dict) -> KnowledgeBase:
         """Update an active knowledge base entry's fields.
 
+        If `kb` is file-backed (storage_key is not None), editing its
+        content here disconnects the row from the originally uploaded file:
+        storage_key/original_filename/content_type are cleared to None, so
+        the row no longer claims to be backed by file bytes the new content
+        doesn't match. The caller is responsible for deleting the
+        now-orphaned MinIO object (see app.api.knowledge_base) - this
+        method only owns the DB row's fields, not object storage.
+
         Does not commit; the caller owns the transaction.
         """
         kb.title = title
         kb.content = content
         kb.doc_metadata = metadata
         kb.updated_at = datetime.now(timezone.utc)
+
+        if kb.storage_key is not None:
+            kb.storage_key = None
+            kb.original_filename = None
+            kb.content_type = None
+
         self.db.flush()
         return kb
 
