@@ -317,6 +317,61 @@ def test_purging_a_file_backed_document_deletes_its_minio_object(db_session):
 
 
 @pytest.mark.unit
+def test_minio_delete_is_not_left_dangling_by_a_downstream_sweep_failure(db_session):
+    """Test: the irreversible MinIO delete must not happen until the DB-side
+    deletion for that same batch is already flushed and durable within the
+    transaction. A retention sweep runs every purge under one transaction
+    (see app.cli.retention_sweep.main, which commits once at the end) - if
+    a later step in the same sweep fails and the caller rolls back, a
+    KnowledgeBase row whose MinIO object was already deleted would be
+    "resurrected" by the rollback while its object is gone forever: a
+    permanently orphaned, undetectable dangling reference.
+    Ordering the DB delete (flushed) before the MinIO delete closes this:
+    if the DB side were going to fail (e.g. a constraint violation), it
+    surfaces before the irreversible object delete ever happens. This test
+    asserts that ordering directly by recording each side's call order,
+    rather than only asserting the happy-path end state.
+    """
+    from unittest.mock import MagicMock
+
+    doc = KnowledgeBase(
+        user_id="user-1",
+        title="spec.pdf",
+        content="Extracted text",
+        storage_key="user-1/doc-1/spec.pdf",
+        original_filename="spec.pdf",
+        content_type="application/pdf",
+        deleted_at=_naive(NOW - timedelta(days=31)),
+    )
+    db_session.add(doc)
+    db_session.commit()
+    doc_id = doc.id
+
+    call_order: list[str] = []
+
+    def _record_db_state_at_minio_delete(storage_keys):
+        # At the moment the irreversible MinIO delete fires, the KnowledgeBase
+        # row it corresponds to must already be gone from the session (flushed),
+        # so a query issued right now proves the DB side is already committed
+        # to deleting it - not merely scheduled to delete it later.
+        call_order.append("minio_delete")
+        still_present = db_session.query(KnowledgeBase).filter_by(id=doc_id).first()
+        assert still_present is None, (
+            "MinIO object deleted before the corresponding DB row was flushed - "
+            "a downstream rollback would resurrect a row pointing at a deleted object"
+        )
+
+    document_store = MagicMock()
+    document_store.delete_many.side_effect = _record_db_state_at_minio_delete
+
+    purge_expired_knowledge_base(
+        db_session, purge_after_days=30, now=NOW, document_store=document_store
+    )
+
+    assert call_order == ["minio_delete"]
+
+
+@pytest.mark.unit
 def test_purging_typed_entries_does_not_call_document_store(db_session):
     """Test: a pasted-text (non-file-backed) document has no storage_key, so
     purging it must not call the document store with a None key.

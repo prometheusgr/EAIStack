@@ -275,6 +275,18 @@ def purge_expired_knowledge_base(
         db.query(Embedding).filter(Embedding.doc_id.in_(batch)).delete(synchronize_session=False)
         db.flush()
 
+    # The DB-side delete is flushed (and thus would already have surfaced any
+    # constraint error) before the irreversible MinIO delete runs - never the
+    # other way around. A full sweep (see run_retention_sweep /
+    # app.cli.retention_sweep.main) runs every purge under one transaction
+    # that commits once at the end; if MinIO objects were deleted first and a
+    # later step in that same sweep then failed, db.rollback() would
+    # resurrect these KnowledgeBase rows while their objects stayed gone
+    # forever - a permanently orphaned, undetectable dangling storage_key.
+    # Flushing here first means a DB-side failure for this batch is caught
+    # before any object is destroyed.
+    purged = _delete_in_batches(db, KnowledgeBase, expired_ids, batch_size)
+
     if document_store is not None:
         expired_storage_keys = [row.storage_key for row in expired if row.storage_key is not None]
         if expired_storage_keys:
@@ -286,7 +298,6 @@ def purge_expired_knowledge_base(
             # this sweep doesn't have to special-case an all-typed-entries batch.
             document_store.delete_many([])
 
-    purged = _delete_in_batches(db, KnowledgeBase, expired_ids, batch_size)
     logger.info("Retention purge: deleted %d soft-deleted document(s) and their embeddings", purged)
     return purged
 
