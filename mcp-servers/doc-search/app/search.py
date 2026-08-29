@@ -29,14 +29,15 @@ MAX_EXCERPT_CHARS = 2000
 # block bigger than the chunking target), not the primary excerpting
 # mechanism the old whole-document flow relied on.
 
-# How many candidate chunk-rows to pull per requested top_k result, before
-# deduplicating to one chunk per document. A document can occupy several of
-# the nearest-by-cosine-distance rows (its other chunks), so the raw SQL
-# limit must be wider than top_k or dedup could return fewer than top_k
-# distinct documents even when more exist. 4x is a deliberately generous
-# margin — cheap for doc-search's typical few-hundred-row knowledge bases,
-# and safer than tuning it tightly against a specific corpus shape.
-CANDIDATE_MULTIPLIER = 4
+# Deduplicating to one chunk per document needs a candidate pool wider than
+# top_k (a document can occupy several of the nearest-ranked rows, via its
+# other chunks), or dedup could return fewer than top_k distinct documents
+# even when more exist. EmbeddingRepository.search_hybrid already fetches a
+# generous per-branch candidate margin of its own (_CANDIDATE_MULTIPLIER, in
+# app.repositories.embedding_repository) for RRF fusion quality — asking it
+# for that pool via return_candidates=True, rather than re-multiplying top_k
+# here ourselves, means dedup headroom comes from the repository's existing
+# margin instead of compounding a second one on top of it.
 
 # nomic-embed-text-v1.5 is an asymmetric embedding model (see
 # docs/LLM_SETUP.md and backend/app/services/embedding_service.py, which
@@ -157,7 +158,7 @@ def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5)
 
     repo = EmbeddingRepository(db)
     candidates = repo.search_hybrid(
-        user_id, query_embedding, query_text=query, top_k=top_k * CANDIDATE_MULTIPLIER
+        user_id, query_embedding, query_text=query, top_k=top_k, return_candidates=True
     )
 
     if not candidates:

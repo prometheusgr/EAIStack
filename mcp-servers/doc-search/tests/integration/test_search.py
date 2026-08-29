@@ -232,6 +232,36 @@ def test_search_knowledge_base_dedup_still_returns_top_k_distinct_documents(db_s
     assert result.count("Doc 0") + result.count("Doc 1") + result.count("Doc 2") == 3
 
 
+@pytest.mark.integration
+def test_search_knowledge_base_passes_bare_top_k_to_search_hybrid(db_session, monkeypatch):
+    """search_knowledge_base must not pre-multiply top_k before calling
+    search_hybrid — search_hybrid already widens its own per-branch
+    candidate fetch internally (_CANDIDATE_MULTIPLIER, in
+    app.repositories.embedding_repository), and dedup headroom comes from
+    requesting that candidate pool via return_candidates=True, not from a
+    second multiplier stacked on top of the first. Two independent 4x
+    multipliers compounding to 16x was exactly the bug this test guards
+    against.
+    """
+    from app.repositories import EmbeddingRepository
+
+    _seed_chunk(db_session, user_id="user-a", title="Doc", chunk_text="certificate rotation")
+
+    captured_kwargs = {}
+    original_search_hybrid = EmbeddingRepository.search_hybrid
+
+    def _spy_search_hybrid(self, *args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return original_search_hybrid(self, *args, **kwargs)
+
+    monkeypatch.setattr(EmbeddingRepository, "search_hybrid", _spy_search_hybrid)
+
+    search_knowledge_base(db_session, user_id="user-a", query="certificate", top_k=5)
+
+    assert captured_kwargs["top_k"] == 5
+    assert captured_kwargs["return_candidates"] is True
+
+
 # resolve_embedding_config: DB-override-vs-env-default resolution.
 #
 # Mirrors backend/tests/unit/test_system_settings_service.py's

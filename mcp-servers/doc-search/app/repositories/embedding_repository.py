@@ -80,7 +80,13 @@ class EmbeddingRepository:
         return [(emb, kb, distance) for emb, kb, distance in query.all()]
 
     def search_hybrid(
-        self, user_id: str, query_embedding: list[float], query_text: str, top_k: int
+        self,
+        user_id: str,
+        query_embedding: list[float],
+        query_text: str,
+        top_k: int,
+        *,
+        return_candidates: bool = False,
     ) -> list[tuple[Embedding, KnowledgeBase, float]]:
         """Return the top_k results for a user, ranking by a fusion of
         vector similarity and Postgres full-text search.
@@ -104,13 +110,27 @@ class EmbeddingRepository:
         not just the vector one — the most likely place to introduce a
         data-leak bug in a hybrid query is a lexical branch that forgets
         the ownership filter.
+
+        return_candidates=True skips the final truncation to top_k,
+        returning the full fused pool (still bounded by
+        top_k * _CANDIDATE_MULTIPLIER per branch) instead. app.search's
+        search_knowledge_base needs this: it deduplicates multiple chunks
+        of the same document down to one before truncating to its own
+        top_k, and doing that dedup *after* this method had already
+        truncated to top_k would silently shrink the candidate pool below
+        what dedup needs, forcing search.py to compound its own multiplier
+        on top of this one just to compensate. One layer owns the "how many
+        candidates are enough" decision (this method, via
+        _CANDIDATE_MULTIPLIER); search.py owns only "how many final,
+        deduplicated results to return."
         """
         candidate_limit = top_k * _CANDIDATE_MULTIPLIER
 
         vector_ranking = self.search_similar(user_id, query_embedding, candidate_limit)
         lexical_ranking = self._search_lexical(user_id, query_text, candidate_limit)
 
-        return _fuse_rankings(vector_ranking, lexical_ranking)[:top_k]
+        fused = _fuse_rankings(vector_ranking, lexical_ranking)
+        return fused if return_candidates else fused[:top_k]
 
     def _search_lexical(
         self, user_id: str, query_text: str, limit: int

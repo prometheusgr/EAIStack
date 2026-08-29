@@ -299,6 +299,42 @@ def test_search_hybrid_respects_top_k(db_session):
 
 
 @pytest.mark.integration
+def test_search_hybrid_return_candidates_skips_top_k_truncation(db_session):
+    """return_candidates=True returns the full fused candidate pool
+    (top_k * _CANDIDATE_MULTIPLIER per branch, deduplicated by RRF fusion),
+    not truncated to top_k — this is what lets app.search.search_knowledge_base
+    deduplicate by document against the full pool before applying its own
+    top_k, instead of compounding a second candidate multiplier on top of
+    this method's own to compensate for an early truncation.
+    """
+    for i in range(5):
+        _seed_document(
+            db_session,
+            user_id="user-a",
+            title=f"Doc {i}",
+            content=f"Certificate rotation content {i}.",
+            chunk_text=f"Certificate rotation content {i}.",
+        )
+
+    query_embedding = generate_query_embedding(db_session, "certificate rotation")
+    repo = EmbeddingRepository(db_session)
+
+    truncated = repo.search_hybrid(
+        "user-a", query_embedding, query_text="certificate rotation", top_k=3
+    )
+    candidates = repo.search_hybrid(
+        "user-a",
+        query_embedding,
+        query_text="certificate rotation",
+        top_k=3,
+        return_candidates=True,
+    )
+
+    assert len(truncated) == 3
+    assert len(candidates) > len(truncated)
+
+
+@pytest.mark.integration
 def test_search_hybrid_returns_a_match_found_only_by_the_lexical_branch(db_session):
     """A document that pure vector search alone would not surface at all
     (seeded with a query_embedding pointing elsewhere) still appears in
