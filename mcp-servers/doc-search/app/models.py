@@ -51,7 +51,7 @@ class Embedding(Base):
     """Mirrors backend/app/db/models.py's Embedding.
 
     One row per chunk, not per document, since backend/app/db/models.py's
-    migration 006 (see that migration's docstring): chunk_index/chunk_text/
+    migration 007 (see that migration's docstring): chunk_index/chunk_text/
     heading_path let doc-search return the matching passage directly,
     without re-splitting the document at query time.
     """
