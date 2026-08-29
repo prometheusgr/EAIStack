@@ -344,7 +344,21 @@ issue if applicable. Focus on the decision, not the implementation.
 3. **Implement to make it pass**
 4. **Run full test suite locally** before committing
 5. **Commit** with a descriptive message (see Commit Standards above)
-6. **Push and open a PR** — CI gates merging on red tests or lint failures
+6. **Push and open a PR** — merge only once it meets the Definition of Done below
+
+## Definition of Done — Merging to Master
+
+**Feature branches are mandatory.** Nothing is committed directly to `master`. A branch is only mergeable once every item below is true — this list is the actual merge gate, not a suggestion, and it applies equally to a human contributor or an agent working autonomously. Don't merge (or advise merging) with any box unchecked.
+
+- [ ] **All unit tests pass** — backend (`pytest tests/unit/`) and frontend (`npm test`), and green in CI on the PR itself, not just on a local machine. CI is the source of truth; "passed for me locally" is not sufficient if the PR's own pipeline run is red or hasn't run.
+- [ ] **Lint, format, and type checks pass** — `ruff check .`, `black --check .`, `mypy app/` on the backend; `npm run lint` and a successful `npm run build` (TypeScript compilation) on the frontend. These are distinct gates from "tests pass" and must be checked explicitly, not assumed bundled into the test run.
+- [ ] **An e2e test validates the functionality, run against the real dev stack** (`docker-compose up`, real Keycloak/backend/frontend, not mocks) — required for any user-facing change (new flow, changed behavior visible to a user). See "End-to-End (E2E) Tests" above for when this applies and how to write one. Internal refactors with no user-visible behavior change are exempt, but say so explicitly in the PR description rather than silently omitting the spec.
+- [ ] **A code review has been performed against clean code / clean architecture standards**, treating this repo as the reference implementation other forks will copy. Use the Code Review Checklist above as the concrete rubric (TDD & Testing, Readability & Maintainability, Design & Correctness, and For Bug Fixes where applicable). The bar is "would a maintainer forking this template hold this code up as the pattern to imitate" — not merely "does it work."
+- [ ] **Branch is up to date with `master`** (rebased or merged) before the final CI run that gates merge, so the tests, lint, and review that approved the PR reflect the code as it will actually land — not a stale base that could hide a conflict-introduced regression.
+- [ ] **Docs reflect the change.** If the change affects `CLAUDE.md`'s Current Status/Phase section, a guide in `docs/` (e.g. `DATABASE_MODELS.md`, `BACKEND_SERVICES.md`, `FRONTEND_ARCHITECTURE.md`, `REPOSITORY_PATTERN.md`, `SECURITY.md`), or introduces a new mandatory pattern, update the relevant doc in the same PR. If nothing needs updating, that's a conscious check, not a default assumption.
+- [ ] **No unresolved scope creep**: the diff matches the stated phase/issue scope (see "Phase scope" under Key Constraints) — no unrelated refactors, features, or cleanups bundled in without being called out.
+
+**Why this is a gate, not a checklist to skim:** this repository is a template other teams fork. Every merge to `master` is a pattern someone else will copy under time pressure without reading this file first. A shortcut here isn't scoped to this repo — it propagates.
 
 ## Detailed Implementation Guides
 
