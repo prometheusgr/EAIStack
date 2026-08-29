@@ -28,6 +28,8 @@ Most "build your own ChatGPT" tutorials assume you can call OpenAI's API and sto
 | Tool integration | MCP (Streamable HTTP)      | `doc-search` server exposes `search_knowledge_base` to the agent as a separately deployable service |
 | Deployment       | K3s + Helm                 | Production-grade, minimal-footprint Kubernetes                                                      |
 
+See [docs/TECH_STACK.md](docs/TECH_STACK.md) for the full layer-by-layer breakdown — versions, directory structure, and what's done vs. still open in each technology.
+
 ### End-to-end flow
 
 ```
@@ -144,6 +146,7 @@ Inferred from the repository's open GitHub issues, roughly in the order they'd u
 
 - [CLAUDE.md](CLAUDE.md) — architecture, phase history, common commands
 - [AGENTS.md](AGENTS.md) — development standards, TDD discipline, mandatory implementation patterns
+- [docs/TECH_STACK.md](docs/TECH_STACK.md) — layer-by-layer technology reference: what's used, how it fits together, what's done vs. still open
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — key architecture decisions and rationale
 - [docs/SECURITY.md](docs/SECURITY.md) — encryption, TLS, and retention policy/decision log
 - [docs/DATABASE_MODELS.md](docs/DATABASE_MODELS.md), [docs/BACKEND_SERVICES.md](docs/BACKEND_SERVICES.md), [docs/FRONTEND_ARCHITECTURE.md](docs/FRONTEND_ARCHITECTURE.md), [docs/REPOSITORY_PATTERN.md](docs/REPOSITORY_PATTERN.md), [docs/TIME_INJECTION.md](docs/TIME_INJECTION.md), [docs/AGENT_LIBRARY.md](docs/AGENT_LIBRARY.md) — canonical shapes for new code, referenced from AGENTS.md
