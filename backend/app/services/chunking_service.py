@@ -78,6 +78,25 @@ class _Section:
     body: str
 
 
+def _mask_fenced_code_blocks(content: str) -> str:
+    """Replace every character inside a fenced code block with a space,
+    except newlines, which are kept as-is. Length and line structure stay
+    identical to the original, so match offsets computed against this masked
+    string are still valid offsets into the real content.
+
+    Heading detection must run on this masked text, not the raw content — a
+    '#'-prefixed comment line inside a fenced code block (a common shell,
+    Python, or YAML comment) matches _HEADING_PATTERN just as readily as a
+    real markdown heading would, and masking is what keeps that from
+    happening without disturbing section boundaries elsewhere.
+    """
+
+    def _blank_out(match: re.Match[str]) -> str:
+        return "".join(char if char == "\n" else " " for char in match.group(0))
+
+    return _FENCED_CODE_BLOCK_PATTERN.sub(_blank_out, content)
+
+
 def _split_into_sections(content: str) -> list[_Section]:
     """Split content into sections at markdown ATX headings, tracking each
     section's full heading path (e.g. "Guide > TLS > Rotation").
@@ -87,7 +106,7 @@ def _split_into_sections(content: str) -> list[_Section]:
     heading immediately followed by another heading (no body text) produces
     no section of its own — there is nothing to chunk.
     """
-    matches = list(_HEADING_PATTERN.finditer(content))
+    matches = list(_HEADING_PATTERN.finditer(_mask_fenced_code_blocks(content)))
     if not matches:
         body = content.strip()
         return [_Section(heading_path=None, body=body)] if body else []
@@ -101,7 +120,12 @@ def _split_into_sections(content: str) -> list[_Section]:
     heading_stack: list[tuple[int, str]] = []  # (level, title)
     for i, match in enumerate(matches):
         level = len(match.group(1))
-        title = match.group(2).strip()
+        # A heading whose own title contains " > " (the heading_path join
+        # separator) would otherwise be indistinguishable from genuine
+        # nesting once joined - e.g. a heading literally titled "v1 > v2"
+        # would read as two nested levels. Neutralizing it in the title
+        # keeps the separator meaningful.
+        title = match.group(2).strip().replace(" > ", " -> ")
 
         heading_stack = [entry for entry in heading_stack if entry[0] < level]
         heading_stack.append((level, title))
@@ -168,6 +192,10 @@ def _pack_atoms_into_chunks(atoms: list[str]) -> list[str]:
     targeting MAX_CHUNK_TOKENS, applying overlap between consecutive
     chunks. An atom that alone exceeds MAX_CHUNK_TOKENS (an oversized code
     block) becomes its own chunk rather than being split or merged.
+
+    A final chunk left below MIN_CHUNK_TOKENS by this packing (whatever
+    trails after the last full chunk) is merged into the previous chunk
+    rather than kept as a tiny fragment on its own — see _merge_small_tail.
     """
     if not atoms:
         return []
@@ -178,16 +206,12 @@ def _pack_atoms_into_chunks(atoms: list[str]) -> list[str]:
     current_atoms: list[str] = []
     current_tokens = 0
 
-    def _flush():
-        if current_atoms:
-            chunks.append("\n\n".join(current_atoms))
-
     for atom in atoms:
         atom_tokens = _approximate_token_count(atom)
 
         if current_atoms and current_tokens + atom_tokens > MAX_CHUNK_TOKENS:
             flushed_text = "\n\n".join(current_atoms)
-            _flush()
+            chunks.append(flushed_text)
 
             overlap_text = _tail_tokens(flushed_text, overlap_tokens)
             current_atoms = [overlap_text] if overlap_text else []
@@ -196,8 +220,28 @@ def _pack_atoms_into_chunks(atoms: list[str]) -> list[str]:
         current_atoms.append(atom)
         current_tokens += atom_tokens
 
-    _flush()
-    return chunks
+    if current_atoms:
+        chunks.append("\n\n".join(current_atoms))
+
+    return _merge_small_tail(chunks)
+
+
+def _merge_small_tail(chunks: list[str]) -> list[str]:
+    """If the last chunk is below MIN_CHUNK_TOKENS and there is a previous
+    chunk to fold it into, merge the two rather than leaving a tiny
+    fragment as its own chunk — the guarantee documented at the top of this
+    module. A single chunk (nothing to merge into) is returned unchanged,
+    the same "don't pad a short document" behavior chunk_document has always
+    had for content shorter than one chunk.
+    """
+    if len(chunks) < 2:
+        return chunks
+
+    if _approximate_token_count(chunks[-1]) >= MIN_CHUNK_TOKENS:
+        return chunks
+
+    merged_tail = f"{chunks[-2]}\n\n{chunks[-1]}"
+    return [*chunks[:-2], merged_tail]
 
 
 def _tail_tokens(text: str, n: int) -> str:

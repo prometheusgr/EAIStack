@@ -102,6 +102,39 @@ def test_chunk_document_never_splits_a_fenced_code_block():
 
 
 @pytest.mark.unit
+def test_chunk_document_ignores_hash_comments_inside_fenced_code_blocks():
+    """A '#'-prefixed comment line inside a fenced code block (a common shell/
+    Python/YAML comment) must not be misdetected as a markdown heading — doing
+    so would bisect the fenced block, which the earlier no-split test already
+    establishes must never happen.
+    """
+    content = (
+        "# Script\n\n"
+        "Here is the deploy script:\n\n"
+        "```bash\n"
+        "#!/bin/bash\n"
+        "# Deploy the app\n"
+        "echo hello\n"
+        "```\n\n"
+        "## Real Section\n\n"
+        "Actual content here.\n"
+    )
+
+    chunks = chunk_document(content, title="Doc")
+
+    fenced_block = "```bash\n#!/bin/bash\n# Deploy the app\necho hello\n```"
+    matching = [c for c in chunks if fenced_block in c.text]
+    assert len(matching) == 1, "the fenced code block must appear intact in exactly one chunk"
+
+    real_section = [c for c in chunks if "Actual content here." in c.text]
+    assert len(real_section) == 1
+    assert real_section[0].heading_path == "Script > Real Section", (
+        "the '# Deploy the app' comment inside the fence must not be treated as a "
+        "heading and pushed onto the heading path"
+    )
+
+
+@pytest.mark.unit
 def test_chunk_document_splits_long_section_into_multiple_target_sized_chunks():
     """A section much longer than MAX_CHUNK_TOKENS is split into multiple chunks,
     each within the target range (allowing for the oversized-code-block escape hatch,
@@ -160,10 +193,15 @@ def test_chunk_document_does_not_overlap_across_section_boundaries():
 def test_chunk_document_assigns_sequential_zero_based_chunk_index():
     """chunk_index is 0-based and sequential across the whole document, in
     the order chunks are produced (not reset per section).
+
+    Each section is large enough to still produce multiple chunks even
+    after a small trailing chunk would be merged into its neighbor (see
+    test_chunk_document_merges_small_trailing_chunk_into_previous_chunk) -
+    this test is about index sequencing, not the merge behavior itself.
     """
     content = (
-        "# Section A\n\n" + _words(1200, prefix="a_word") + "\n\n"
-        "# Section B\n\n" + _words(1200, prefix="b_word") + "\n"
+        "# Section A\n\n" + _words(2200, prefix="a_word") + "\n\n"
+        "# Section B\n\n" + _words(2200, prefix="b_word") + "\n"
     )
 
     chunks = chunk_document(content, title="Doc")
@@ -221,6 +259,62 @@ def test_chunk_document_oversized_code_block_alone_exceeds_max_but_is_kept_whole
     code_chunks = [c for c in chunks if "```python" in c.text]
     assert len(code_chunks) == 1
     assert code_chunks[0].token_count > MAX_CHUNK_TOKENS
+
+
+@pytest.mark.unit
+def test_chunk_document_heading_path_disambiguates_a_heading_containing_the_separator():
+    """A heading whose own title contains the literal " > " separator must
+    not become indistinguishable from genuine nesting in heading_path - a
+    heading titled "Migrating v1 > v2" is one level, not two.
+    """
+    content = "# Guide\n\n## Migrating v1 > v2\n\nUpgrade steps here.\n"
+
+    chunks = chunk_document(content, title="Guide")
+
+    heading_paths = {c.heading_path for c in chunks}
+    assert "Guide > Migrating v1 -> v2" in heading_paths
+    assert "Guide > Migrating v1 > v2" not in heading_paths
+
+
+@pytest.mark.unit
+def test_chunk_document_merges_small_trailing_chunk_into_previous_chunk():
+    """A final chunk below MIN_CHUNK_TOKENS is merged into the previous
+    chunk rather than left as a tiny fragment on its own - the documented
+    guarantee at the top of this module (MIN_CHUNK_TOKENS's comment) and in
+    chunk_document's own docstring.
+    """
+    # Two large paragraphs force the packer to split across chunks (with
+    # overlap absorbing part of the boundary), leaving a short trailing
+    # paragraph that would otherwise become its own tiny final chunk.
+    paragraph_one = _words(950, prefix="p1_w")
+    paragraph_two = _words(950, prefix="p2_w")
+    short_trailing_paragraph = _words(30, prefix="tail_w")
+    content = f"# Section\n\n{paragraph_one}\n\n{paragraph_two}\n\n{short_trailing_paragraph}\n"
+
+    chunks = chunk_document(content, title="Doc")
+
+    assert len(chunks) >= 1
+    for chunk in chunks:
+        assert chunk.token_count >= MIN_CHUNK_TOKENS, (
+            f"chunk with {chunk.token_count} tokens is below MIN_CHUNK_TOKENS "
+            f"({MIN_CHUNK_TOKENS}) and should have been merged into a neighbor"
+        )
+    assert "tail_w0" in chunks[-1].text
+
+
+@pytest.mark.unit
+def test_chunk_document_small_trailing_chunk_merges_even_as_sole_chunk():
+    """A whole section shorter than MIN_CHUNK_TOKENS (no previous chunk to
+    merge into) is still returned as-is - merging only applies when there is
+    a neighbor to merge into, matching the existing short-document behavior
+    (test_chunk_document_content_shorter_than_one_chunk_produces_single_chunk).
+    """
+    content = "# Section\n\nJust a short paragraph.\n"
+
+    chunks = chunk_document(content, title="Doc")
+
+    assert len(chunks) == 1
+    assert chunks[0].text == "Just a short paragraph."
 
 
 @pytest.mark.unit
