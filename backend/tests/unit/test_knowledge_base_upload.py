@@ -301,7 +301,7 @@ def test_upload_deletes_orphaned_object_when_embedding_generation_fails(
     def _boom(db, kb, text):
         raise RuntimeError("embedding service unavailable")
 
-    monkeypatch.setattr(knowledge_base_module, "generate_and_attach_embedding", _boom)
+    monkeypatch.setattr(knowledge_base_module, "generate_and_attach_embeddings", _boom)
 
     _authed()
     try:
@@ -343,7 +343,7 @@ def test_upload_cleanup_failure_does_not_mask_the_original_exception(
     def _cleanup_boom(storage_key, *, user_id):
         raise ConnectionError("MinIO transiently unreachable")
 
-    monkeypatch.setattr(knowledge_base_module, "generate_and_attach_embedding", _embedding_boom)
+    monkeypatch.setattr(knowledge_base_module, "generate_and_attach_embeddings", _embedding_boom)
     monkeypatch.setattr(fake_document_store, "delete", _cleanup_boom)
 
     _authed()

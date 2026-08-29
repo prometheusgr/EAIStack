@@ -137,7 +137,10 @@ async def test_search_via_real_http_with_valid_token_returns_matches(
     db_session.commit()
     db_session.add(
         Embedding(
-            id="emb-1", doc_id=kb.id, embedding=generate_query_embedding(db_session, kb.content)
+            id="emb-1",
+            doc_id=kb.id,
+            embedding=generate_query_embedding(db_session, kb.content),
+            chunk_text=kb.content,
         )
     )
     db_session.commit()
@@ -212,7 +215,10 @@ async def test_search_via_real_http_never_crosses_user_boundary(db_session, test
     db_session.commit()
     db_session.add(
         Embedding(
-            id="emb-a", doc_id=kb_a.id, embedding=generate_query_embedding(db_session, kb_a.content)
+            id="emb-a",
+            doc_id=kb_a.id,
+            embedding=generate_query_embedding(db_session, kb_a.content),
+            chunk_text=kb_a.content,
         )
     )
     db_session.commit()

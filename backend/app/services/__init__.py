@@ -5,8 +5,9 @@ from app.services.embedding_service import (
     EmbeddingResult,
     embed_document,
     embed_query,
-    generate_and_attach_embedding,
+    generate_and_attach_embeddings,
     generate_embedding,
+    replace_embeddings,
 )
 from app.services.retention_service import (
     RetentionConfig,
@@ -31,7 +32,8 @@ __all__ = [
     "generate_embedding",
     "embed_document",
     "embed_query",
-    "generate_and_attach_embedding",
+    "generate_and_attach_embeddings",
+    "replace_embeddings",
     "EmbeddingResult",
     "RetentionConfig",
     "purge_expired_api_keys",

@@ -2,6 +2,7 @@
 
 import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.tls import get_ssl_context
 from app.db.models import Embedding, KnowledgeBase
+from app.services.chunking_service import chunk_document
 from app.services.system_settings_service import EmbeddingConfig, resolve_embedding_config
 
 EMBEDDING_DIMENSION = 768
@@ -100,8 +102,9 @@ def embed_query(db: Session, text: str) -> EmbeddingResult:
     return generate_embedding(db, _QUERY_PREFIX + text)
 
 
-def generate_and_attach_embedding(db: Session, kb: KnowledgeBase, text: str) -> None:
-    """Generate an embedding for `text` and stage it for insert alongside `kb`.
+def generate_and_attach_embeddings(db: Session, kb: KnowledgeBase, text: str) -> None:
+    """Chunk `text` (see app.services.chunking_service) and stage one
+    Embedding row per chunk for insert alongside `kb`.
 
     Shared by both knowledge-base creation paths (paste-text and
     file-upload; see app.api.knowledge_base) - each tags
@@ -110,17 +113,45 @@ def generate_and_attach_embedding(db: Session, kb: KnowledgeBase, text: str) -> 
     detectable instead of silently mixing incompatible vectors in the same
     knowledge base. Does not commit; the caller owns the transaction.
 
-    Uses embed_document (not generate_embedding) since this is always an
-    index-time write.
+    Each chunk is embedded via embed_document on its own embed_text (title
+    + heading path + chunk text), not the bare chunk text - a chunk
+    extracted from its section loses the context that makes it meaningful
+    otherwise (see chunking_service.Chunk.embed_text).
     """
-    embedding_result = embed_document(db, text)
-    embedding = Embedding(
-        id=str(uuid4()),
-        doc_id=kb.id,
-        embedding=embedding_result.vector,
-        embed_metadata=embedding_result.as_embed_metadata(),
+    for chunk in chunk_document(text, title=kb.title):
+        embedding_result = embed_document(db, chunk.embed_text)
+        embedding = Embedding(
+            id=str(uuid4()),
+            doc_id=kb.id,
+            embedding=embedding_result.vector,
+            embed_metadata=embedding_result.as_embed_metadata(),
+            chunk_index=chunk.chunk_index,
+            chunk_text=chunk.text,
+            heading_path=chunk.heading_path,
+        )
+        db.add(embedding)
+
+
+def replace_embeddings(db: Session, kb: KnowledgeBase, text: str) -> None:
+    """Soft-delete kb's existing Embedding rows and stage fresh chunked
+    rows for its new content.
+
+    Used by the update path (app.api.knowledge_base.update_knowledge_base):
+    edited content can chunk into a different number of passages than the
+    original, so an in-place update of a single row (the pre-chunking
+    behavior) no longer makes sense - the old chunk set is replaced
+    wholesale, the same soft-delete convention
+    KnowledgeBaseRepository.soft_delete_with_embeddings already uses for a
+    deleted document. Does not commit; the caller owns the transaction.
+    """
+    now = datetime.now(timezone.utc)
+    existing = (
+        db.query(Embedding).filter(Embedding.doc_id == kb.id, Embedding.deleted_at.is_(None)).all()
     )
-    db.add(embedding)
+    for embedding in existing:
+        embedding.deleted_at = now
+
+    generate_and_attach_embeddings(db, kb, text)
 
 
 def _generate_fake_embedding(text: str) -> list[float]:

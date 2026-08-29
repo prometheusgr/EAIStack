@@ -94,7 +94,17 @@ class KnowledgeBase(Base):
 
 
 class Embedding(Base):
-    """Embedding model for storing vector embeddings."""
+    """Embedding model for storing vector embeddings.
+
+    One row per chunk, not per document (see
+    backend/app/services/chunking_service.py): a document is split into
+    passage-sized chunks before embedding, so several Embedding rows
+    typically share one doc_id. chunk_index/chunk_text/heading_path were
+    added for this; a row predating chunking still has exactly one chunk
+    (chunk_index=0, heading_path=NULL) and continues to work unchanged,
+    since chunking is applied only on the next create/update of its
+    KnowledgeBase, not backfilled (see the migration's own docstring for why).
+    """
 
     __tablename__ = "embeddings"
 
@@ -107,6 +117,9 @@ class Embedding(Base):
     )
     embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
     embed_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True, default={})
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    heading_path: Mapped[str | None] = mapped_column(String(1000), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

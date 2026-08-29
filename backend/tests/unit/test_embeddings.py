@@ -37,6 +37,64 @@ def test_embedding_model_creation(db_session):
 
 
 @pytest.mark.unit
+def test_embedding_chunk_columns_default_to_unchunked_shape(db_session):
+    """An Embedding created without chunk_index/chunk_text/heading_path
+    (the pre-chunking shape - one row per document) still gets a valid,
+    well-defined row: chunk_index=0, chunk_text="", heading_path=None. This
+    is what lets a pre-existing row (see alembic/versions/
+    007_chunked_embeddings.py) keep working without a backfill.
+    """
+    kb = KnowledgeBase(id=str(uuid4()), user_id="user-123", title="Doc", content="content")
+    db_session.add(kb)
+    db_session.commit()
+
+    embedding = Embedding(id=str(uuid4()), doc_id=kb.id, embedding=[0.1] * 768)
+    db_session.add(embedding)
+    db_session.commit()
+
+    retrieved = db_session.query(Embedding).filter_by(doc_id=kb.id).first()
+    assert retrieved.chunk_index == 0
+    assert retrieved.chunk_text == ""
+    assert retrieved.heading_path is None
+
+
+@pytest.mark.unit
+def test_embedding_supports_multiple_chunks_per_document(db_session):
+    """Multiple Embedding rows can share one doc_id, one per chunk, each
+    with its own chunk_index/chunk_text/heading_path - the cardinality
+    change chunking depends on.
+    """
+    kb = KnowledgeBase(id=str(uuid4()), user_id="user-123", title="Doc", content="content")
+    db_session.add(kb)
+    db_session.commit()
+
+    chunk_0 = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.1] * 768,
+        chunk_index=0,
+        chunk_text="First chunk.",
+        heading_path="Intro",
+    )
+    chunk_1 = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.2] * 768,
+        chunk_index=1,
+        chunk_text="Second chunk.",
+        heading_path="Intro > Details",
+    )
+    db_session.add_all([chunk_0, chunk_1])
+    db_session.commit()
+
+    chunks = (
+        db_session.query(Embedding).filter_by(doc_id=kb.id).order_by(Embedding.chunk_index).all()
+    )
+    assert [c.chunk_text for c in chunks] == ["First chunk.", "Second chunk."]
+    assert [c.heading_path for c in chunks] == ["Intro", "Intro > Details"]
+
+
+@pytest.mark.unit
 def test_embedding_user_isolation(db_session):
     """Test: Embeddings are isolated per user via knowledge base."""
     kb_a = KnowledgeBase(

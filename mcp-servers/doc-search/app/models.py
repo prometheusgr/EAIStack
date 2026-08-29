@@ -47,7 +47,13 @@ class KnowledgeBase(Base):
 
 
 class Embedding(Base):
-    """Mirrors backend/app/db/models.py's Embedding."""
+    """Mirrors backend/app/db/models.py's Embedding.
+
+    One row per chunk, not per document, since backend/app/db/models.py's
+    migration 006 (see that migration's docstring): chunk_index/chunk_text/
+    heading_path let doc-search return the matching passage directly,
+    without re-splitting the document at query time.
+    """
 
     __tablename__ = "embeddings"
 
@@ -60,6 +66,9 @@ class Embedding(Base):
     )
     embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
     embed_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True, default={})
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    heading_path: Mapped[str | None] = mapped_column(String(1000), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
