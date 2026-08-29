@@ -75,6 +75,7 @@ from app.eval.metrics import mean_reciprocal_rank, recall_at_k
 from app.models import Embedding, KnowledgeBase
 from app.repositories import EmbeddingRepository
 from app.search import embed_query
+from tests.eval.corpus_seeding import embed_document_for_eval_corpus
 
 CORPUS_PATH = Path(__file__).parent / "fixtures" / "corpus.json"
 EVAL_USER_ID = "eval-user"
@@ -133,7 +134,7 @@ def _seed_corpus(db_session, documents: list[dict]) -> None:
         embedding = Embedding(
             id=f"emb-{doc['id']}",
             doc_id=kb.id,
-            embedding=embed_query(db_session, doc["content"]),
+            embedding=embed_document_for_eval_corpus(db_session, doc["content"]),
             chunk_text=doc["content"],
         )
         db_session.add(embedding)
