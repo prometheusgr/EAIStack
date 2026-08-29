@@ -2,7 +2,7 @@
 
 import random
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import uuid4
 
 import httpx
@@ -92,6 +92,41 @@ def embed_document(db: Session, text: str) -> EmbeddingResult:
     return generate_embedding(db, _DOCUMENT_PREFIX + text)
 
 
+def embed_documents(db: Session, texts: list[str]) -> list[EmbeddingResult]:
+    """Batch variant of embed_document: one provider call for many chunks,
+    in the same order as `texts`.
+
+    generate_and_attach_embeddings uses this rather than calling
+    embed_document once per chunk - a document that chunks into N passages
+    would otherwise make N sequential blocking HTTP round-trips to the
+    embedding server, when the OpenAI-compatible /v1/embeddings endpoint
+    llama-server exposes (see _generate_llama_cpp_embeddings_batch) already
+    accepts a list of inputs in one request.
+
+    Returns [] for an empty list without resolving provider config or
+    making a call - chunk_document never returns zero chunks for non-empty
+    content, but a batch API should not assume its caller never passes an
+    empty list.
+    """
+    if not texts:
+        return []
+
+    config = resolve_embedding_config(db)
+    prefixed_texts = [_DOCUMENT_PREFIX + text for text in texts]
+
+    if config.provider == "fake":
+        vectors = [_generate_fake_embedding(text) for text in prefixed_texts]
+    elif config.provider == "llama-cpp":
+        vectors = _generate_llama_cpp_embeddings_batch(config, prefixed_texts)
+    else:
+        raise ValueError(f"Unknown embedding_provider: {config.provider}")
+
+    return [
+        EmbeddingResult(vector=vector, provider=config.provider, model=config.model)
+        for vector in vectors
+    ]
+
+
 def embed_query(db: Session, text: str) -> EmbeddingResult:
     """Generate an embedding for a search query against the knowledge base.
 
@@ -113,13 +148,18 @@ def generate_and_attach_embeddings(db: Session, kb: KnowledgeBase, text: str) ->
     detectable instead of silently mixing incompatible vectors in the same
     knowledge base. Does not commit; the caller owns the transaction.
 
-    Each chunk is embedded via embed_document on its own embed_text (title
+    Each chunk is embedded via embed_documents on its own embed_text (title
     + heading path + chunk text), not the bare chunk text - a chunk
     extracted from its section loses the context that makes it meaningful
-    otherwise (see chunking_service.Chunk.embed_text).
+    otherwise (see chunking_service.Chunk.embed_text). All chunks are
+    embedded in a single batch call rather than one call per chunk (see
+    embed_documents), so a document with many chunks costs one round trip
+    to the embedding server, not N.
     """
-    for chunk in chunk_document(text, title=kb.title):
-        embedding_result = embed_document(db, chunk.embed_text)
+    chunks = chunk_document(text, title=kb.title)
+    embedding_results = embed_documents(db, [chunk.embed_text for chunk in chunks])
+
+    for chunk, embedding_result in zip(chunks, embedding_results):
         embedding = Embedding(
             id=str(uuid4()),
             doc_id=kb.id,
@@ -132,7 +172,7 @@ def generate_and_attach_embeddings(db: Session, kb: KnowledgeBase, text: str) ->
         db.add(embedding)
 
 
-def replace_embeddings(db: Session, kb: KnowledgeBase, text: str) -> None:
+def replace_embeddings(db: Session, kb: KnowledgeBase, text: str, *, now: datetime) -> None:
     """Soft-delete kb's existing Embedding rows and stage fresh chunked
     rows for its new content.
 
@@ -143,13 +183,21 @@ def replace_embeddings(db: Session, kb: KnowledgeBase, text: str) -> None:
     wholesale, the same soft-delete convention
     KnowledgeBaseRepository.soft_delete_with_embeddings already uses for a
     deleted document. Does not commit; the caller owns the transaction.
+
+    now is accepted rather than read via datetime.now() internally, per
+    AGENTS.md's time-injection pattern (see docs/TIME_INJECTION.md) - the
+    same pattern app.services.retention_service's functions follow, so the
+    exact soft-delete timestamp is testable without monkeypatching datetime.
+
+    The soft-delete is a single bulk UPDATE rather than a SELECT-then-mutate
+    loop: the old rows' full contents (including each chunk's 768-dim
+    vector and chunk_text) are never needed here, only overwritten, so
+    fetching them into Python first would be wasted I/O that scales with
+    chunk count on every content edit.
     """
-    now = datetime.now(timezone.utc)
-    existing = (
-        db.query(Embedding).filter(Embedding.doc_id == kb.id, Embedding.deleted_at.is_(None)).all()
+    db.query(Embedding).filter(Embedding.doc_id == kb.id, Embedding.deleted_at.is_(None)).update(
+        {"deleted_at": now}
     )
-    for embedding in existing:
-        embedding.deleted_at = now
 
     generate_and_attach_embeddings(db, kb, text)
 
@@ -178,3 +226,25 @@ def _generate_llama_cpp_embedding(config: EmbeddingConfig, text: str) -> list[fl
         response.raise_for_status()
         embedding: list[float] = response.json()["data"][0]["embedding"]
         return embedding
+
+
+def _generate_llama_cpp_embeddings_batch(
+    config: EmbeddingConfig, texts: list[str]
+) -> list[list[float]]:
+    """Call llama-server's /v1/embeddings endpoint once for many texts.
+
+    The OpenAI-compatible endpoint accepts `input` as a list, returning one
+    `data` entry per input tagged with its own `index` - responses are not
+    guaranteed to arrive in request order, so results are sorted by that
+    index before being returned, keeping the output order matched to
+    `texts`' order the same way a caller would expect from N individual
+    calls.
+    """
+    with httpx.Client(timeout=config.timeout, verify=get_ssl_context()) as client:
+        response = client.post(
+            f"{config.url}/embeddings",
+            json={"input": texts, "model": config.model},
+        )
+        response.raise_for_status()
+        data = sorted(response.json()["data"], key=lambda entry: entry["index"])
+        return [entry["embedding"] for entry in data]

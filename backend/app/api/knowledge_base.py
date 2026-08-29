@@ -2,6 +2,7 @@
 
 import io
 import logging
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -252,7 +253,7 @@ async def update_knowledge_base(
     # Edited content can chunk into a different number of passages than
     # the original (see app.services.chunking_service), so the old chunk
     # set is replaced wholesale rather than updated in place.
-    replace_embeddings(db, kb, payload.content)
+    replace_embeddings(db, kb, payload.content, now=datetime.now(timezone.utc))
 
     db.commit()
 

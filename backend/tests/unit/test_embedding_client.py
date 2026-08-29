@@ -12,7 +12,12 @@ import pytest
 
 from app.core.config import settings
 from app.repositories.system_settings_repository import SystemSettingsRepository
-from app.services.embedding_service import embed_document, embed_query, generate_embedding
+from app.services.embedding_service import (
+    embed_document,
+    embed_documents,
+    embed_query,
+    generate_embedding,
+)
 
 
 @pytest.fixture
@@ -218,6 +223,117 @@ def test_embed_document_prefixes_text_with_search_document(monkeypatch, db_sessi
 
         call_args = mock_client_instance.post.call_args
         assert call_args.kwargs["json"]["input"] == "search_document: office snack policy"
+
+
+@pytest.mark.unit
+def test_embed_documents_makes_a_single_batched_call_for_multiple_texts(monkeypatch, db_session):
+    """embed_documents must send all texts in one request (as a list), not
+    one request per text - this is the whole point of batching: a document
+    with many chunks should cost one round trip to the embedding server,
+    not N.
+    """
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(
+        return_value={
+            "data": [
+                {"embedding": [0.1] * 768, "index": 0},
+                {"embedding": [0.2] * 768, "index": 1},
+                {"embedding": [0.3] * 768, "index": 2},
+            ]
+        }
+    )
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+        mock_client_instance = MagicMock()
+        mock_client_instance.post = MagicMock(return_value=mock_response)
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        results = embed_documents(db_session, ["chunk one", "chunk two", "chunk three"])
+
+        mock_client_instance.post.assert_called_once()
+        call_args = mock_client_instance.post.call_args
+        assert call_args.kwargs["json"]["input"] == [
+            "search_document: chunk one",
+            "search_document: chunk two",
+            "search_document: chunk three",
+        ]
+        assert [r.vector for r in results] == [[0.1] * 768, [0.2] * 768, [0.3] * 768]
+        assert all(r.provider == "llama-cpp" for r in results)
+
+
+@pytest.mark.unit
+def test_embed_documents_orders_results_by_response_index_not_arrival_order(
+    monkeypatch, db_session
+):
+    """The embedding server's response `data` entries are not guaranteed to
+    arrive in request order - each is tagged with its own `index`, and
+    embed_documents must sort by that index so its output order matches
+    `texts`' order regardless of response order.
+    """
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    # Response entries arrive out of order (2, 0, 1).
+    mock_response.json = MagicMock(
+        return_value={
+            "data": [
+                {"embedding": [0.3] * 768, "index": 2},
+                {"embedding": [0.1] * 768, "index": 0},
+                {"embedding": [0.2] * 768, "index": 1},
+            ]
+        }
+    )
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+        mock_client_instance = MagicMock()
+        mock_client_instance.post = MagicMock(return_value=mock_response)
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        results = embed_documents(db_session, ["first", "second", "third"])
+
+        assert [r.vector for r in results] == [[0.1] * 768, [0.2] * 768, [0.3] * 768]
+
+
+@pytest.mark.unit
+def test_embed_documents_empty_list_returns_empty_without_a_call(monkeypatch, db_session):
+    """An empty batch must not resolve provider config or make an HTTP
+    call - chunk_document never returns zero chunks for non-empty content,
+    but embed_documents shouldn't assume it's never called with [].
+    """
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+
+    with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+        results = embed_documents(db_session, [])
+
+        assert results == []
+        mock_client_class.assert_not_called()
+
+
+@pytest.mark.unit
+def test_embed_documents_fake_provider_produces_one_deterministic_vector_per_text(db_session):
+    """The fake provider (used by unit tests) must still produce one
+    distinct, deterministic vector per input text when batched, matching
+    embed_document's per-call behavior.
+    """
+    results = embed_documents(db_session, ["alpha", "beta"])
+
+    assert len(results) == 2
+    assert results[0].vector != results[1].vector
+    assert results[0].vector == embed_document(db_session, "alpha").vector
 
 
 @pytest.mark.unit

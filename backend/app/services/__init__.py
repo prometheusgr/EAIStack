@@ -4,6 +4,7 @@ from app.services.chat_guardrail_service import check_input_guardrail, filter_ag
 from app.services.embedding_service import (
     EmbeddingResult,
     embed_document,
+    embed_documents,
     embed_query,
     generate_and_attach_embeddings,
     generate_embedding,
@@ -31,6 +32,7 @@ __all__ = [
     "filter_agent_response",
     "generate_embedding",
     "embed_document",
+    "embed_documents",
     "embed_query",
     "generate_and_attach_embeddings",
     "replace_embeddings",

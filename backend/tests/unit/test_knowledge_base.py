@@ -139,6 +139,34 @@ def test_create_knowledge_base_success(client, db_session):
 
 
 @pytest.mark.unit
+def test_create_knowledge_base_rejects_whitespace_only_content(client, db_session):
+    """Test: POST /api/knowledge-base rejects content that is whitespace-only.
+
+    min_length=1 alone lets "   " or "\\n\\n" through, since whitespace counts
+    toward string length - chunk_document then strips it to nothing and
+    produces zero chunks, silently creating a document with no embeddings
+    and no way to retrieve it. Reject it at the API boundary instead.
+    """
+    fake_user = {"user_id": "test-user-123", "token": {}}
+
+    def override_get_current_user():
+        return fake_user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        payload = {"title": "Empty Document", "content": "   \n\n  "}
+
+        response = client.post("/api/knowledge-base", json=payload)
+
+        assert response.status_code == 422
+        kb = db_session.query(KnowledgeBase).filter_by(user_id="test-user-123").first()
+        assert kb is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
 def test_list_knowledge_base_success(client, db_session):
     """Test: GET /api/knowledge-base lists user's entries."""
     fake_user = {"user_id": "test-user-123", "token": {}}
@@ -338,9 +366,9 @@ def test_update_knowledge_base_reembeds_with_document_prefix(client, db_session,
 
             assert response.status_code == 200
             call_args = mock_client_instance.post.call_args
-            assert call_args.kwargs["json"]["input"] == (
+            assert call_args.kwargs["json"]["input"] == [
                 "search_document: Old Title\n\nNew content here"
-            )
+            ]
     finally:
         app.dependency_overrides.clear()
 
@@ -392,6 +420,34 @@ def test_update_knowledge_base_replaces_chunk_set_when_chunk_count_changes(clien
         assert [c.heading_path for c in active_chunks] == ["Section A", "Section B"]
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_replace_embeddings_stamps_deleted_at_with_injected_now(db_session, now_fixed):
+    """replace_embeddings must accept `now: datetime` and use it to stamp
+    deleted_at, per AGENTS.md's time-injection pattern (see
+    docs/TIME_INJECTION.md) - not call datetime.now() internally, which
+    would make the exact soft-delete timestamp untestable without
+    monkeypatching datetime.
+    """
+    from app.services.embedding_service import replace_embeddings
+
+    kb = KnowledgeBase(id=str(uuid4()), user_id="test-user-123", title="Doc", content="Old")
+    db_session.add(kb)
+    db_session.commit()
+
+    old_embedding = Embedding(id=str(uuid4()), doc_id=kb.id, embedding=[0.1] * 768, chunk_index=0)
+    db_session.add(old_embedding)
+    db_session.commit()
+
+    replace_embeddings(db_session, kb, "New content", now=now_fixed)
+    db_session.commit()
+
+    db_session.refresh(old_embedding)
+    # The DB round-trip strips tzinfo (see app.api.schemas._as_utc_isoformat's
+    # docstring: every timestamp column stores a naive datetime that is UTC
+    # by convention, not by type) - compare the naive value.
+    assert old_embedding.deleted_at == now_fixed.replace(tzinfo=None)
 
 
 @pytest.mark.unit
@@ -808,9 +864,9 @@ def test_generate_and_attach_embeddings_embeds_title_and_heading_path_context(
         generate_and_attach_embeddings(db_session, kb, content)
 
         call_args = mock_client_instance.post.call_args
-        assert call_args.kwargs["json"]["input"] == (
+        assert call_args.kwargs["json"]["input"] == [
             "search_document: Deployment Guide > TLS\n\nRotate certs every 90 days."
-        )
+        ]
 
 
 @pytest.mark.unit
@@ -853,4 +909,4 @@ def test_generate_and_attach_embeddings_uses_document_prefix_for_untitled_headin
         generate_and_attach_embeddings(db_session, kb, "Some content")
 
         call_args = mock_client_instance.post.call_args
-        assert call_args.kwargs["json"]["input"] == "search_document: Doc\n\nSome content"
+        assert call_args.kwargs["json"]["input"] == ["search_document: Doc\n\nSome content"]

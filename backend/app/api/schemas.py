@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 def _as_utc_isoformat(value: datetime) -> str:
@@ -143,11 +143,27 @@ class SemanticSearchResponse(BaseModel):
 
 
 class KnowledgeBaseCreate(BaseModel):
-    """Request body for creating a knowledge base entry."""
+    """Request body for creating (or updating - see PUT /{kb_id}) a knowledge
+    base entry.
+    """
 
     title: str = Field(..., min_length=1, max_length=500, description="Document title")
     content: str = Field(..., min_length=1, description="Document content")
     metadata: dict = Field(default_factory=dict, description="Optional metadata")
+
+    @field_validator("content")
+    @classmethod
+    def _reject_whitespace_only_content(cls, value: str) -> str:
+        """min_length=1 alone lets whitespace-only content ("   ", "\\n\\n")
+        through, since whitespace counts toward string length. Downstream,
+        chunk_document strips such content to nothing and produces zero
+        chunks, silently creating (or updating into) a document with no
+        embeddings and no way to ever retrieve it - reject it here instead,
+        at the boundary, rather than letting it reach the chunker.
+        """
+        if not value.strip():
+            raise ValueError("content must not be empty or whitespace-only")
+        return value
 
 
 class KnowledgeBaseResponse(BaseModel):

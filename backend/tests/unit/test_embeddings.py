@@ -505,3 +505,71 @@ def test_semantic_search_embeds_query_text_with_search_query_prefix(
             assert call_args.kwargs["json"]["input"] == "search_query: office snack policy"
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_semantic_search_deduplicates_multiple_chunks_from_the_same_document(
+    client, db_session, monkeypatch
+):
+    """A chunked document can occupy several of search_similar's nearest
+    rows (its other chunks) - the endpoint must return at most one result
+    per document, keeping the nearest (first-ranked) chunk, the same
+    dedup guarantee mcp-servers/doc-search/app/search.py's
+    _deduplicate_by_document already provides for the MCP search path.
+
+    Without this, a single chunked document could crowd out every other
+    matching document from a top_k-limited result set.
+    """
+    from unittest.mock import patch
+
+    from app.core.config import settings
+
+    fake_user = {"user_id": "test-user-123", "token": {}}
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+    monkeypatch.setattr(settings, "embedding_provider", "fake")
+
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        title="Deployment Guide",
+        content="Full document content spanning multiple chunks.",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    chunk_0 = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.1] * 768,
+        chunk_index=0,
+        chunk_text="First chunk: intro material.",
+    )
+    chunk_1 = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.2] * 768,
+        chunk_index=1,
+        chunk_text="Second chunk: the actually relevant passage.",
+    )
+    db_session.add_all([chunk_0, chunk_1])
+    db_session.commit()
+
+    fake_matches = [(chunk_1, kb, 0.1), (chunk_0, kb, 0.2)]
+
+    try:
+        with patch(
+            "app.api.embeddings.EmbeddingRepository.search_similar", return_value=fake_matches
+        ):
+            response = client.post(
+                "/api/embeddings/search",
+                json={"query_text": "relevant passage", "top_k": 10},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["query_count"] == 1
+        assert len(data["results"]) == 1
+        assert data["results"][0]["id"] == chunk_1.id
+        assert data["results"][0]["content"] == "Second chunk: the actually relevant passage."
+    finally:
+        app.dependency_overrides.clear()
