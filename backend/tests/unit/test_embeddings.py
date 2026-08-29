@@ -396,3 +396,54 @@ def test_semantic_search_endpoint_exists(client):
         assert "query_count" in data
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_semantic_search_embeds_query_text_with_search_query_prefix(
+    client, db_session, monkeypatch
+):
+    """POST /api/embeddings/search is a query-time call site: it must embed
+    payload.query_text via embed_query (the "search_query: " prefix), not
+    the unprefixed generate_embedding — this is the query-time half of
+    nomic-embed-text-v1.5's asymmetric prefix requirement (see
+    docs/LLM_SETUP.md). The repository call is stubbed out so this test
+    isolates the endpoint's embedding call, independent of pgvector.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app.core.config import settings
+
+    fake_user = {"user_id": "test-user-123", "token": {}}
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    fake_vector = [0.01 * i for i in range(768)]
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(return_value={"data": [{"embedding": fake_vector, "index": 0}]})
+    mock_response.raise_for_status = MagicMock()
+
+    try:
+        with (
+            patch("app.services.embedding_service.httpx.Client") as mock_client_class,
+            patch("app.api.embeddings.EmbeddingRepository.search_similar", return_value=[]),
+        ):
+            mock_client_instance = MagicMock()
+            mock_client_instance.post = MagicMock(return_value=mock_response)
+            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+            mock_client_instance.__exit__ = MagicMock(return_value=None)
+            mock_client_class.return_value = mock_client_instance
+
+            response = client.post(
+                "/api/embeddings/search",
+                json={"query_text": "office snack policy", "top_k": 5},
+            )
+
+            assert response.status_code == 200
+            call_args = mock_client_instance.post.call_args
+            assert call_args.kwargs["json"]["input"] == "search_query: office snack policy"
+    finally:
+        app.dependency_overrides.clear()

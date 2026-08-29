@@ -14,7 +14,7 @@ from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.db.models import Embedding, KnowledgeBase
 from app.repositories import EmbeddingRepository
-from app.services import generate_embedding
+from app.services import embed_query
 
 router = APIRouter(prefix="/api/embeddings", tags=["embeddings"])
 
@@ -42,7 +42,7 @@ async def search_embeddings(
     db: Session = Depends(get_db),
 ):
     """Perform semantic search using pgvector similarity."""
-    query_embedding = generate_embedding(db, payload.query_text).vector
+    query_embedding = embed_query(db, payload.query_text).vector
 
     repo = EmbeddingRepository(db)
     matches = repo.search_similar(user["user_id"], query_embedding, payload.top_k)

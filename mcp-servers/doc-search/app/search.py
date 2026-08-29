@@ -23,6 +23,16 @@ from app.tls import get_ssl_context
 
 MAX_EXCERPT_CHARS = 300
 
+# nomic-embed-text-v1.5 is an asymmetric embedding model (see
+# docs/LLM_SETUP.md and backend/app/services/embedding_service.py, which
+# applies the mirrored "search_document: " prefix at index time): it expects
+# "search_query: " prepended to query-time text. doc-search never indexes,
+# only queries, so it needs just this one prefix constant. Kept as its own
+# duplicate here (not imported from backend) for the same reason as this
+# module's EMBEDDING_DIMENSION and app.auth's JWKS verification: doc-search
+# is a separate deployable and cannot import from backend/.
+_QUERY_PREFIX = "search_query: "
+
 # Must match backend/app/services/embedding_service.py's EMBEDDING_DIMENSION —
 # nomic-embed-text-v1.5's output dimension (see docs/LLM_SETUP.md). Doc-search
 # can't import that constant directly (separate deployable, no shared package),
@@ -102,6 +112,17 @@ def generate_query_embedding(db: Session, text: str) -> list[float]:
         raise ValueError(f"Unknown embedding_provider: {config.provider}")
 
 
+def embed_query(db: Session, text: str) -> list[float]:
+    """Generate an embedding for a search query, with the "search_query: "
+    prefix nomic-embed-text-v1.5 requires at query time.
+
+    Every query-time call site in this service must go through this
+    function rather than generate_query_embedding directly, so the prefix
+    is structural rather than left for each call site to remember.
+    """
+    return generate_query_embedding(db, _QUERY_PREFIX + text)
+
+
 def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5) -> str:
     """Search user_id's knowledge base for documents relevant to query.
 
@@ -112,7 +133,7 @@ def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5)
     Returns the title and a content excerpt for each matching document,
     nearest-first by cosine distance, or a message saying nothing matched.
     """
-    query_embedding = generate_query_embedding(db, query)
+    query_embedding = embed_query(db, query)
 
     repo = EmbeddingRepository(db)
     matches = repo.search_similar(user_id, query_embedding, top_k)

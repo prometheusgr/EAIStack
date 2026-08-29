@@ -276,6 +276,62 @@ def test_update_knowledge_base_success(client, db_session):
 
 
 @pytest.mark.unit
+def test_update_knowledge_base_reembeds_with_document_prefix(client, db_session, monkeypatch):
+    """PUT /api/knowledge-base/{id} regenerates the embedding via
+    generate_embedding directly (not generate_and_attach_embedding, since a
+    row already exists), so it must apply the "search_document: " prefix
+    itself rather than inheriting it for free.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app.core.config import settings
+
+    fake_user = {"user_id": "test-user-123", "token": {}}
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()), user_id="test-user-123", title="Old Title", content="Old content"
+        )
+        db_session.add(kb)
+        db_session.commit()
+
+        embedding = Embedding(id=str(uuid4()), doc_id=kb.id, embedding=[0.1] * 768)
+        db_session.add(embedding)
+        db_session.commit()
+
+        fake_vector = [0.01 * i for i in range(768)]
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(
+            return_value={"data": [{"embedding": fake_vector, "index": 0}]}
+        )
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+            mock_client_instance = MagicMock()
+            mock_client_instance.post = MagicMock(return_value=mock_response)
+            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+            mock_client_instance.__exit__ = MagicMock(return_value=None)
+            mock_client_class.return_value = mock_client_instance
+
+            response = client.put(
+                f"/api/knowledge-base/{kb.id}",
+                json={"title": "Old Title", "content": "New content here", "metadata": {}},
+            )
+
+            assert response.status_code == 200
+            call_args = mock_client_instance.post.call_args
+            assert call_args.kwargs["json"]["input"] == "search_document: New content here"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
 def test_update_knowledge_base_clears_stale_file_metadata_and_deletes_object(client, db_session):
     """Test: PUT on a file-backed entry (non-null storage_key) clears
     storage_key/original_filename/content_type, since the row's content is
@@ -616,3 +672,43 @@ def test_generate_and_attach_embedding_stages_embedding_for_the_given_kb(db_sess
     assert staged is not None
     assert len(staged.embedding) == 768
     assert staged.embed_metadata["embedding_provider"] == "fake"
+
+
+@pytest.mark.unit
+def test_generate_and_attach_embedding_uses_document_prefix(db_session, monkeypatch):
+    """generate_and_attach_embedding is the shared index-time write path (both
+    the paste-text and file-upload creation flows go through it), so the
+    "search_document: " prefix nomic-embed-text-v1.5 expects at index time
+    (see docs/LLM_SETUP.md) must be applied here structurally, not left for
+    each call site to remember.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app.core.config import settings
+    from app.services import generate_and_attach_embedding
+
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    kb = KnowledgeBase(id=str(uuid4()), user_id="user-1", title="Doc", content="Some content")
+    db_session.add(kb)
+    db_session.flush()
+
+    fake_vector = [0.01 * i for i in range(768)]
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(return_value={"data": [{"embedding": fake_vector, "index": 0}]})
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+        mock_client_instance = MagicMock()
+        mock_client_instance.post = MagicMock(return_value=mock_response)
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        generate_and_attach_embedding(db_session, kb, "Some content")
+
+        call_args = mock_client_instance.post.call_args
+        assert call_args.kwargs["json"]["input"] == "search_document: Some content"

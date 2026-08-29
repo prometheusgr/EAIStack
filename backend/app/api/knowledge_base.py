@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import Embedding, KnowledgeBase
 from app.repositories import KnowledgeBaseRepository
-from app.services import generate_and_attach_embedding, generate_embedding
+from app.services import embed_document, generate_and_attach_embedding
 from app.storage.dependencies import get_document_store
 from app.storage.document_store import DocumentStore
 from app.storage.text_extraction import UnsupportedContentTypeError, extract_text
@@ -261,7 +261,7 @@ async def update_knowledge_base(
     )
 
     if embedding:
-        embedding_result = generate_embedding(db, payload.content)
+        embedding_result = embed_document(db, payload.content)
         embedding.embedding = embedding_result.vector
         embedding.embed_metadata = embedding_result.as_embed_metadata()
         embedding.updated_at = datetime.now(timezone.utc)

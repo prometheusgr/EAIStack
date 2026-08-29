@@ -1,0 +1,261 @@
+{
+  "documents": [
+    {
+      "id": "ora-01555",
+      "title": "Oracle Error ORA-01555 Troubleshooting",
+      "content": "ORA-01555: snapshot too old (rollback segment too small). This error occurs when a long-running query cannot find the data it needs in the undo tablespace because it was overwritten by other transactions. Increase UNDO_RETENTION or the undo tablespace size, or reduce the runtime of long queries."
+    },
+    {
+      "id": "ora-00060",
+      "title": "Oracle Error ORA-00060 Troubleshooting",
+      "content": "ORA-00060: deadlock detected while waiting for resource. Two or more sessions are waiting on locks held by each other. Oracle automatically rolls back one of the transactions. Review application logic to ensure locks are acquired in a consistent order across transactions."
+    },
+    {
+      "id": "http-429",
+      "title": "HTTP 429 Too Many Requests",
+      "content": "HTTP status code 429 indicates the client has sent too many requests in a given time window (rate limiting). Clients should read the Retry-After header and back off before retrying. Persistent 429 responses under normal load usually indicate a misconfigured rate limit or a client-side retry storm."
+    },
+    {
+      "id": "llama-cpp-ctx-size",
+      "title": "llama.cpp --ctx-size Flag",
+      "content": "The --ctx-size flag (also -c) sets the context window size in tokens for llama-server and llama-cli. Requests whose combined prompt and completion exceed this value are silently truncated server-side. Increasing --ctx-size raises memory usage roughly linearly with context length."
+    },
+    {
+      "id": "llama-cpp-embedding-flag",
+      "title": "llama.cpp --embedding Flag",
+      "content": "Passing --embedding to llama-server switches it into embedding mode, exposing an OpenAI-compatible /v1/embeddings endpoint instead of /v1/chat/completions. A model loaded in embedding mode cannot simultaneously serve chat completions in the same process."
+    },
+    {
+      "id": "nomic-embed-v1.5",
+      "title": "nomic-embed-text-v1.5 Release Notes",
+      "content": "nomic-embed-text-v1.5 is an asymmetric embedding model: text intended to be indexed must be prefixed with 'search_document: ' and text intended as a search query must be prefixed with 'search_query: '. Omitting the prefix degrades retrieval quality but does not raise an error, which makes the mistake easy to miss."
+    },
+    {
+      "id": "pgvector-v0.5.0",
+      "title": "pgvector v0.5.0 Changelog",
+      "content": "pgvector v0.5.0 adds HNSW indexes as an alternative to IVFFlat, improving query recall at the cost of slower build times. Upgrading from v0.4.x requires rebuilding existing indexes; the vector column type itself is unchanged."
+    },
+    {
+      "id": "postgres-v16-tsvector",
+      "title": "PostgreSQL 16 Full-Text Search",
+      "content": "PostgreSQL's tsvector type stores a preprocessed, normalized representation of text for full-text search, paired with ts_rank for relevance scoring. A generated column with a GIN index avoids recomputing the tsvector on every query, at the cost of extra storage and slower writes."
+    },
+    {
+      "id": "keycloak-v23-realm-export",
+      "title": "Keycloak 23 Realm Export Format",
+      "content": "Keycloak 23 changed the default realm export format to include client scopes inline rather than as separate files. Existing realm-import.json files from Keycloak 21 and earlier remain compatible on import, but a fresh export from 23 will look structurally different."
+    },
+    {
+      "id": "k3s-v1.28-upgrade",
+      "title": "K3s v1.28 Upgrade Notes",
+      "content": "K3s v1.28 drops support for the in-tree cloud provider in favor of external cloud-controller-manager. Clusters relying on the deprecated in-tree provider must migrate before upgrading, or node initialization will fail silently on the affected cloud."
+    },
+    {
+      "id": "minio-retention-lock",
+      "title": "MinIO Object Retention and Legal Hold",
+      "content": "MinIO supports S3-compatible object retention modes (GOVERNANCE and COMPLIANCE) and legal hold, independent of a bucket's own lifecycle rules. An object under COMPLIANCE retention cannot be deleted or overwritten by any user, including the root account, until the retention period expires."
+    },
+    {
+      "id": "jwt-alg-none",
+      "title": "JWT alg:none Vulnerability",
+      "content": "Some JWT libraries historically accepted a token with 'alg: none' in its header, skipping signature verification entirely. A verifier must explicitly reject the none algorithm and pin the expected algorithm (e.g. RS256) rather than trusting the algorithm named in the token itself."
+    },
+    {
+      "id": "cors-preflight",
+      "title": "CORS Preflight Requests",
+      "content": "A CORS preflight is an automatic OPTIONS request the browser sends before certain cross-origin requests (e.g. those with custom headers or non-simple content types). The server must respond with matching Access-Control-Allow-Origin, -Methods, and -Headers, or the browser blocks the actual request without ever sending it to the application layer."
+    },
+    {
+      "id": "alembic-autogenerate-limits",
+      "title": "Alembic Autogenerate Limitations",
+      "content": "Alembic's --autogenerate cannot detect every schema change: column type changes, server-side defaults, check constraints, and renames often require a hand-written migration. Always review the generated migration script before applying it rather than trusting it blindly."
+    },
+    {
+      "id": "langgraph-checkpointer",
+      "title": "LangGraph Checkpointer Concept",
+      "content": "A LangGraph checkpointer persists agent state between invocations, keyed by a thread identifier. Without a checkpointer, each graph invocation starts from a blank state and cannot resume a prior conversation. Custom checkpointers must implement get_tuple, put, and put_writes."
+    },
+    {
+      "id": "vacation-policy",
+      "title": "Employee Vacation Policy",
+      "content": "Full-time employees accrue 20 days of paid vacation per year, credited monthly. Unused vacation days carry over up to a maximum of 10 days into the following year; any balance above that is forfeited at year end."
+    },
+    {
+      "id": "expense-reimbursement",
+      "title": "Expense Reimbursement Process",
+      "content": "Expense reports must be submitted within 30 days of the purchase date, with an itemized receipt attached for any single expense over $25. Reimbursement is processed with the next payroll cycle after manager approval."
+    },
+    {
+      "id": "onboarding-checklist",
+      "title": "New Hire Onboarding Checklist",
+      "content": "New hires complete IT provisioning, benefits enrollment, and compliance training within their first week. A manager-assigned buddy is responsible for the first 30 days of informal onboarding support."
+    },
+    {
+      "id": "incident-response-severity",
+      "title": "Incident Severity Classification",
+      "content": "SEV-1 incidents involve full service outage or data loss and require immediate all-hands response. SEV-2 incidents involve significant degraded functionality for a subset of users. SEV-3 covers minor issues with a workaround available."
+    },
+    {
+      "id": "on-call-rotation",
+      "title": "On-Call Rotation Policy",
+      "content": "Engineers are on call for one week at a time, on a rotation published one quarter in advance. Anyone on call must acknowledge a page within 15 minutes during business hours and 30 minutes outside business hours."
+    },
+    {
+      "id": "docker-compose-profiles",
+      "title": "Docker Compose Profiles",
+      "content": "Docker Compose profiles let a single compose file define optional service groups that only start when explicitly requested via --profile, rather than every service starting on a bare 'docker-compose up'. This is how the LLM service in this repository stays opt-in."
+    },
+    {
+      "id": "helm-chart-values",
+      "title": "Helm Chart values.yaml Overrides",
+      "content": "A Helm values.yaml file supplies defaults that a deployment can override at install or upgrade time via --set or a second -f values file, with the later file's values taking precedence over the chart's built-in defaults."
+    }
+  ],
+  "queries": [
+    {
+      "query": "ORA-01555",
+      "expected_doc_id": "ora-01555",
+      "category": "error_code"
+    },
+    {
+      "query": "snapshot too old error",
+      "expected_doc_id": "ora-01555",
+      "category": "paraphrase"
+    },
+    {
+      "query": "ORA-00060",
+      "expected_doc_id": "ora-00060",
+      "category": "error_code"
+    },
+    {
+      "query": "deadlock detected on two sessions",
+      "expected_doc_id": "ora-00060",
+      "category": "paraphrase"
+    },
+    {
+      "query": "HTTP 429",
+      "expected_doc_id": "http-429",
+      "category": "error_code"
+    },
+    {
+      "query": "what does too many requests mean",
+      "expected_doc_id": "http-429",
+      "category": "paraphrase"
+    },
+    {
+      "query": "--ctx-size",
+      "expected_doc_id": "llama-cpp-ctx-size",
+      "category": "cli_flag"
+    },
+    {
+      "query": "how do I set the context window size for llama-server",
+      "expected_doc_id": "llama-cpp-ctx-size",
+      "category": "paraphrase"
+    },
+    {
+      "query": "--embedding flag llama-server",
+      "expected_doc_id": "llama-cpp-embedding-flag",
+      "category": "cli_flag"
+    },
+    {
+      "query": "v1.5",
+      "expected_doc_id": "nomic-embed-v1.5",
+      "category": "version_string"
+    },
+    {
+      "query": "search_document prefix asymmetric embedding",
+      "expected_doc_id": "nomic-embed-v1.5",
+      "category": "paraphrase"
+    },
+    {
+      "query": "pgvector v0.5.0",
+      "expected_doc_id": "pgvector-v0.5.0",
+      "category": "version_string"
+    },
+    {
+      "query": "HNSW index upgrade from IVFFlat",
+      "expected_doc_id": "pgvector-v0.5.0",
+      "category": "paraphrase"
+    },
+    {
+      "query": "tsvector GIN index",
+      "expected_doc_id": "postgres-v16-tsvector",
+      "category": "paraphrase"
+    },
+    {
+      "query": "Keycloak 23",
+      "expected_doc_id": "keycloak-v23-realm-export",
+      "category": "version_string"
+    },
+    {
+      "query": "K3s v1.28",
+      "expected_doc_id": "k3s-v1.28-upgrade",
+      "category": "version_string"
+    },
+    {
+      "query": "in-tree cloud provider deprecation",
+      "expected_doc_id": "k3s-v1.28-upgrade",
+      "category": "paraphrase"
+    },
+    {
+      "query": "MinIO COMPLIANCE retention mode",
+      "expected_doc_id": "minio-retention-lock",
+      "category": "paraphrase"
+    },
+    {
+      "query": "alg:none",
+      "expected_doc_id": "jwt-alg-none",
+      "category": "error_code"
+    },
+    {
+      "query": "JWT signature verification bypass",
+      "expected_doc_id": "jwt-alg-none",
+      "category": "paraphrase"
+    },
+    {
+      "query": "CORS preflight OPTIONS request",
+      "expected_doc_id": "cors-preflight",
+      "category": "paraphrase"
+    },
+    {
+      "query": "Alembic autogenerate",
+      "expected_doc_id": "alembic-autogenerate-limits",
+      "category": "paraphrase"
+    },
+    {
+      "query": "how does LangGraph remember conversation state between calls",
+      "expected_doc_id": "langgraph-checkpointer",
+      "category": "paraphrase"
+    },
+    {
+      "query": "how many vacation days do full-time employees get",
+      "expected_doc_id": "vacation-policy",
+      "category": "paraphrase"
+    },
+    {
+      "query": "expense report deadline",
+      "expected_doc_id": "expense-reimbursement",
+      "category": "paraphrase"
+    },
+    {
+      "query": "SEV-1 incident",
+      "expected_doc_id": "incident-response-severity",
+      "category": "error_code"
+    },
+    {
+      "query": "on-call page acknowledgment time",
+      "expected_doc_id": "on-call-rotation",
+      "category": "paraphrase"
+    },
+    {
+      "query": "--profile docker-compose",
+      "expected_doc_id": "docker-compose-profiles",
+      "category": "cli_flag"
+    },
+    {
+      "query": "Helm values.yaml --set override",
+      "expected_doc_id": "helm-chart-values",
+      "category": "cli_flag"
+    }
+  ]
+}

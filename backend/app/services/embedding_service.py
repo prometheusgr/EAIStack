@@ -13,6 +13,16 @@ from app.services.system_settings_service import EmbeddingConfig, resolve_embedd
 
 EMBEDDING_DIMENSION = 768
 
+# nomic-embed-text-v1.5 is an asymmetric embedding model (see
+# docs/LLM_SETUP.md): it expects different prefixes on text embedded to be
+# stored versus text embedded to search, so a stored document and a query
+# about it land close together in vector space. The prefix is a property of
+# *this model*, not of every embedding provider (the "fake" provider has no
+# such requirement), so it is applied here, in the wrapper functions below,
+# rather than inside generate_embedding's provider switch.
+_DOCUMENT_PREFIX = "search_document: "
+_QUERY_PREFIX = "search_query: "
+
 
 @dataclass(frozen=True)
 class EmbeddingResult:
@@ -67,6 +77,29 @@ def generate_embedding(db: Session, text: str) -> EmbeddingResult:
     return EmbeddingResult(vector=vector, provider=config.provider, model=config.model)
 
 
+def embed_document(db: Session, text: str) -> EmbeddingResult:
+    """Generate an embedding for text being indexed (stored) into the
+    knowledge base.
+
+    Every index-time call site must go through this function rather than
+    generate_embedding directly, so the "search_document: " prefix
+    nomic-embed-text-v1.5 requires (see EMBEDDING_DIMENSION's comment above)
+    is applied structurally - tied to the caller's *purpose* - instead of
+    left for each call site to remember to pass.
+    """
+    return generate_embedding(db, _DOCUMENT_PREFIX + text)
+
+
+def embed_query(db: Session, text: str) -> EmbeddingResult:
+    """Generate an embedding for a search query against the knowledge base.
+
+    Mirrors embed_document for the query-time half of the asymmetric prefix
+    requirement. Every query-time call site must go through this function
+    rather than generate_embedding directly.
+    """
+    return generate_embedding(db, _QUERY_PREFIX + text)
+
+
 def generate_and_attach_embedding(db: Session, kb: KnowledgeBase, text: str) -> None:
     """Generate an embedding for `text` and stage it for insert alongside `kb`.
 
@@ -76,8 +109,11 @@ def generate_and_attach_embedding(db: Session, kb: KnowledgeBase, text: str) -> 
     vector, so a later runtime provider switch (Settings screen) is
     detectable instead of silently mixing incompatible vectors in the same
     knowledge base. Does not commit; the caller owns the transaction.
+
+    Uses embed_document (not generate_embedding) since this is always an
+    index-time write.
     """
-    embedding_result = generate_embedding(db, text)
+    embedding_result = embed_document(db, text)
     embedding = Embedding(
         id=str(uuid4()),
         doc_id=kb.id,
