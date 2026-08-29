@@ -185,7 +185,7 @@ jobs:
       # playwright.config.ts) rather than testing the compose-built frontend
       # image.
       - name: Start dev stack
-        run: docker-compose up -d postgres minio keycloak doc-search migrate backend
+        run: docker compose up -d postgres minio keycloak doc-search migrate backend
 
       - name: Wait for doc-search
         run: |
@@ -197,7 +197,7 @@ jobs:
             sleep 2
           done
           echo "doc-search did not become ready in time" >&2
-          docker-compose logs doc-search
+          docker compose logs doc-search
           exit 1
 
       - name: Set up Node
@@ -234,8 +234,8 @@ jobs:
 
       - name: Show container logs on failure
         if: failure()
-        run: docker-compose logs
+        run: docker compose logs
 
       - name: Stop dev stack
         if: always()
-        run: docker-compose down -v
+        run: docker compose down -v
