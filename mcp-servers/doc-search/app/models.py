@@ -13,7 +13,8 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, Computed, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -74,6 +75,27 @@ class Embedding(Base):
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+
+
+# chunk_text_search: Postgres-maintained generated column (see
+# backend/app/db/models.py's matching field, including its own detailed
+# reasoning, for why this is appended directly to Embedding.__table__
+# rather than declared as a mapped_column()/Mapped[...] attribute) -
+# read-only from doc-search's side like every other column here.
+# Reached in queries via Embedding.__table__.c.chunk_text_search (see
+# app.repositories.embedding_repository.search_hybrid's lexical branch),
+# never as an Embedding.chunk_text_search instance attribute.
+# mypy sees __table__ as the generic FromClause base, which has no
+# append_column - it is always a concrete Table at runtime for a
+# DeclarativeBase subclass.
+Embedding.__table__.append_column(  # type: ignore[attr-defined]
+    Column(
+        "chunk_text_search",
+        TSVECTOR,
+        Computed("to_tsvector('english', chunk_text)", persisted=True),
+        nullable=True,
+    )
+)
 
 
 class SystemSettings(Base):

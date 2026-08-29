@@ -72,6 +72,32 @@ def test_search_knowledge_base_returns_matching_chunk_text(db_session):
 
 
 @pytest.mark.integration
+def test_search_knowledge_base_uses_hybrid_search_for_exact_token_queries(db_session):
+    """search_knowledge_base itself (not just the repository directly) ranks
+    an exact-token query (an error code) via hybrid search — the end-to-end
+    wiring for issue #7 Prompt 3's motivating case.
+    """
+    _seed_chunk(
+        db_session,
+        user_id="user-a",
+        title="ORA-01555 Troubleshooting",
+        chunk_text="ORA-01555: snapshot too old. Increase UNDO_RETENTION.",
+    )
+    for i in range(5):
+        _seed_chunk(
+            db_session,
+            user_id="user-a",
+            title=f"Database Error Guide {i}",
+            chunk_text=f"How to troubleshoot common database errors, guide {i}.",
+        )
+
+    result = search_knowledge_base(db_session, user_id="user-a", query="ORA-01555", top_k=6)
+
+    first_result_title = result.split("\n", 1)[0]
+    assert first_result_title == "Title: ORA-01555 Troubleshooting"
+
+
+@pytest.mark.integration
 def test_search_knowledge_base_includes_heading_path_when_present(db_session):
     """A chunk's heading path is included in the result, so the LLM sees
     which section of the document the excerpt came from.

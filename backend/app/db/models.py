@@ -5,8 +5,22 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    Computed,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+)
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.schema import CreateColumn
 
 
 class Base(DeclarativeBase):
@@ -133,6 +147,62 @@ class Embedding(Base):
 
     def __repr__(self):
         return f"<Embedding(id={self.id}, doc_id={self.doc_id})>"
+
+
+# chunk_text_search: a Postgres-maintained GENERATED ALWAYS AS
+# (to_tsvector(...)) STORED column, backing the lexical half of hybrid
+# search (app.repositories.embedding_repository's search_hybrid, mirrored
+# in doc-search) - a generated/maintained column is preferred over
+# computing to_tsvector(chunk_text) per query, per issue #7 Prompt 3.
+#
+# Deliberately NOT declared as a mapped_column()/Mapped[...] attribute on
+# Embedding. SQLAlchemy's ORM instruments any class attribute holding a
+# Column (including one added via Computed()) to be written and then
+# fetched back via "INSERT ... RETURNING" - correct for a normal
+# server-generated value, but fatal here on two counts: (1) this project's
+# unit-test fixture (backend/tests/conftest.py) builds this schema via
+# Base.metadata.create_all against SQLite, which cannot compile
+# to_tsvector(...) at all (unlike pgvector's Vector type, tolerated as an
+# opaque BLOB), and (2) even skipping the column from SQLite's CREATE
+# TABLE (see the compiler override below) does not stop the ORM from still
+# emitting "RETURNING chunk_text_search" against a table that, on SQLite,
+# was never given that column at all.
+#
+# Instead, the column is appended directly to Embedding.__table__ (a plain
+# schema-level Column, invisible to the ORM's insert/RETURNING tracking)
+# and reached in queries via Embedding.__table__.c.chunk_text_search - see
+# app.repositories.embedding_repository.search_hybrid's lexical branch -
+# rather than as an Embedding.chunk_text_search instance attribute. Any
+# unit test that needs it populated must run against real Postgres, same
+# as every other pgvector/full-text-search test in this suite; production
+# gets the equivalent DDL from alembic/versions/008_hybrid_search.py
+# instead (op.add_column can't express a generated column either; see that
+# migration's own docstring).
+# mypy sees __table__ as the generic FromClause base, which has no
+# append_column - it is always a concrete Table at runtime for a
+# DeclarativeBase subclass.
+Embedding.__table__.append_column(  # type: ignore[attr-defined]
+    Column(
+        "chunk_text_search",
+        TSVECTOR,
+        Computed("to_tsvector('english', chunk_text)", persisted=True),
+        nullable=True,
+    )
+)
+
+
+@compiles(CreateColumn, "sqlite")
+def _skip_chunk_text_search_ddl_on_sqlite(element, compiler, **kwargs):
+    """Omit the chunk_text_search column (see above) from CREATE TABLE on
+    SQLite: its Computed() expression is Postgres-only SQL that SQLite
+    cannot compile at all. Registered globally via @compiles rather than
+    scoped to one table because CreateColumn compilation has no natural
+    per-table hook - safe regardless, since no other column in this schema
+    is named chunk_text_search.
+    """
+    if element.element.name == "chunk_text_search":
+        return None
+    return compiler.visit_create_column(element, **kwargs)
 
 
 class ConversationThread(Base):

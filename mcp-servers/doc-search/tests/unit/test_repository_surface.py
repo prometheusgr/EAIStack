@@ -28,12 +28,18 @@ def test_embedding_repository_exposes_no_write_method():
     acquire one by accident. A write method added in a future edit fails
     this test before it can reach a caller.
 
+    search_hybrid (issue #7 Prompt 3) is a second read method, added
+    deliberately alongside this update to the expected set - it fuses
+    search_similar's vector ranking with a Postgres full-text search branch
+    (_search_lexical, private and so already excluded by the
+    not-underscore-prefixed filter below), still read-only end to end.
+
     Asserted against the class, not an instance, so no database session is
     needed to check it.
     """
     public_methods = {name for name in dir(EmbeddingRepository) if not name.startswith("_")}
 
-    assert public_methods == {"search_similar"}, (
+    assert public_methods == {"search_similar", "search_hybrid"}, (
         "doc-search's EmbeddingRepository surface changed. It must stay read-only: "
         "adding a write method here would silently widen this service's contract "
         "beyond the read-only guarantee documented in app/models.py and README.md."

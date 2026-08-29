@@ -146,15 +146,19 @@ def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5)
     how backend/app/agents/tools.py's tool trusted its closure-bound user_id.
 
     Returns the title, heading path (if any), and matching chunk's text for
-    up to top_k distinct documents, nearest-first by cosine distance, or a
-    message saying nothing matched. Deduplicated to the single
-    highest-ranked chunk per document (see _deduplicate_by_document) so one
-    document's many chunks can't crowd out other documents in the result.
+    up to top_k distinct documents, ranked by search_hybrid's fused
+    vector + full-text score (see app.repositories.embedding_repository —
+    issue #7 Prompt 3), or a message saying nothing matched. Deduplicated to
+    the single highest-ranked chunk per document (see
+    _deduplicate_by_document) so one document's many chunks can't crowd out
+    other documents in the result.
     """
     query_embedding = embed_query(db, query)
 
     repo = EmbeddingRepository(db)
-    candidates = repo.search_similar(user_id, query_embedding, top_k * CANDIDATE_MULTIPLIER)
+    candidates = repo.search_hybrid(
+        user_id, query_embedding, query_text=query, top_k=top_k * CANDIDATE_MULTIPLIER
+    )
 
     if not candidates:
         return "No matching documents were found in the knowledge base."
