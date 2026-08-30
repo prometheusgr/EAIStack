@@ -126,19 +126,29 @@ def _extract_sources(result) -> list[Source]:
 
     result.structuredContent is only present on the newer, hand-built
     CallToolResult doc-search now returns (see mcp-servers/doc-search/app/
-    server.py) — absent or missing "sources" resolves to an empty list
-    rather than raising, so a caller talking to an older/misbehaving server
-    degrades to "no sources shown" instead of crashing the tool call.
+    server.py). A missing structuredContent/"sources" key, or a malformed
+    entry within it (e.g. a version-skewed doc-search deployment that
+    dropped or renamed a field), degrades to "no sources shown" rather than
+    raising and crashing the tool call — this is a cross-process, cross-
+    version boundary (doc-search and the backend can be deployed and rolled
+    out independently), so defensively tolerating a shape mismatch here is
+    a system-boundary concern, not something to trust blindly.
     """
     structured = getattr(result, "structuredContent", None) or {}
-    return [
-        Source(
-            knowledge_base_id=entry["knowledge_base_id"],
-            title=entry["title"],
-            heading_path=entry.get("heading_path"),
+    sources = []
+    for entry in structured.get("sources", []):
+        knowledge_base_id = entry.get("knowledge_base_id")
+        title = entry.get("title")
+        if knowledge_base_id is None or title is None:
+            continue
+        sources.append(
+            Source(
+                knowledge_base_id=knowledge_base_id,
+                title=title,
+                heading_path=entry.get("heading_path"),
+            )
         )
-        for entry in structured.get("sources", [])
-    ]
+    return sources
 
 
 def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:

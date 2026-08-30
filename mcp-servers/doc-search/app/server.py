@@ -29,6 +29,7 @@ from starlette.types import ASGIApp
 
 import app.db as app_db
 from app.auth import TokenVerificationError, verify_bearer_token
+from app.search import SearchResultWithSources
 from app.search import search_knowledge_base_with_sources as _search_knowledge_base_with_sources
 
 _current_user_id: contextvars.ContextVar[str] = contextvars.ContextVar("current_user_id")
@@ -177,7 +178,7 @@ def _build_mcp() -> FastMCP:
         """
         user_id = _current_user_id.get()
 
-        def run_search():
+        def run_search() -> SearchResultWithSources:
             db = app_db.SessionLocal()
             try:
                 return _search_knowledge_base_with_sources(

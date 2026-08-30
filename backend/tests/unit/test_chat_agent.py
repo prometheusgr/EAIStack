@@ -216,6 +216,66 @@ def test_extract_sources_from_messages_tolerates_tool_message_with_no_artifact()
     assert extract_sources_from_messages(messages) == []
 
 
+@pytest.mark.unit
+def test_extract_sources_from_messages_ignores_a_prior_turns_sources():
+    """result["messages"] from graph.ainvoke() is the FULL accumulated
+    thread history (see test_conversation_persists_across_two_invokes_
+    same_thread_same_user above), not just the current turn's new messages.
+    A second turn that never calls the tool must not resurface the first
+    turn's source -- regression test for a bug where every turn's sources
+    silently accreted every document ever referenced anywhere earlier in
+    the same thread, regardless of what grounded the current answer.
+    """
+    messages = [
+        # Turn 1: grounded in Vacation Policy.
+        HumanMessage(content="How many vacation days do I get?"),
+        AIMessage(content="", tool_calls=[]),
+        ToolMessage(
+            content="Title: Vacation Policy\n25 days of paid vacation.",
+            tool_call_id="call-1",
+            artifact=[Source(knowledge_base_id="kb-1", title="Vacation Policy", heading_path=None)],
+        ),
+        AIMessage(content="You get 25 days of paid vacation per year."),
+        # Turn 2: unrelated small talk, no tool call at all.
+        HumanMessage(content="How are you today?"),
+        AIMessage(content="I'm doing well, thanks for asking!"),
+    ]
+
+    sources = extract_sources_from_messages(messages)
+
+    assert sources == []
+
+
+@pytest.mark.unit
+def test_extract_sources_from_messages_tolerates_a_prior_turns_checkpoint_restored_artifact():
+    """A prior turn's ToolMessage, once round-tripped through
+    SqlAlchemyCheckpointSaver's JsonPlusSerializer, comes back with
+    .artifact as a plain dict (no custom serializer is registered for
+    Source), not a Source instance -- source.knowledge_base_id on it would
+    raise AttributeError. Extraction must never touch a prior turn's
+    messages at all, so this dict-shaped artifact must never be inspected.
+    """
+    messages = [
+        HumanMessage(content="How many vacation days do I get?"),
+        AIMessage(content="", tool_calls=[]),
+        ToolMessage(
+            content="Title: Vacation Policy\n25 days of paid vacation.",
+            tool_call_id="call-1",
+            # Simulates the shape a checkpoint restore actually produces.
+            artifact=[
+                {"knowledge_base_id": "kb-1", "title": "Vacation Policy", "heading_path": None}
+            ],
+        ),
+        AIMessage(content="You get 25 days of paid vacation per year."),
+        HumanMessage(content="How are you today?"),
+        AIMessage(content="I'm doing well, thanks for asking!"),
+    ]
+
+    sources = extract_sources_from_messages(messages)
+
+    assert sources == []
+
+
 @pytest.mark.integration
 async def test_chat_agent_tool_call_routes_to_tool_and_grounds_final_answer(
     db_session, test_db_url, fake_keycloak_jwks_server, monkeypatch

@@ -97,13 +97,56 @@ def test_extract_sources_returns_empty_list_when_structured_content_missing():
 
 
 @pytest.mark.unit
+def test_extract_sources_skips_malformed_entries_without_raising():
+    """A version-skewed doc-search deployment that drops or renames a
+    required field on one entry must not crash the whole tool call --
+    that malformed entry is skipped, and any well-formed entries alongside
+    it still come through. This is a cross-process, independently
+    deployable boundary (see _extract_sources's docstring), so a shape
+    mismatch here must degrade, not raise.
+    """
+    result = _FakeCallToolResult(
+        {
+            "sources": [
+                {"title": "Missing ID"},  # no knowledge_base_id
+                {"knowledge_base_id": "kb-2"},  # no title
+                {"knowledge_base_id": "kb-3", "title": "Well-Formed Entry", "heading_path": None},
+            ]
+        }
+    )
+
+    sources = _extract_sources(result)
+
+    assert sources == [
+        Source(knowledge_base_id="kb-3", title="Well-Formed Entry", heading_path=None)
+    ]
+
+
+@pytest.mark.unit
 async def test_search_knowledge_base_tool_returns_empty_sources_when_server_unreachable():
     """The unreachable-server fallback (see the error-handling test above)
     must still satisfy response_format="content_and_artifact"'s two-tuple
     contract: empty sources, not a crash building the ToolMessage.
+
+    Invoked via a ToolCall dict (not a bare {"query": ...} args dict), the
+    same shape LangGraph's ToolNode actually uses: only a call carrying a
+    tool_call_id causes LangChain to construct a real ToolMessage and
+    populate .artifact (see langchain_core.tools.base._format_output --
+    tool_call_id=None returns the bare content string, skipping artifact
+    construction entirely, which would make this test unable to catch a
+    broken two-tuple return even if the fallback stopped returning one).
     """
     tool = make_search_knowledge_base_tool(token="some.jwt.token", mcp_url="http://localhost:1/mcp")
 
-    result = await tool.ainvoke({"query": "anything"})
+    tool_message = await tool.ainvoke(
+        {
+            "name": "search_knowledge_base",
+            "args": {"query": "anything"},
+            "id": "call-1",
+            "type": "tool_call",
+        }
+    )
 
-    assert isinstance(result, str)
+    assert isinstance(tool_message.content, str)
+    assert "unavailable" in tool_message.content.lower()
+    assert tool_message.artifact == []

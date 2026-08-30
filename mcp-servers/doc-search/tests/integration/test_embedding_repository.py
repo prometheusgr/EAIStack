@@ -302,10 +302,11 @@ def test_search_hybrid_respects_top_k(db_session):
 def test_search_hybrid_return_candidates_skips_top_k_truncation(db_session):
     """return_candidates=True returns the full fused candidate pool
     (top_k * _CANDIDATE_MULTIPLIER per branch, deduplicated by RRF fusion),
-    not truncated to top_k — this is what lets app.search.search_knowledge_base
-    deduplicate by document against the full pool before applying its own
-    top_k, instead of compounding a second candidate multiplier on top of
-    this method's own to compensate for an early truncation.
+    not truncated to top_k — this is what lets
+    app.search.search_knowledge_base_with_sources deduplicate by document
+    against the full pool before applying its own top_k, instead of
+    compounding a second candidate multiplier on top of this method's own
+    to compensate for an early truncation.
     """
     for i in range(5):
         _seed_document(

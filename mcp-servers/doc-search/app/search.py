@@ -61,7 +61,7 @@ class SourceMatch:
     """One document that grounded a search_knowledge_base_with_sources call.
 
     Structured provenance for a matching document — knowledge_base_id/title/
-    heading_path, the same fields already baked into search_knowledge_base's
+    heading_path, the same fields already baked into the rendered result's
     prose "Title: ..." / "Section: ..." lines — kept separate from that text
     so a caller (the backend's MCP client) can carry it as data instead of
     parsing it back out of a string meant for the LLM to read.
@@ -74,9 +74,9 @@ class SourceMatch:
 
 @dataclass(frozen=True)
 class SearchResultWithSources:
-    """search_knowledge_base_with_sources's return value: the same rendered
-    text search_knowledge_base returns, plus the structured sources it was
-    built from.
+    """search_knowledge_base_with_sources's return value: the rendered
+    title/heading-path/excerpt text for the LLM to read, plus the
+    structured sources it was built from.
     """
 
     text: str
@@ -166,44 +166,23 @@ def embed_query(db: Session, text: str) -> list[float]:
     return generate_query_embedding(db, _QUERY_PREFIX + text)
 
 
-def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5) -> str:
+def search_knowledge_base_with_sources(
+    db: Session, user_id: str, query: str, top_k: int = 5
+) -> SearchResultWithSources:
     """Search user_id's knowledge base for passages relevant to query.
 
     user_id must already have been verified (see app.auth.verify_bearer_token)
     — this function trusts it as given and does not re-derive it, mirroring
     how backend/app/agents/tools.py's tool trusted its closure-bound user_id.
 
-    Returns the title, heading path (if any), and matching chunk's text for
-    up to top_k distinct documents, ranked by search_hybrid's fused
-    vector + full-text score (see app.repositories.embedding_repository —
-    issue #7 Prompt 3), or a message saying nothing matched. Deduplicated to
-    the single highest-ranked chunk per document (see
-    _deduplicate_by_document) so one document's many chunks can't crowd out
-    other documents in the result.
-    """
-    return _search_and_render(db, user_id, query, top_k).text
-
-
-def search_knowledge_base_with_sources(
-    db: Session, user_id: str, query: str, top_k: int = 5
-) -> SearchResultWithSources:
-    """Same ranking and rendered text as search_knowledge_base, plus each
-    matching document's provenance (knowledge_base_id/title/heading_path) as
-    structured data.
-
-    Exists as a separate function, rather than changing
-    search_knowledge_base's return type, so every existing caller and test
-    of the plain string result is unaffected — see issue #19, which needs
-    the sources without changing what the LLM-facing tool result looks like.
-    """
-    return _search_and_render(db, user_id, query, top_k)
-
-
-def _search_and_render(
-    db: Session, user_id: str, query: str, top_k: int
-) -> SearchResultWithSources:
-    """Shared ranking + formatting for search_knowledge_base and
-    search_knowledge_base_with_sources, so the two never drift apart.
+    Returns the rendered title/heading-path/excerpt text for up to top_k
+    distinct documents (ranked by search_hybrid's fused vector + full-text
+    score — see app.repositories.embedding_repository, issue #7 Prompt 3),
+    alongside each match's structured provenance (knowledge_base_id/title/
+    heading_path — see issue #19), or a "no matches" message with an empty
+    sources list. Deduplicated to the single highest-ranked chunk per
+    document (see _deduplicate_by_document) so one document's many chunks
+    can't crowd out other documents in the result.
     """
     query_embedding = embed_query(db, query)
 
