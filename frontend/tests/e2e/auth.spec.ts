@@ -539,12 +539,19 @@ test.describe('Authentication Flow - Chat Integration', () => {
     await sendBtn.click()
     console.log('[test] Clicked send')
 
-    // Wait for agent response
+    // Wait for agent response. This proves the login -> chat -> send ->
+    // render round trip works end to end; it does not assert on the
+    // response's content, since CI runs LLM_PROVIDER=fake (see
+    // docker-compose.yml), whose canned reply has no relationship to the
+    // question asked. A real, content-grounded answer (including basic
+    // arithmetic reasoning) is out of scope for a deterministic mock and
+    // is exactly what knowledge-base-search-grounding.spec.ts verifies
+    // separately, against a real embedding server + LLM
+    // (`docker-compose up --profile llm`) - see that spec's own comment.
     const response = page.locator('.message-agent')
     await expect(response).toBeVisible({ timeout: 10000 })
     const messageText = await response.textContent()
     expect(messageText).toBeTruthy()
-    expect(messageText).toContain('4')
     console.log(`[test] Agent responded: ${messageText}`)
   })
 

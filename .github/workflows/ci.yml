@@ -218,9 +218,21 @@ jobs:
       # global-setup.ts waits for Keycloak and the backend before any spec
       # runs; doc-search readiness is checked above since global-setup.ts
       # only covers the services Playwright specs talk to directly.
+      #
+      # knowledge-base-search-grounding.spec.ts is excluded: it asserts on
+      # a real, content-grounded LLM answer (see its own header comment),
+      # which requires `docker-compose up --profile llm` and a real GGUF
+      # model - neither of which this job provides (LLM_PROVIDER/
+      # EMBEDDING_PROVIDER default to "fake" here, same reasoning as the
+      # "No --profile llm" comment above). Retrieval correctness itself
+      # (chunking, hybrid search, dedup) is covered by backend-tests and
+      # doc-search-tests against real Postgres; this spec's job is proving
+      # the full LLM-in-the-loop grounding story, which needs the real
+      # model to mean anything - run it manually with --profile llm before
+      # merging a change that touches retrieval or the chat agent.
       - name: Run e2e tests
         working-directory: ./frontend
-        run: npx playwright test tests/e2e/
+        run: npx playwright test tests/e2e/ --grep-invert "grounded in a document"
 
       - name: Upload Playwright report
         if: failure()
