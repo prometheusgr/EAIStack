@@ -37,6 +37,64 @@ def test_embedding_model_creation(db_session):
 
 
 @pytest.mark.unit
+def test_embedding_chunk_columns_default_to_unchunked_shape(db_session):
+    """An Embedding created without chunk_index/chunk_text/heading_path
+    (the pre-chunking shape - one row per document) still gets a valid,
+    well-defined row: chunk_index=0, chunk_text="", heading_path=None. This
+    is what lets a pre-existing row (see alembic/versions/
+    007_chunked_embeddings.py) keep working without a backfill.
+    """
+    kb = KnowledgeBase(id=str(uuid4()), user_id="user-123", title="Doc", content="content")
+    db_session.add(kb)
+    db_session.commit()
+
+    embedding = Embedding(id=str(uuid4()), doc_id=kb.id, embedding=[0.1] * 768)
+    db_session.add(embedding)
+    db_session.commit()
+
+    retrieved = db_session.query(Embedding).filter_by(doc_id=kb.id).first()
+    assert retrieved.chunk_index == 0
+    assert retrieved.chunk_text == ""
+    assert retrieved.heading_path is None
+
+
+@pytest.mark.unit
+def test_embedding_supports_multiple_chunks_per_document(db_session):
+    """Multiple Embedding rows can share one doc_id, one per chunk, each
+    with its own chunk_index/chunk_text/heading_path - the cardinality
+    change chunking depends on.
+    """
+    kb = KnowledgeBase(id=str(uuid4()), user_id="user-123", title="Doc", content="content")
+    db_session.add(kb)
+    db_session.commit()
+
+    chunk_0 = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.1] * 768,
+        chunk_index=0,
+        chunk_text="First chunk.",
+        heading_path="Intro",
+    )
+    chunk_1 = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.2] * 768,
+        chunk_index=1,
+        chunk_text="Second chunk.",
+        heading_path="Intro > Details",
+    )
+    db_session.add_all([chunk_0, chunk_1])
+    db_session.commit()
+
+    chunks = (
+        db_session.query(Embedding).filter_by(doc_id=kb.id).order_by(Embedding.chunk_index).all()
+    )
+    assert [c.chunk_text for c in chunks] == ["First chunk.", "Second chunk."]
+    assert [c.heading_path for c in chunks] == ["Intro", "Intro > Details"]
+
+
+@pytest.mark.unit
 def test_embedding_user_isolation(db_session):
     """Test: Embeddings are isolated per user via knowledge base."""
     kb_a = KnowledgeBase(
@@ -394,5 +452,124 @@ def test_semantic_search_endpoint_exists(client):
         data = response.json()
         assert "results" in data
         assert "query_count" in data
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_semantic_search_embeds_query_text_with_search_query_prefix(
+    client, db_session, monkeypatch
+):
+    """POST /api/embeddings/search is a query-time call site: it must embed
+    payload.query_text via embed_query (the "search_query: " prefix), not
+    the unprefixed generate_embedding — this is the query-time half of
+    nomic-embed-text-v1.5's asymmetric prefix requirement (see
+    docs/LLM_SETUP.md). The repository call is stubbed out so this test
+    isolates the endpoint's embedding call, independent of pgvector.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app.core.config import settings
+
+    fake_user = {"user_id": "test-user-123", "token": {}}
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    fake_vector = [0.01 * i for i in range(768)]
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(return_value={"data": [{"embedding": fake_vector, "index": 0}]})
+    mock_response.raise_for_status = MagicMock()
+
+    try:
+        with (
+            patch("app.services.embedding_service.httpx.Client") as mock_client_class,
+            patch("app.api.embeddings.EmbeddingRepository.search_similar", return_value=[]),
+        ):
+            mock_client_instance = MagicMock()
+            mock_client_instance.post = MagicMock(return_value=mock_response)
+            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+            mock_client_instance.__exit__ = MagicMock(return_value=None)
+            mock_client_class.return_value = mock_client_instance
+
+            response = client.post(
+                "/api/embeddings/search",
+                json={"query_text": "office snack policy", "top_k": 5},
+            )
+
+            assert response.status_code == 200
+            call_args = mock_client_instance.post.call_args
+            assert call_args.kwargs["json"]["input"] == "search_query: office snack policy"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_semantic_search_deduplicates_multiple_chunks_from_the_same_document(
+    client, db_session, monkeypatch
+):
+    """A chunked document can occupy several of search_similar's nearest
+    rows (its other chunks) - the endpoint must return at most one result
+    per document, keeping the nearest (first-ranked) chunk, the same
+    dedup guarantee mcp-servers/doc-search/app/search.py's
+    _deduplicate_by_document already provides for the MCP search path.
+
+    Without this, a single chunked document could crowd out every other
+    matching document from a top_k-limited result set.
+    """
+    from unittest.mock import patch
+
+    from app.core.config import settings
+
+    fake_user = {"user_id": "test-user-123", "token": {}}
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+    monkeypatch.setattr(settings, "embedding_provider", "fake")
+
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        title="Deployment Guide",
+        content="Full document content spanning multiple chunks.",
+    )
+    db_session.add(kb)
+    db_session.commit()
+
+    chunk_0 = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.1] * 768,
+        chunk_index=0,
+        chunk_text="First chunk: intro material.",
+    )
+    chunk_1 = Embedding(
+        id=str(uuid4()),
+        doc_id=kb.id,
+        embedding=[0.2] * 768,
+        chunk_index=1,
+        chunk_text="Second chunk: the actually relevant passage.",
+    )
+    db_session.add_all([chunk_0, chunk_1])
+    db_session.commit()
+
+    fake_matches = [(chunk_1, kb, 0.1), (chunk_0, kb, 0.2)]
+
+    try:
+        with patch(
+            "app.api.embeddings.EmbeddingRepository.search_similar", return_value=fake_matches
+        ):
+            response = client.post(
+                "/api/embeddings/search",
+                json={"query_text": "relevant passage", "top_k": 10},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["query_count"] == 1
+        assert len(data["results"]) == 1
+        assert data["results"][0]["id"] == chunk_1.id
+        assert data["results"][0]["content"] == "Second chunk: the actually relevant passage."
     finally:
         app.dependency_overrides.clear()

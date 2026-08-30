@@ -17,11 +17,37 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import SystemSettings
+from app.models import Embedding, KnowledgeBase, SystemSettings
 from app.repositories import EmbeddingRepository
 from app.tls import get_ssl_context
 
-MAX_EXCERPT_CHARS = 300
+MAX_EXCERPT_CHARS = 2000
+
+# Now that content is chunked before storage (see backend/app/services/
+# chunking_service.py), a chunk is already passage-sized — this cap is a
+# safety net against a single oversized chunk (e.g. an atomic fenced code
+# block bigger than the chunking target), not the primary excerpting
+# mechanism the old whole-document flow relied on.
+
+# Deduplicating to one chunk per document needs a candidate pool wider than
+# top_k (a document can occupy several of the nearest-ranked rows, via its
+# other chunks), or dedup could return fewer than top_k distinct documents
+# even when more exist. EmbeddingRepository.search_hybrid already fetches a
+# generous per-branch candidate margin of its own (_CANDIDATE_MULTIPLIER, in
+# app.repositories.embedding_repository) for RRF fusion quality — asking it
+# for that pool via return_candidates=True, rather than re-multiplying top_k
+# here ourselves, means dedup headroom comes from the repository's existing
+# margin instead of compounding a second one on top of it.
+
+# nomic-embed-text-v1.5 is an asymmetric embedding model (see
+# docs/LLM_SETUP.md and backend/app/services/embedding_service.py, which
+# applies the mirrored "search_document: " prefix at index time): it expects
+# "search_query: " prepended to query-time text. doc-search never indexes,
+# only queries, so it needs just this one prefix constant. Kept as its own
+# duplicate here (not imported from backend) for the same reason as this
+# module's EMBEDDING_DIMENSION and app.auth's JWKS verification: doc-search
+# is a separate deployable and cannot import from backend/.
+_QUERY_PREFIX = "search_query: "
 
 # Must match backend/app/services/embedding_service.py's EMBEDDING_DIMENSION —
 # nomic-embed-text-v1.5's output dimension (see docs/LLM_SETUP.md). Doc-search
@@ -102,29 +128,71 @@ def generate_query_embedding(db: Session, text: str) -> list[float]:
         raise ValueError(f"Unknown embedding_provider: {config.provider}")
 
 
+def embed_query(db: Session, text: str) -> list[float]:
+    """Generate an embedding for a search query, with the "search_query: "
+    prefix nomic-embed-text-v1.5 requires at query time.
+
+    Every query-time call site in this service must go through this
+    function rather than generate_query_embedding directly, so the prefix
+    is structural rather than left for each call site to remember.
+    """
+    return generate_query_embedding(db, _QUERY_PREFIX + text)
+
+
 def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5) -> str:
-    """Search user_id's knowledge base for documents relevant to query.
+    """Search user_id's knowledge base for passages relevant to query.
 
     user_id must already have been verified (see app.auth.verify_bearer_token)
     — this function trusts it as given and does not re-derive it, mirroring
     how backend/app/agents/tools.py's tool trusted its closure-bound user_id.
 
-    Returns the title and a content excerpt for each matching document,
-    nearest-first by cosine distance, or a message saying nothing matched.
+    Returns the title, heading path (if any), and matching chunk's text for
+    up to top_k distinct documents, ranked by search_hybrid's fused
+    vector + full-text score (see app.repositories.embedding_repository —
+    issue #7 Prompt 3), or a message saying nothing matched. Deduplicated to
+    the single highest-ranked chunk per document (see
+    _deduplicate_by_document) so one document's many chunks can't crowd out
+    other documents in the result.
     """
-    query_embedding = generate_query_embedding(db, query)
+    query_embedding = embed_query(db, query)
 
     repo = EmbeddingRepository(db)
-    matches = repo.search_similar(user_id, query_embedding, top_k)
+    candidates = repo.search_hybrid(
+        user_id, query_embedding, query_text=query, top_k=top_k, return_candidates=True
+    )
 
-    if not matches:
+    if not candidates:
         return "No matching documents were found in the knowledge base."
 
+    matches = _deduplicate_by_document(candidates)[:top_k]
+
     excerpts = []
-    for _, knowledge_base, _ in matches:
-        excerpt = knowledge_base.content[:MAX_EXCERPT_CHARS]
-        if len(knowledge_base.content) > MAX_EXCERPT_CHARS:
+    for embedding, knowledge_base, _ in matches:
+        excerpt = embedding.chunk_text[:MAX_EXCERPT_CHARS]
+        if len(embedding.chunk_text) > MAX_EXCERPT_CHARS:
             excerpt += "..."
-        excerpts.append(f"Title: {knowledge_base.title}\n{excerpt}")
+
+        header = f"Title: {knowledge_base.title}"
+        if embedding.heading_path is not None:
+            header += f"\nSection: {embedding.heading_path}"
+        excerpts.append(f"{header}\n{excerpt}")
 
     return "\n\n".join(excerpts)
+
+
+def _deduplicate_by_document(
+    candidates: list[tuple[Embedding, KnowledgeBase, float]],
+) -> list[tuple[Embedding, KnowledgeBase, float]]:
+    """Keep only the first (nearest, since candidates arrive nearest-first)
+    chunk per doc_id, preserving overall rank order.
+    """
+    seen_doc_ids: set[str] = set()
+    deduplicated = []
+    for candidate in candidates:
+        embedding, _, _ = candidate
+        if embedding.doc_id in seen_doc_ids:
+            continue
+        seen_doc_ids.add(embedding.doc_id)
+        deduplicated.append(candidate)
+
+    return deduplicated

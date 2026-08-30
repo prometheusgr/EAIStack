@@ -139,6 +139,34 @@ def test_create_knowledge_base_success(client, db_session):
 
 
 @pytest.mark.unit
+def test_create_knowledge_base_rejects_whitespace_only_content(client, db_session):
+    """Test: POST /api/knowledge-base rejects content that is whitespace-only.
+
+    min_length=1 alone lets "   " or "\\n\\n" through, since whitespace counts
+    toward string length - chunk_document then strips it to nothing and
+    produces zero chunks, silently creating a document with no embeddings
+    and no way to retrieve it. Reject it at the API boundary instead.
+    """
+    fake_user = {"user_id": "test-user-123", "token": {}}
+
+    def override_get_current_user():
+        return fake_user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        payload = {"title": "Empty Document", "content": "   \n\n  "}
+
+        response = client.post("/api/knowledge-base", json=payload)
+
+        assert response.status_code == 422
+        kb = db_session.query(KnowledgeBase).filter_by(user_id="test-user-123").first()
+        assert kb is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
 def test_list_knowledge_base_success(client, db_session):
     """Test: GET /api/knowledge-base lists user's entries."""
     fake_user = {"user_id": "test-user-123", "token": {}}
@@ -226,7 +254,13 @@ def test_get_knowledge_base_not_found(client):
 
 @pytest.mark.unit
 def test_update_knowledge_base_success(client, db_session):
-    """Test: PUT /api/knowledge-base/{id} updates KB and regenerates embedding."""
+    """Test: PUT /api/knowledge-base/{id} updates KB and regenerates embedding.
+
+    The original Embedding row is soft-deleted (not updated in place) and a
+    fresh row is inserted for the new content - see replace_embeddings,
+    which replaces the chunk set wholesale since the old and new content
+    can chunk into a different number of passages.
+    """
     fake_user = {"user_id": "test-user-123", "token": {}}
 
     def override_get_current_user():
@@ -253,8 +287,6 @@ def test_update_knowledge_base_success(client, db_session):
         db_session.add(embedding)
         db_session.commit()
 
-        old_embedding = embedding.embedding[0]
-
         update_payload = {
             "title": "New Title",
             "content": "New content here",
@@ -268,11 +300,154 @@ def test_update_knowledge_base_success(client, db_session):
         assert data["title"] == "New Title"
         assert data["content"] == "New content here"
 
-        # Verify embedding was regenerated
         db_session.refresh(embedding)
-        assert embedding.embedding[0] != old_embedding  # Should be different for different content
+        assert embedding.deleted_at is not None
+
+        active_embedding = (
+            db_session.query(Embedding)
+            .filter(Embedding.doc_id == kb.id, Embedding.deleted_at.is_(None))
+            .first()
+        )
+        assert active_embedding is not None
+        assert active_embedding.id != embedding.id
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_update_knowledge_base_reembeds_with_document_prefix(client, db_session, monkeypatch):
+    """PUT /api/knowledge-base/{id} regenerates the embedding via
+    replace_embeddings (chunk + re-embed), so the new content's chunk(s)
+    must carry the "search_document: " prefix, with title + heading path
+    context prepended (see chunking_service.Chunk.embed_text), not the bare
+    updated content.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app.core.config import settings
+
+    fake_user = {"user_id": "test-user-123", "token": {}}
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()), user_id="test-user-123", title="Old Title", content="Old content"
+        )
+        db_session.add(kb)
+        db_session.commit()
+
+        embedding = Embedding(id=str(uuid4()), doc_id=kb.id, embedding=[0.1] * 768)
+        db_session.add(embedding)
+        db_session.commit()
+
+        fake_vector = [0.01 * i for i in range(768)]
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(
+            return_value={"data": [{"embedding": fake_vector, "index": 0}]}
+        )
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+            mock_client_instance = MagicMock()
+            mock_client_instance.post = MagicMock(return_value=mock_response)
+            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+            mock_client_instance.__exit__ = MagicMock(return_value=None)
+            mock_client_class.return_value = mock_client_instance
+
+            response = client.put(
+                f"/api/knowledge-base/{kb.id}",
+                json={"title": "Old Title", "content": "New content here", "metadata": {}},
+            )
+
+            assert response.status_code == 200
+            call_args = mock_client_instance.post.call_args
+            assert call_args.kwargs["json"]["input"] == [
+                "search_document: Old Title\n\nNew content here"
+            ]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_update_knowledge_base_replaces_chunk_set_when_chunk_count_changes(client, db_session):
+    """PUT /api/knowledge-base/{id} soft-deletes the old chunk rows and
+    inserts a fresh set matching the new content's chunking, rather than
+    updating a single row in place - the old and new content can chunk
+    into a different number of passages.
+    """
+    fake_user = {"user_id": "test-user-123", "token": {}}
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+
+    try:
+        kb = KnowledgeBase(
+            id=str(uuid4()), user_id="test-user-123", title="Doc", content="Old content"
+        )
+        db_session.add(kb)
+        db_session.commit()
+
+        old_embedding = Embedding(
+            id=str(uuid4()), doc_id=kb.id, embedding=[0.1] * 768, chunk_index=0
+        )
+        db_session.add(old_embedding)
+        db_session.commit()
+
+        response = client.put(
+            f"/api/knowledge-base/{kb.id}",
+            json={
+                "title": "Doc",
+                "content": "# Section A\n\nBody A.\n\n# Section B\n\nBody B.\n",
+                "metadata": {},
+            },
+        )
+
+        assert response.status_code == 200
+
+        db_session.refresh(old_embedding)
+        assert old_embedding.deleted_at is not None
+
+        active_chunks = (
+            db_session.query(Embedding)
+            .filter(Embedding.doc_id == kb.id, Embedding.deleted_at.is_(None))
+            .order_by(Embedding.chunk_index)
+            .all()
+        )
+        assert len(active_chunks) == 2
+        assert [c.heading_path for c in active_chunks] == ["Section A", "Section B"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.unit
+def test_replace_embeddings_stamps_deleted_at_with_injected_now(db_session, now_fixed):
+    """replace_embeddings must accept `now: datetime` and use it to stamp
+    deleted_at, per AGENTS.md's time-injection pattern (see
+    docs/TIME_INJECTION.md) - not call datetime.now() internally, which
+    would make the exact soft-delete timestamp untestable without
+    monkeypatching datetime.
+    """
+    from app.services.embedding_service import replace_embeddings
+
+    kb = KnowledgeBase(id=str(uuid4()), user_id="test-user-123", title="Doc", content="Old")
+    db_session.add(kb)
+    db_session.commit()
+
+    old_embedding = Embedding(id=str(uuid4()), doc_id=kb.id, embedding=[0.1] * 768, chunk_index=0)
+    db_session.add(old_embedding)
+    db_session.commit()
+
+    replace_embeddings(db_session, kb, "New content", now=now_fixed)
+    db_session.commit()
+
+    db_session.refresh(old_embedding)
+    # The DB round-trip strips tzinfo (see app.api.schemas._as_utc_isoformat's
+    # docstring: every timestamp column stores a naive datetime that is UTC
+    # by convention, not by type) - compare the naive value.
+    assert old_embedding.deleted_at == now_fixed.replace(tzinfo=None)
 
 
 @pytest.mark.unit
@@ -591,15 +766,18 @@ def test_mock_embedding_different_for_different_text(db_session):
 
 
 @pytest.mark.unit
-def test_generate_and_attach_embedding_stages_embedding_for_the_given_kb(db_session):
-    """Test: generate_and_attach_embedding() stages an Embedding row linked
+def test_generate_and_attach_embeddings_stages_one_embedding_for_short_content(db_session):
+    """Test: generate_and_attach_embeddings() stages an Embedding row linked
     to the given KnowledgeBase's id, tagged with the provider/model
     provenance, without committing - shared by both the paste-text and
     file-upload creation paths (see app.api.knowledge_base), which is why
     this logic lives in the service layer per docs/BACKEND_SERVICES.md
     rather than as a private helper in the API module.
+
+    Content short enough to be one chunk (see app.services.chunking_service)
+    stages exactly one Embedding row, matching the pre-chunking shape.
     """
-    from app.services import generate_and_attach_embedding
+    from app.services import generate_and_attach_embeddings
 
     kb = KnowledgeBase(
         id=str(uuid4()),
@@ -610,9 +788,125 @@ def test_generate_and_attach_embedding_stages_embedding_for_the_given_kb(db_sess
     db_session.add(kb)
     db_session.flush()
 
-    generate_and_attach_embedding(db_session, kb, "Some content")
+    generate_and_attach_embeddings(db_session, kb, "Some content")
 
-    staged = db_session.query(Embedding).filter_by(doc_id=kb.id).first()
-    assert staged is not None
-    assert len(staged.embedding) == 768
-    assert staged.embed_metadata["embedding_provider"] == "fake"
+    staged = db_session.query(Embedding).filter_by(doc_id=kb.id).all()
+    assert len(staged) == 1
+    assert len(staged[0].embedding) == 768
+    assert staged[0].embed_metadata["embedding_provider"] == "fake"
+    assert staged[0].chunk_index == 0
+    assert staged[0].chunk_text == "Some content"
+
+
+@pytest.mark.unit
+def test_generate_and_attach_embeddings_stages_one_row_per_chunk_for_long_content(db_session):
+    """Test: content long enough to be split into multiple chunks
+    (app.services.chunking_service.chunk_document) stages one Embedding row
+    per chunk, each carrying its own chunk_index/chunk_text/heading_path.
+    """
+    from app.services import generate_and_attach_embeddings
+    from app.services.chunking_service import MAX_CHUNK_TOKENS
+
+    long_paragraph = " ".join(f"word{i}" for i in range(MAX_CHUNK_TOKENS * 3))
+    content = f"# Big Section\n\n{long_paragraph}\n"
+
+    kb = KnowledgeBase(id=str(uuid4()), user_id="user-1", title="Big Doc", content=content)
+    db_session.add(kb)
+    db_session.flush()
+
+    generate_and_attach_embeddings(db_session, kb, content)
+
+    staged = (
+        db_session.query(Embedding).filter_by(doc_id=kb.id).order_by(Embedding.chunk_index).all()
+    )
+    assert len(staged) > 1
+    assert [row.chunk_index for row in staged] == list(range(len(staged)))
+    assert all(row.heading_path == "Big Section" for row in staged)
+    assert all(row.chunk_text for row in staged)
+
+
+@pytest.mark.unit
+def test_generate_and_attach_embeddings_embeds_title_and_heading_path_context(
+    db_session, monkeypatch
+):
+    """Each chunk is embedded with its title + heading path prepended
+    (Chunk.embed_text), then the "search_document: " prefix - not the bare
+    chunk text - so retrieval benefits from the section context a chunk
+    loses when extracted on its own.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app.core.config import settings
+    from app.services import generate_and_attach_embeddings
+
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    content = "# TLS\n\nRotate certs every 90 days.\n"
+    kb = KnowledgeBase(id=str(uuid4()), user_id="user-1", title="Deployment Guide", content=content)
+    db_session.add(kb)
+    db_session.flush()
+
+    fake_vector = [0.01 * i for i in range(768)]
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(return_value={"data": [{"embedding": fake_vector, "index": 0}]})
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+        mock_client_instance = MagicMock()
+        mock_client_instance.post = MagicMock(return_value=mock_response)
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        generate_and_attach_embeddings(db_session, kb, content)
+
+        call_args = mock_client_instance.post.call_args
+        assert call_args.kwargs["json"]["input"] == [
+            "search_document: Deployment Guide > TLS\n\nRotate certs every 90 days."
+        ]
+
+
+@pytest.mark.unit
+def test_generate_and_attach_embeddings_uses_document_prefix_for_untitled_heading(
+    db_session, monkeypatch
+):
+    """generate_and_attach_embeddings is the shared index-time write path
+    (both the paste-text and file-upload creation flows go through it), so
+    the "search_document: " prefix nomic-embed-text-v1.5 expects at index
+    time (see docs/LLM_SETUP.md) must be applied here structurally, not left
+    for each call site to remember - even for content with no markdown
+    heading at all (heading_path=None, so embed_text is just title + text).
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app.core.config import settings
+    from app.services import generate_and_attach_embeddings
+
+    monkeypatch.setattr(settings, "embedding_provider", "llama-cpp")
+    monkeypatch.setattr(settings, "embedding_url", "http://localhost:8002/v1")
+    monkeypatch.setattr(settings, "embedding_model", "nomic-embed-text-v1.5.Q4_K_M.gguf")
+
+    kb = KnowledgeBase(id=str(uuid4()), user_id="user-1", title="Doc", content="Some content")
+    db_session.add(kb)
+    db_session.flush()
+
+    fake_vector = [0.01 * i for i in range(768)]
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(return_value={"data": [{"embedding": fake_vector, "index": 0}]})
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("app.services.embedding_service.httpx.Client") as mock_client_class:
+        mock_client_instance = MagicMock()
+        mock_client_instance.post = MagicMock(return_value=mock_response)
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        generate_and_attach_embeddings(db_session, kb, "Some content")
+
+        call_args = mock_client_instance.post.call_args
+        assert call_args.kwargs["json"]["input"] == ["search_document: Doc\n\nSome content"]

@@ -238,17 +238,28 @@ A UI feature isn't done until this step happens. "We can't TDD the UI" is not a 
 - A test documenting a known, intentional gap (e.g. "PII is not yet redacted") is legitimate and valuable: write it as an explicit assertion of today's behavior, with a comment explaining why, so closing the gap later fails the test on purpose instead of the gap silently persisting forever.
 - **Start each test from a clean, known state it controls** (e.g. click "New chat" before sending a message) rather than assuming an empty page. The seeded test account's data (chat threads, uploaded documents, etc.) persists in the same Postgres across every run and every spec file — a fixed message string or an assumption of zero prior history will eventually collide with another test's leftover state or a prior run's data, and a growing page can even cause unrelated elements (like a footer) to intercept clicks.
 - Prefer resilient locators (`getByText`, `getByRole`, a stable `placeholder`/`aria-label`) over CSS classes, which drift as components are restyled. When a selector assumption turns out to be wrong (e.g. a login form's submit control being an `<input type="submit">`, not a `<button>`), fix it at the root across every spec that shares it, not just the one you're currently writing — a stale selector fails the same way (silently, via timeout) in every other spec depending on the same page.
+- **A spec that asserts on real LLM/embedding *content* (not just that a response rendered) must not assume it runs against a real model.** CI's `e2e-tests` job runs the default `docker-compose up` profile — `LLM_PROVIDER`/`EMBEDDING_PROVIDER` default to `"fake"` (no GGUF download, no llama-server) — so an assertion like "the answer contains the retrieved fact" can never pass there no matter how correct the app is. Before writing such a spec: (1) add a `// requires-profile-llm` marker comment at the top of the file (see `knowledge-base-search-grounding.spec.ts`), naming the environment requirement in the same comment block, (2) exclude the spec from `.github/workflows/ci.yml`'s `e2e-tests` step via `--grep-invert "<a substring of its test title>"` so CI doesn't run a check that's guaranteed to fail regardless of code correctness, and (3) keep the assertion real rather than weakening it to fit the fake provider — a test that can't mean anything against a mock should be scoped out, not gutted. This isn't just a convention: `tools/check_e2e_ci_coverage.py` structurally enforces it — it fails the build if any spec carrying the `requires-profile-llm` marker doesn't have a test title matching CI's current `--grep-invert` pattern, the same way `lint_repositories.py` enforces append-only repositories by structure rather than review vigilance.
 
 **Test commands**:
 ```bash
-docker-compose up            # Real stack must be running first
+docker-compose up                                  # Fake LLM/embedding provider — matches CI exactly
+docker-compose up --profile llm                     # Real llama-server + embedding-server (needs GGUF models in ./models/, see docs/LLM_SETUP.md)
 cd frontend
-npx playwright test tests/e2e/                    # Full e2e suite
-npx playwright test tests/e2e/guardrails.spec.ts   # Single spec file
-npm run test:e2e:ui                                # Interactive UI mode
+npx playwright test tests/e2e/                                        # Full e2e suite (needs --profile llm for every spec to mean something)
+npx playwright test tests/e2e/ --grep-invert "grounded in a document"  # Same subset CI runs — passes against the default (fake) profile
+npx playwright test tests/e2e/knowledge-base-search-grounding.spec.ts  # The one real-content spec — needs --profile llm, or it fails for the wrong reason
+npm run test:e2e:ui                                                    # Interactive UI mode
 ```
 
-Not currently gated by CI (no Keycloak/backend/frontend stack available in the GitHub Actions runner) — run locally against `docker-compose up` before merging a UI-facing change.
+**CI coverage and its one exception.** `e2e-tests` in `.github/workflows/ci.yml` gates every PR, running the full stack (no LLM profile) against `LLM_PROVIDER=fake`. One spec, `knowledge-base-search-grounding.spec.ts`, is excluded there via `--grep-invert "grounded in a document"`: its whole purpose is proving a real LLM answer is grounded in a real retrieved document, and a full local model isn't viable in a GitHub-hosted runner (multi-GB download, CPU-only inference latency, and — confirmed by hand against the real 8B model — non-deterministic tool-use behavior that would make the check itself flaky rather than trustworthy). Weakening its assertion to pass against the fake provider would make it stop testing what it exists to test, so it's excluded instead, not gutted.
+
+**Run it before merging any change that touches retrieval (chunking, embedding, hybrid search) or the chat agent's tool-calling**, with a real GGUF model in `./models/` (see `docs/LLM_SETUP.md`):
+```bash
+docker-compose up --profile llm
+cd frontend
+npx playwright test tests/e2e/knowledge-base-search-grounding.spec.ts
+```
+A tiny (sub-1B) model was considered to bring this spec into CI, but tool-calling reliability generally gets *worse*, not better, as models shrink — evaluating a specific small model for this is a deliberate follow-up, not a default to reach for.
 
 ### MCP doc-search server (Phase 3+)
 
@@ -262,8 +273,11 @@ Not currently gated by CI (no Keycloak/backend/frontend stack available in the G
 ### CI Pipeline
 
 GitHub Actions (see `.github/workflows/ci.yml`) runs on every PR:
-- **Backend**: `pytest tests/unit/` + `ruff check` + `black --check` + `mypy app/`
+- **Backend**: `pytest tests/unit/` + `ruff check` + `black --check` + `mypy app/` + `lint_time_injection.py`/`lint_edge_case_truthiness.py`/`lint_repositories.py`
+- **doc-search**: `pytest tests/unit/` + `ruff check` + `black --check` + `mypy app/`
 - **Frontend**: `npm test` + `npm run lint` + `npm run build`
+- **Infra**: Helm chart lint + `pytest infra/tests/`
+- **E2e**: the real stack (`docker-compose up`, fake LLM/embedding provider) + `npx playwright test tests/e2e/`, minus the one spec excluded per "End-to-End (E2E) Tests" above
 - Coverage enforced on changed code (baseline exists in Phase 1)
 
 ## Coding Standards
@@ -344,7 +358,21 @@ issue if applicable. Focus on the decision, not the implementation.
 3. **Implement to make it pass**
 4. **Run full test suite locally** before committing
 5. **Commit** with a descriptive message (see Commit Standards above)
-6. **Push and open a PR** — CI gates merging on red tests or lint failures
+6. **Push and open a PR** — merge only once it meets the Definition of Done below
+
+## Definition of Done — Merging to Master
+
+**Feature branches are mandatory.** Nothing is committed directly to `master`. A branch is only mergeable once every item below is true — this list is the actual merge gate, not a suggestion, and it applies equally to a human contributor or an agent working autonomously. Don't merge (or advise merging) with any box unchecked.
+
+- [ ] **All unit tests pass** — backend (`pytest tests/unit/`) and frontend (`npm test`), and green in CI on the PR itself, not just on a local machine. CI is the source of truth; "passed for me locally" is not sufficient if the PR's own pipeline run is red or hasn't run.
+- [ ] **Lint, format, and type checks pass** — `ruff check .`, `black --check .`, `mypy app/` on the backend; `npm run lint` and a successful `npm run build` (TypeScript compilation) on the frontend. These are distinct gates from "tests pass" and must be checked explicitly, not assumed bundled into the test run.
+- [ ] **An e2e test validates the functionality, run against the real dev stack** (`docker-compose up`, real Keycloak/backend/frontend, not mocks) — required for any user-facing change (new flow, changed behavior visible to a user). See "End-to-End (E2E) Tests" above for when this applies and how to write one. Internal refactors with no user-visible behavior change are exempt, but say so explicitly in the PR description rather than silently omitting the spec.
+- [ ] **A code review has been performed against clean code / clean architecture standards**, treating this repo as the reference implementation other forks will copy. Use the Code Review Checklist above as the concrete rubric (TDD & Testing, Readability & Maintainability, Design & Correctness, and For Bug Fixes where applicable). The bar is "would a maintainer forking this template hold this code up as the pattern to imitate" — not merely "does it work."
+- [ ] **Branch is up to date with `master`** (rebased or merged) before the final CI run that gates merge, so the tests, lint, and review that approved the PR reflect the code as it will actually land — not a stale base that could hide a conflict-introduced regression.
+- [ ] **Docs reflect the change.** If the change affects `CLAUDE.md`'s Current Status/Phase section, a guide in `docs/` (e.g. `DATABASE_MODELS.md`, `BACKEND_SERVICES.md`, `FRONTEND_ARCHITECTURE.md`, `REPOSITORY_PATTERN.md`, `SECURITY.md`), or introduces a new mandatory pattern, update the relevant doc in the same PR. If nothing needs updating, that's a conscious check, not a default assumption.
+- [ ] **No unresolved scope creep**: the diff matches the stated phase/issue scope (see "Phase scope" under Key Constraints) — no unrelated refactors, features, or cleanups bundled in without being called out.
+
+**Why this is a gate, not a checklist to skim:** this repository is a template other teams fork. Every merge to `master` is a pattern someone else will copy under time pressure without reading this file first. A shortcut here isn't scoped to this repo — it propagates.
 
 ## Detailed Implementation Guides
 

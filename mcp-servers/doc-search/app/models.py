@@ -13,7 +13,8 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, Computed, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -47,7 +48,13 @@ class KnowledgeBase(Base):
 
 
 class Embedding(Base):
-    """Mirrors backend/app/db/models.py's Embedding."""
+    """Mirrors backend/app/db/models.py's Embedding.
+
+    One row per chunk, not per document, since backend/app/db/models.py's
+    migration 007 (see that migration's docstring): chunk_index/chunk_text/
+    heading_path let doc-search return the matching passage directly,
+    without re-splitting the document at query time.
+    """
 
     __tablename__ = "embeddings"
 
@@ -60,11 +67,35 @@ class Embedding(Base):
     )
     embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
     embed_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True, default={})
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    heading_path: Mapped[str | None] = mapped_column(String(1000), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+
+
+# chunk_text_search: Postgres-maintained generated column (see
+# backend/app/db/models.py's matching field, including its own detailed
+# reasoning, for why this is appended directly to Embedding.__table__
+# rather than declared as a mapped_column()/Mapped[...] attribute) -
+# read-only from doc-search's side like every other column here.
+# Reached in queries via Embedding.__table__.c.chunk_text_search (see
+# app.repositories.embedding_repository.search_hybrid's lexical branch),
+# never as an Embedding.chunk_text_search instance attribute.
+# mypy sees __table__ as the generic FromClause base, which has no
+# append_column - it is always a concrete Table at runtime for a
+# DeclarativeBase subclass.
+Embedding.__table__.append_column(  # type: ignore[attr-defined]
+    Column(
+        "chunk_text_search",
+        TSVECTOR,
+        Computed("to_tsvector('english', chunk_text)", persisted=True),
+        nullable=True,
+    )
+)
 
 
 class SystemSettings(Base):

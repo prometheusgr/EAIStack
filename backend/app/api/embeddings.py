@@ -14,9 +14,33 @@ from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.db.models import Embedding, KnowledgeBase
 from app.repositories import EmbeddingRepository
-from app.services import generate_embedding
+from app.services import embed_query
 
 router = APIRouter(prefix="/api/embeddings", tags=["embeddings"])
+
+
+def _deduplicate_by_document(
+    matches: list[tuple[Embedding, KnowledgeBase, float]],
+) -> list[tuple[Embedding, KnowledgeBase, float]]:
+    """Keep only the nearest (first-ranked) chunk per document.
+
+    A chunked document (see app.services.chunking_service) can occupy
+    several of search_similar's nearest-by-distance rows - its other
+    chunks - so without this, one document could crowd out every other
+    match in a top_k-limited result set. Mirrors
+    mcp-servers/doc-search/app/search.py's _deduplicate_by_document, which
+    solves the identical problem for the MCP search path over the same
+    underlying data.
+    """
+    seen_doc_ids: set[str] = set()
+    deduplicated = []
+    for match in matches:
+        embedding, kb, _ = match
+        if kb.id in seen_doc_ids:
+            continue
+        seen_doc_ids.add(kb.id)
+        deduplicated.append(match)
+    return deduplicated
 
 
 def _to_response(embedding: Embedding, kb: KnowledgeBase | None = None) -> EmbeddingResponse:
@@ -42,24 +66,30 @@ async def search_embeddings(
     db: Session = Depends(get_db),
 ):
     """Perform semantic search using pgvector similarity."""
-    query_embedding = generate_embedding(db, payload.query_text).vector
+    query_embedding = embed_query(db, payload.query_text).vector
 
     repo = EmbeddingRepository(db)
-    matches = repo.search_similar(user["user_id"], query_embedding, payload.top_k)
+    matches = repo.search_similar(user["user_id"], query_embedding, payload.top_k * 4)
+    matches = _deduplicate_by_document(matches)[: payload.top_k]
 
     results: list[SemanticSearchResult] = []
     for emb, kb, distance in matches:
         # Cosine distance is in [0, 2]; convert to a similarity score in [0, 1].
         similarity = 1 - (distance / 2)
 
-        preview = kb.content[:150] + "..." if len(kb.content) > 150 else kb.content
+        # chunk_text is the matched passage (see app.services.chunking_service);
+        # it defaults to "" only for rows written before chunking existed, so
+        # those legacy rows fall back to the whole document rather than
+        # returning an empty match.
+        matched_text = emb.chunk_text or kb.content
+        preview = matched_text[:150] + "..." if len(matched_text) > 150 else matched_text
 
         results.append(
             SemanticSearchResult(
                 id=emb.id,
                 doc_id=kb.id,
                 title=kb.title,
-                content=kb.content,
+                content=matched_text,
                 preview=preview,
                 similarity_score=similarity,
                 created_at=emb.created_at.isoformat(),

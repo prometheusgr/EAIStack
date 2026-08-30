@@ -156,7 +156,11 @@ export function ChatWindow() {
                 <span className="text-xs font-semibold opacity-70">
                   {msg.role === "user" ? "You" : "Agent"}
                 </span>
-                <p className="text-sm mt-1">{msg.text}</p>
+                <p
+                  className={`text-sm mt-1 ${msg.role === "user" ? "message-user" : "message-agent"}`}
+                >
+                  {msg.text}
+                </p>
               </div>
             </div>
           ))}

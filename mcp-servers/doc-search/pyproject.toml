@@ -35,7 +35,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["app", "app.repositories"]
+packages = ["app", "app.repositories", "app.eval"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -44,6 +44,7 @@ addopts = "--cov=app --cov-report=term-missing --strict-markers"
 markers = [
     "unit: Unit tests (fast, no real Postgres)",
     "integration: Integration tests (real Postgres, slower)",
+    "eval: Retrieval quality measurement (real Postgres) — run on demand, not CI-gating",
 ]
 asyncio_mode = "auto"
 

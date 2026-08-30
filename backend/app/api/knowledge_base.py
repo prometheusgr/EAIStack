@@ -14,9 +14,9 @@ from app.api.schemas import KnowledgeBaseCreate, KnowledgeBaseResponse
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models import Embedding, KnowledgeBase
+from app.db.models import KnowledgeBase
 from app.repositories import KnowledgeBaseRepository
-from app.services import generate_and_attach_embedding, generate_embedding
+from app.services import generate_and_attach_embeddings, replace_embeddings
 from app.storage.dependencies import get_document_store
 from app.storage.document_store import DocumentStore
 from app.storage.text_extraction import UnsupportedContentTypeError, extract_text
@@ -62,7 +62,7 @@ async def create_knowledge_base(
         doc_metadata=payload.metadata or {},
     )
 
-    generate_and_attach_embedding(db, kb, payload.content)
+    generate_and_attach_embeddings(db, kb, payload.content)
 
     created = repo.create(kb)
     db.commit()
@@ -169,7 +169,7 @@ async def upload_knowledge_base_document(
             doc_metadata={},
         )
 
-        generate_and_attach_embedding(db, kb, extracted_text)
+        generate_and_attach_embeddings(db, kb, extracted_text)
 
         created = repo.create(kb)
         db.commit()
@@ -250,21 +250,10 @@ async def update_knowledge_base(
 
     repo.update(kb, payload.title, payload.content, payload.metadata or {})
 
-    # Update embedding if content changed
-    embedding = (
-        db.query(Embedding)
-        .filter(
-            Embedding.doc_id == kb.id,
-            Embedding.deleted_at.is_(None),
-        )
-        .first()
-    )
-
-    if embedding:
-        embedding_result = generate_embedding(db, payload.content)
-        embedding.embedding = embedding_result.vector
-        embedding.embed_metadata = embedding_result.as_embed_metadata()
-        embedding.updated_at = datetime.now(timezone.utc)
+    # Edited content can chunk into a different number of passages than
+    # the original (see app.services.chunking_service), so the old chunk
+    # set is replaced wholesale rather than updated in place.
+    replace_embeddings(db, kb, payload.content, now=datetime.now(timezone.utc))
 
     db.commit()
 
