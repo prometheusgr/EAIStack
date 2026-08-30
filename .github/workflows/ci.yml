@@ -178,6 +178,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Fails fast, before building any images, if a spec asserting on real
+      # LLM/embedding content (marked `requires-profile-llm`) isn't actually
+      # excluded from the `Run e2e tests` step below - see AGENTS.md's
+      # "End-to-End (E2E) Tests" section for the failure mode this prevents.
+      - name: Check e2e CI coverage (real-content specs excluded correctly)
+        run: python3 tools/check_e2e_ci_coverage.py
+
       # No --profile llm: LLM_PROVIDER/EMBEDDING_PROVIDER default to "fake"
       # (see docker-compose.yml), so llama-server/embedding-server are neither
       # started nor needed. The `frontend` service is skipped too — Playwright

@@ -1,5 +1,18 @@
 import { test, expect } from '@playwright/test'
 
+// requires-profile-llm
+//
+// The marker comment above is a structural signal, not decoration: it is
+// what tools/check_e2e_ci_coverage.py greps for to verify this spec is
+// excluded from .github/workflows/ci.yml's e2e-tests step (via
+// --grep-invert) — see AGENTS.md's "End-to-End (E2E) Tests" section for
+// the full pattern this exists to prevent (a spec asserting on real
+// LLM/embedding content that CI silently can never pass, regardless of
+// code correctness, because CI runs LLM_PROVIDER=fake). Any new e2e spec
+// that asserts on real model *content* (not just that a response
+// rendered) must carry this same marker and be added to CI's
+// --grep-invert pattern in the same PR, or the linter fails the build.
+//
 // Validates issue #7's retrieval changes (asymmetric embedding prefixes,
 // structure-aware chunking, hybrid vector+full-text search) through the
 // real chat UI, real backend, real doc-search MCP server, and a real
