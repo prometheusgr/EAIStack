@@ -5,6 +5,14 @@ export interface ProviderOption {
   requires_manual_entry: boolean
 }
 
+export interface GuardrailPattern {
+  id: string
+  source: 'built_in' | 'custom'
+  label: string
+  pattern_text: string | null
+  enabled: boolean
+}
+
 export interface SystemSettingsResponse {
   llm_provider: string
   llm_url: string
@@ -26,6 +34,13 @@ export interface SystemSettingsResponse {
   knowledge_base_purge_days_is_db_override: boolean
   api_key_purge_days: number | null
   api_key_purge_days_is_db_override: boolean
+  max_input_length: number
+  max_input_length_is_db_override: boolean
+  guardrails_input_enabled: boolean
+  guardrails_input_enabled_is_db_override: boolean
+  guardrails_output_enabled: boolean
+  guardrails_output_enabled_is_db_override: boolean
+  guardrail_patterns: GuardrailPattern[]
   available_providers: {
     llm: ProviderOption[]
     embedding: ProviderOption[]
@@ -43,4 +58,7 @@ export interface UpdateSettingsRequest {
   cleanup_on_logout?: boolean | null
   knowledge_base_purge_days?: number | null
   api_key_purge_days?: number | null
+  max_input_length?: number | null
+  guardrails_input_enabled?: boolean | null
+  guardrails_output_enabled?: boolean | null
 }

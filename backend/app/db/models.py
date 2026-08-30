@@ -340,6 +340,14 @@ class SystemSettings(Base):
     cleanup_on_logout: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     knowledge_base_purge_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     api_key_purge_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Guardrail config (issue #16). max_input_length, when set, is capped at
+    # app.guardrails.input_guardrail.MAX_INPUT_LENGTH_CEILING by the request
+    # schema (UpdateSettingsRequest) before it ever reaches this column -
+    # this table has no way to enforce that ceiling itself, since a NULL
+    # column can't carry a bound.
+    max_input_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    guardrails_input_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    guardrails_output_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )
@@ -347,3 +355,48 @@ class SystemSettings(Base):
 
     def __repr__(self):
         return f"<SystemSettings(id={self.id}, llm_provider={self.llm_provider}, embedding_provider={self.embedding_provider})>"
+
+
+class GuardrailPattern(Base):
+    """One prompt-injection detection pattern the input guardrail may check,
+    built-in or admin-added.
+
+    Rows exist for two purposes, distinguished by `source`:
+
+    - "built_in": one row per id in
+      app.guardrails.input_guardrail._PROMPT_INJECTION_PATTERNS, seeded
+      idempotently by GuardrailPatternRepository.ensure_built_ins_seeded so
+      a future code change adding another built-in pattern appears here
+      automatically, with no migration/backfill needed. pattern_text is
+      always NULL for these rows: the actual regex logic stays in code,
+      reviewed like any other code change, and this table only ever
+      records whether that code-defined check is switched on. A toggle can
+      never smuggle in arbitrary regex, because there is no regex column
+      for a built-in row to hold one in.
+    - "custom": an admin-added literal phrase (pattern_text holds the
+      phrase itself), matched by check_input as a case-insensitive
+      substring, never compiled as a pattern. Regex support for
+      admin-supplied patterns was considered and explicitly deferred (not
+      an oversight) because an admin-authored regex is a ReDoS vector this
+      table has no way to bound; a follow-up issue tracks evaluating that
+      separately.
+
+    No user_id: this is system-wide, admin-managed config, the same
+    posture as SystemSettings, not per-tenant data.
+    """
+
+    __tablename__ = "guardrail_patterns"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)  # "built_in" | "custom"
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    pattern_text: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    def __repr__(self):
+        return f"<GuardrailPattern(id={self.id}, source={self.source}, enabled={self.enabled})>"

@@ -1,5 +1,9 @@
 import { authorizedFetch, type AuthRefresh } from './authorizedFetch'
-import type { SystemSettingsResponse, UpdateSettingsRequest } from '@/types/settings'
+import type {
+  GuardrailPattern,
+  SystemSettingsResponse,
+  UpdateSettingsRequest,
+} from '@/types/settings'
 
 export interface SettingsClient {
   getSettings(token: string, onRefresh: AuthRefresh): Promise<SystemSettingsResponse>
@@ -8,6 +12,19 @@ export interface SettingsClient {
     token: string,
     onRefresh: AuthRefresh
   ): Promise<SystemSettingsResponse>
+  createGuardrailPattern(
+    token: string,
+    onRefresh: AuthRefresh,
+    label: string,
+    patternText: string
+  ): Promise<GuardrailPattern>
+  setGuardrailPatternEnabled(
+    token: string,
+    onRefresh: AuthRefresh,
+    id: string,
+    enabled: boolean
+  ): Promise<GuardrailPattern>
+  deleteGuardrailPattern(token: string, onRefresh: AuthRefresh, id: string): Promise<void>
 }
 
 const settingsClient: SettingsClient = {
@@ -33,6 +50,60 @@ const settingsClient: SettingsClient = {
     })
 
     return response.json()
+  },
+
+  async createGuardrailPattern(
+    token: string,
+    onRefresh: AuthRefresh,
+    label: string,
+    patternText: string
+  ): Promise<GuardrailPattern> {
+    const response = await authorizedFetch(
+      '/api/settings/guardrail-patterns',
+      token,
+      onRefresh,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ label, pattern_text: patternText }),
+      }
+    )
+
+    return response.json()
+  },
+
+  async setGuardrailPatternEnabled(
+    token: string,
+    onRefresh: AuthRefresh,
+    id: string,
+    enabled: boolean
+  ): Promise<GuardrailPattern> {
+    const response = await authorizedFetch(
+      `/api/settings/guardrail-patterns/${id}`,
+      token,
+      onRefresh,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ enabled }),
+      }
+    )
+
+    return response.json()
+  },
+
+  async deleteGuardrailPattern(
+    token: string,
+    onRefresh: AuthRefresh,
+    id: string
+  ): Promise<void> {
+    await authorizedFetch(`/api/settings/guardrail-patterns/${id}`, token, onRefresh, {
+      method: 'DELETE',
+    })
   },
 }
 

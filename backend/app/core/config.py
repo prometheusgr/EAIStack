@@ -98,6 +98,22 @@ class Settings(BaseSettings):
     knowledge_base_purge_days: int | None = 30
     api_key_purge_days: int | None = 30
 
+    # Guardrail config (env-level defaults; an admin can override each at
+    # runtime via the settings screen, which writes to SystemSettings — see
+    # app.services.guardrail_config_service.resolve_guardrail_config).
+    #
+    # guardrail_max_input_length is the env-level default for the input
+    # guardrail's length-rejection threshold — distinct from
+    # app.guardrails.input_guardrail.DEFAULT_MAX_INPUT_LENGTH (that module's
+    # own fallback when called with no override at all, e.g. from a test)
+    # and MAX_INPUT_LENGTH_CEILING (the hard, never-overridable upper bound
+    # enforced at the settings-request schema boundary). The two constants
+    # happen to share this same value today, but a change to one must not
+    # silently move the other, so they stay independent.
+    guardrail_max_input_length: int = 8000
+    guardrails_input_enabled: bool = True
+    guardrails_output_enabled: bool = True
+
     # Knowledge-base file upload limits (see app.api.knowledge_base's
     # upload endpoint, issue #13). Enforced at the request boundary before
     # any bytes are read into memory or handed to text extraction - an

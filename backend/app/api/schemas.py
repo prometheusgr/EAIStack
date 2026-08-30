@@ -5,6 +5,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
+from app.guardrails.input_guardrail import MAX_INPUT_LENGTH_CEILING
+
 
 def _as_utc_isoformat(value: datetime) -> str:
     """Serialize a datetime as ISO 8601 with an explicit UTC offset.
@@ -214,6 +216,57 @@ class AuditLogResponse(BaseModel):
     entries: list[AuditLogEntry]
 
 
+class GuardrailPatternResponse(BaseModel):
+    """One row from GuardrailPatternRepository, as returned to the settings
+    screen.
+
+    pattern_text is None for a built_in row (its regex stays in code, never
+    exposed over the API) and holds the literal phrase for a custom row.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    source: str
+    label: str
+    pattern_text: Optional[str] = None
+    enabled: bool
+
+
+class CreateGuardrailPatternRequest(BaseModel):
+    """Request body for POST /api/settings/guardrail-patterns."""
+
+    label: str = Field(..., min_length=1, max_length=255)
+    pattern_text: str = Field(..., min_length=1, max_length=500)
+
+    @field_validator("pattern_text")
+    @classmethod
+    def _reject_whitespace_only_pattern_text(cls, value: str) -> str:
+        """min_length=1 alone lets a whitespace-only phrase ("   ", a single
+        space) through, since whitespace counts toward string length. Unlike
+        KnowledgeBaseCreate.content's equivalent guard (whitespace-only
+        content silently produces zero chunks), the failure mode here is
+        worse: check_input matches custom phrases as a case-insensitive
+        substring, so a single-space phrase matches nearly every real chat
+        message, turning the input guardrail into a de facto denial of
+        service the moment it's saved. Reject it here, at the boundary,
+        rather than letting it reach the guardrail pattern table at all.
+        """
+        if not value.strip():
+            raise ValueError("pattern_text must not be empty or whitespace-only")
+        return value
+
+
+class UpdateGuardrailPatternRequest(BaseModel):
+    """Request body for PUT /api/settings/guardrail-patterns/{pattern_id}.
+
+    Toggle only -- editing a custom pattern's phrase text after creation is
+    not in this issue's scope.
+    """
+
+    enabled: bool
+
+
 class SystemSettingsResponse(BaseModel):
     """Response body for GET /api/settings.
 
@@ -242,6 +295,13 @@ class SystemSettingsResponse(BaseModel):
     knowledge_base_purge_days_is_db_override: bool
     api_key_purge_days: Optional[int] = None
     api_key_purge_days_is_db_override: bool
+    max_input_length: int
+    max_input_length_is_db_override: bool
+    guardrails_input_enabled: bool
+    guardrails_input_enabled_is_db_override: bool
+    guardrails_output_enabled: bool
+    guardrails_output_enabled_is_db_override: bool
+    guardrail_patterns: list[GuardrailPatternResponse]
     available_providers: dict[str, list[ProviderOption]]
 
 
@@ -264,3 +324,13 @@ class UpdateSettingsRequest(BaseModel):
     cleanup_on_logout: Optional[bool] = None
     knowledge_base_purge_days: Optional[int] = Field(default=None, ge=0)
     api_key_purge_days: Optional[int] = Field(default=None, ge=0)
+    # Guardrail config. max_input_length's upper bound is imported directly
+    # from app.guardrails.input_guardrail.MAX_INPUT_LENGTH_CEILING (the
+    # module docstring there calls it "the one place that ceiling is
+    # defined") rather than duplicated as a literal -- so a future change to
+    # the ceiling can't silently drift out of sync with what this request
+    # schema accepts. Enforced here, at the request boundary, so an
+    # out-of-range value never reaches the service/DB layer at all.
+    max_input_length: Optional[int] = Field(default=None, ge=1, le=MAX_INPUT_LENGTH_CEILING)
+    guardrails_input_enabled: Optional[bool] = None
+    guardrails_output_enabled: Optional[bool] = None

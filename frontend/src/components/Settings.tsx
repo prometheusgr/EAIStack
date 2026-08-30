@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { useIsMounted } from '@/hooks/useIsMounted'
 import { useSettingsService } from '@/hooks/useSettingsService'
 import {
   AlertDialog,
@@ -15,7 +16,18 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
-import type { ProviderOption, UpdateSettingsRequest } from '@/types/settings'
+import type { GuardrailPattern, ProviderOption, UpdateSettingsRequest } from '@/types/settings'
+
+/** A numeric setting as held in form state. Empty string means the admin
+ * cleared the field, which saves as null (fall back to the env default) --
+ * same convention as RetentionInput, but max_input_length has no meaningful
+ * "0" value (server validates it as >= 1), so there's no truthiness caveat.
+ */
+type NumericSettingInput = string
+
+function toNumericSettingPayloadValue(value: NumericSettingInput): number | null {
+  return value === '' ? null : Number(value)
+}
 
 function overrideLabel(isDbOverride: boolean): string {
   return isDbOverride ? 'Overridden' : 'Env default'
@@ -47,8 +59,15 @@ interface ShortenedWindow {
  */
 export function Settings() {
   const { isLoading: isAuthLoading } = useAuth()
-  const { get, update } = useSettingsService()
+  const {
+    get,
+    update,
+    createGuardrailPattern,
+    setGuardrailPatternEnabled,
+    deleteGuardrailPattern,
+  } = useSettingsService()
   const { addToast } = useToast()
+  const isMounted = useIsMounted()
 
   const [llmProvider, setLlmProvider] = useState('')
   const [llmUrl, setLlmUrl] = useState('')
@@ -60,6 +79,23 @@ export function Settings() {
   const [cleanupOnLogout, setCleanupOnLogout] = useState(true)
   const [knowledgeBasePurgeDays, setKnowledgeBasePurgeDays] = useState<RetentionInput>('')
   const [apiKeyPurgeDays, setApiKeyPurgeDays] = useState<RetentionInput>('')
+  const [maxInputLength, setMaxInputLength] = useState<NumericSettingInput>('')
+  const [guardrailsInputEnabled, setGuardrailsInputEnabled] = useState(true)
+  const [guardrailsOutputEnabled, setGuardrailsOutputEnabled] = useState(true)
+  const [newPatternLabel, setNewPatternLabel] = useState('')
+  const [newPatternPhrase, setNewPatternPhrase] = useState('')
+  // Mirrors get.data.guardrail_patterns locally, patched in place by each
+  // pattern mutation's own response (see handleTogglePattern/handleAddPattern/
+  // handleDeletePattern below) rather than re-fetched via get.execute(): a
+  // refetch briefly sets get.data back to null while in flight (see
+  // useApiCall), and this component's own `if (!get.data) return null` guard
+  // would unmount the whole settings form for that instant -- including
+  // whatever a test or user was mid-interaction with (e.g. a checkbox click),
+  // which is both a jarring flicker and breaks Playwright's post-click state
+  // re-verification. Patching this array locally from the mutation's return
+  // value (each pattern endpoint returns the affected GuardrailPattern) is
+  // both cheaper and avoids that unmount entirely.
+  const [guardrailPatterns, setGuardrailPatterns] = useState<GuardrailPattern[]>([])
 
   // Set when a save is paused awaiting confirmation of a shortened window.
   // Shortening irreversibly deletes data belonging to users other than the
@@ -95,6 +131,10 @@ export function Settings() {
     setCleanupOnLogout(get.data.cleanup_on_logout)
     setKnowledgeBasePurgeDays(String(get.data.knowledge_base_purge_days ?? ''))
     setApiKeyPurgeDays(String(get.data.api_key_purge_days ?? ''))
+    setMaxInputLength(String(get.data.max_input_length))
+    setGuardrailsInputEnabled(get.data.guardrails_input_enabled)
+    setGuardrailsOutputEnabled(get.data.guardrails_output_enabled)
+    setGuardrailPatterns(get.data.guardrail_patterns)
     setClearedFields(new Set())
   }, [get.data])
 
@@ -145,6 +185,15 @@ export function Settings() {
       api_key_purge_days: clearedFields.has('api_key_purge_days')
         ? null
         : toRetentionPayloadValue(apiKeyPurgeDays),
+      max_input_length: clearedFields.has('max_input_length')
+        ? null
+        : toNumericSettingPayloadValue(maxInputLength),
+      guardrails_input_enabled: clearedFields.has('guardrails_input_enabled')
+        ? null
+        : guardrailsInputEnabled,
+      guardrails_output_enabled: clearedFields.has('guardrails_output_enabled')
+        ? null
+        : guardrailsOutputEnabled,
     }
   }
 
@@ -212,6 +261,57 @@ export function Settings() {
   async function handleConfirmShortenedWindows() {
     setPendingShortenedWindows(null)
     await save(buildPayload())
+  }
+
+  // Each pattern mutation hits its own endpoint immediately (unlike the main
+  // settings form, which batches edits into one PUT via the Save button) --
+  // see the plan for issue #16. Each endpoint's response carries the single
+  // affected GuardrailPattern, which is enough to patch guardrailPatterns
+  // locally -- no need to re-fetch the whole settings payload (see that
+  // state's own comment for why a get.execute() refetch is the wrong tool
+  // here).
+  async function handleTogglePattern(id: string, enabled: boolean) {
+    try {
+      const updated = await setGuardrailPatternEnabled.mutateAsync({ id, enabled })
+      if (isMounted()) {
+        setGuardrailPatterns((prev) => prev.map((p) => (p.id === id ? updated : p)))
+      }
+      addToast('Pattern updated', 'success')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update pattern'
+      addToast(message, 'error')
+    }
+  }
+
+  async function handleAddPattern() {
+    try {
+      const created = await createGuardrailPattern.mutateAsync({
+        label: newPatternLabel,
+        patternText: newPatternPhrase,
+      })
+      if (isMounted()) {
+        setGuardrailPatterns((prev) => [...prev, created])
+        setNewPatternLabel('')
+        setNewPatternPhrase('')
+      }
+      addToast('Pattern added', 'success')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to add pattern'
+      addToast(message, 'error')
+    }
+  }
+
+  async function handleDeletePattern(id: string) {
+    try {
+      await deleteGuardrailPattern.mutateAsync(id)
+      if (isMounted()) {
+        setGuardrailPatterns((prev) => prev.filter((p) => p.id !== id))
+      }
+      addToast('Pattern deleted', 'success')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete pattern'
+      addToast(message, 'error')
+    }
   }
 
   if (get.isLoading && !get.data) {
@@ -497,6 +597,170 @@ export function Settings() {
         >
           Reset retention to default
         </Button>
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-border p-4" aria-label="Guardrails">
+        <h3 className="text-lg font-semibold">Guardrails</h3>
+        <p className="text-sm text-muted-foreground">
+          Thresholds and detection rules used to reject unsafe input and filter unsafe output
+          before it reaches the model or the user.
+        </p>
+
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <input
+              id="guardrails-input-enabled"
+              type="checkbox"
+              checked={guardrailsInputEnabled}
+              onChange={(e) => {
+                setGuardrailsInputEnabled(e.target.checked)
+                markFieldEdited('guardrails_input_enabled')
+              }}
+            />
+            <label className="text-sm font-medium" htmlFor="guardrails-input-enabled">
+              Reject unsafe input (
+              {overrideLabel(get.data.guardrails_input_enabled_is_db_override)})
+            </label>
+          </div>
+          {get.data.guardrails_input_enabled && !guardrailsInputEnabled && (
+            <p className="text-sm text-amber-600">
+              Disabling this removes protection against unsafe input for all users until
+              re-enabled.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <input
+              id="guardrails-output-enabled"
+              type="checkbox"
+              checked={guardrailsOutputEnabled}
+              onChange={(e) => {
+                setGuardrailsOutputEnabled(e.target.checked)
+                markFieldEdited('guardrails_output_enabled')
+              }}
+            />
+            <label className="text-sm font-medium" htmlFor="guardrails-output-enabled">
+              Filter unsafe output (
+              {overrideLabel(get.data.guardrails_output_enabled_is_db_override)})
+            </label>
+          </div>
+          {get.data.guardrails_output_enabled && !guardrailsOutputEnabled && (
+            <p className="text-sm text-amber-600">
+              Disabling this removes protection against unsafe output for all users until
+              re-enabled.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="max-input-length">
+            Maximum input length (characters) (
+            {overrideLabel(get.data.max_input_length_is_db_override)})
+          </label>
+          <Input
+            id="max-input-length"
+            type="number"
+            min={1}
+            // 8000 mirrors the backend's hard ceiling
+            // (input_guardrail.MAX_INPUT_LENGTH_CEILING, enforced via
+            // UpdateSettingsRequest's Field(le=...) in schemas.py) but is
+            // only a soft UX hint here, not the real enforcement -- the
+            // backend still authoritatively rejects an out-of-range value
+            // with a 422 regardless of what the browser's number input
+            // allows through. SystemSettingsResponse doesn't carry this
+            // ceiling as a field (deliberately: it's a fixed constant, not
+            // per-deployment config), so there's no live value to bind to
+            // here instead of a literal.
+            max={8000}
+            value={maxInputLength}
+            onChange={(e) => {
+              setMaxInputLength(e.target.value)
+              markFieldEdited('max_input_length')
+            }}
+            placeholder="Leave empty to use the env default"
+          />
+          <Button
+            type="button"
+            variant="link"
+            className="h-auto p-0 text-sm"
+            onClick={() => {
+              setMaxInputLength('')
+              markFieldCleared('max_input_length')
+            }}
+          >
+            Reset to default
+          </Button>
+        </div>
+
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold">Detection patterns</h4>
+          <ul className="space-y-2">
+            {guardrailPatterns.map((pattern) => (
+              <li
+                key={pattern.id}
+                className="flex items-center justify-between gap-2 rounded border border-border p-2"
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    aria-label={`Enable ${pattern.label}`}
+                    checked={pattern.enabled}
+                    onChange={(e) => handleTogglePattern(pattern.id, e.target.checked)}
+                  />
+                  <div>
+                    <p className="text-sm font-medium">{pattern.label}</p>
+                    {pattern.source === 'custom' && pattern.pattern_text !== null && (
+                      <p className="text-sm text-muted-foreground">{pattern.pattern_text}</p>
+                    )}
+                  </div>
+                </div>
+                {pattern.source === 'custom' && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto p-0 text-sm"
+                    onClick={() => handleDeletePattern(pattern.id)}
+                  >
+                    Delete
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          <div className="space-y-2 rounded border border-border p-2">
+            <p className="text-sm font-medium">Add custom pattern</p>
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="new-pattern-label">
+                Pattern label
+              </label>
+              <Input
+                id="new-pattern-label"
+                value={newPatternLabel}
+                onChange={(e) => setNewPatternLabel(e.target.value)}
+                placeholder="e.g. Block competitor mentions"
+              />
+              <label className="text-sm font-medium" htmlFor="new-pattern-phrase">
+                Pattern phrase
+              </label>
+              <Input
+                id="new-pattern-phrase"
+                value={newPatternPhrase}
+                onChange={(e) => setNewPatternPhrase(e.target.value)}
+                placeholder="the literal phrase to detect"
+              />
+              <Button
+                type="button"
+                onClick={handleAddPattern}
+                disabled={newPatternLabel.trim() === '' || newPatternPhrase.trim() === ''}
+              >
+                Add pattern
+              </Button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <Button onClick={handleSave} disabled={update.isPending}>

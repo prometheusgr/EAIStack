@@ -8,6 +8,9 @@ vi.mock('@/api/settingsClient', () => ({
   settingsClient: {
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    createGuardrailPattern: vi.fn(),
+    setGuardrailPatternEnabled: vi.fn(),
+    deleteGuardrailPattern: vi.fn(),
   },
 }))
 
@@ -36,6 +39,13 @@ describe('SettingsService', () => {
     knowledge_base_purge_days_is_db_override: false,
     api_key_purge_days: 30,
     api_key_purge_days_is_db_override: false,
+    max_input_length: 4000,
+    max_input_length_is_db_override: false,
+    guardrails_input_enabled: true,
+    guardrails_input_enabled_is_db_override: false,
+    guardrails_output_enabled: true,
+    guardrails_output_enabled_is_db_override: false,
+    guardrail_patterns: [],
     available_providers: { llm: [], embedding: [] },
   }
 
@@ -83,6 +93,98 @@ describe('SettingsService', () => {
         'No auth token available'
       )
       expect(settingsClient.updateSettings).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('createGuardrailPattern', () => {
+    const createdPattern = {
+      id: 'pattern-1',
+      source: 'custom' as const,
+      label: 'Block foo',
+      pattern_text: 'foo bar',
+      enabled: true,
+    }
+
+    it('delegates to settingsClient.createGuardrailPattern with the constructor token', async () => {
+      vi.mocked(settingsClient.createGuardrailPattern).mockResolvedValueOnce(createdPattern)
+
+      const service = new SettingsService(mockToken, mockRefresh)
+      const result = await service.createGuardrailPattern('Block foo', 'foo bar')
+
+      expect(settingsClient.createGuardrailPattern).toHaveBeenCalledWith(
+        mockToken,
+        mockRefresh,
+        'Block foo',
+        'foo bar'
+      )
+      expect(result).toEqual(createdPattern)
+    })
+
+    it('throws if no token is available', async () => {
+      const service = new SettingsService('', mockRefresh)
+
+      await expect(service.createGuardrailPattern('Block foo', 'foo bar')).rejects.toThrow(
+        'No auth token available'
+      )
+      expect(settingsClient.createGuardrailPattern).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('setGuardrailPatternEnabled', () => {
+    const updatedPattern = {
+      id: 'pattern-1',
+      source: 'built_in' as const,
+      label: 'SQL injection',
+      pattern_text: null,
+      enabled: false,
+    }
+
+    it('delegates to settingsClient.setGuardrailPatternEnabled with the constructor token', async () => {
+      vi.mocked(settingsClient.setGuardrailPatternEnabled).mockResolvedValueOnce(updatedPattern)
+
+      const service = new SettingsService(mockToken, mockRefresh)
+      const result = await service.setGuardrailPatternEnabled('pattern-1', false)
+
+      expect(settingsClient.setGuardrailPatternEnabled).toHaveBeenCalledWith(
+        mockToken,
+        mockRefresh,
+        'pattern-1',
+        false
+      )
+      expect(result).toEqual(updatedPattern)
+    })
+
+    it('throws if no token is available', async () => {
+      const service = new SettingsService('', mockRefresh)
+
+      await expect(service.setGuardrailPatternEnabled('pattern-1', false)).rejects.toThrow(
+        'No auth token available'
+      )
+      expect(settingsClient.setGuardrailPatternEnabled).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('deleteGuardrailPattern', () => {
+    it('delegates to settingsClient.deleteGuardrailPattern with the constructor token', async () => {
+      vi.mocked(settingsClient.deleteGuardrailPattern).mockResolvedValueOnce(undefined)
+
+      const service = new SettingsService(mockToken, mockRefresh)
+      await service.deleteGuardrailPattern('pattern-1')
+
+      expect(settingsClient.deleteGuardrailPattern).toHaveBeenCalledWith(
+        mockToken,
+        mockRefresh,
+        'pattern-1'
+      )
+    })
+
+    it('throws if no token is available', async () => {
+      const service = new SettingsService('', mockRefresh)
+
+      await expect(service.deleteGuardrailPattern('pattern-1')).rejects.toThrow(
+        'No auth token available'
+      )
+      expect(settingsClient.deleteGuardrailPattern).not.toHaveBeenCalled()
     })
   })
 })

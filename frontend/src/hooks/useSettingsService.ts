@@ -1,8 +1,18 @@
 import { useAuth } from '@/context/AuthContext'
 import { SettingsService } from '@/services/settingsService'
-import type { SystemSettingsResponse, UpdateSettingsRequest } from '@/types/settings'
+import type { GuardrailPattern, SystemSettingsResponse, UpdateSettingsRequest } from '@/types/settings'
 import { useApiCall } from './useApiCall'
 import { useApiMutation } from './useApiMutation'
+
+export interface CreateGuardrailPatternArgs {
+  label: string
+  patternText: string
+}
+
+export interface SetGuardrailPatternEnabledArgs {
+  id: string
+  enabled: boolean
+}
 
 export function useSettingsService() {
   const { token, refreshAccessToken } = useAuth()
@@ -24,8 +34,34 @@ export function useSettingsService() {
     }
   )
 
+  const createGuardrailPattern = useApiMutation<CreateGuardrailPatternArgs, GuardrailPattern>(
+    async ({ label, patternText }) => {
+      if (!token) throw new Error('No auth token available')
+      const service = new SettingsService(token, refreshAccessToken)
+      return service.createGuardrailPattern(label, patternText)
+    }
+  )
+
+  const setGuardrailPatternEnabled = useApiMutation<
+    SetGuardrailPatternEnabledArgs,
+    GuardrailPattern
+  >(async ({ id, enabled }) => {
+    if (!token) throw new Error('No auth token available')
+    const service = new SettingsService(token, refreshAccessToken)
+    return service.setGuardrailPatternEnabled(id, enabled)
+  })
+
+  const deleteGuardrailPattern = useApiMutation<string, void>(async (id) => {
+    if (!token) throw new Error('No auth token available')
+    const service = new SettingsService(token, refreshAccessToken)
+    return service.deleteGuardrailPattern(id)
+  })
+
   return {
     get,
     update,
+    createGuardrailPattern,
+    setGuardrailPatternEnabled,
+    deleteGuardrailPattern,
   }
 }

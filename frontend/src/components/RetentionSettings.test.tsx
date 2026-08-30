@@ -10,6 +10,9 @@ vi.mock('../api/settingsClient', () => ({
   settingsClient: {
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    createGuardrailPattern: vi.fn(),
+    setGuardrailPatternEnabled: vi.fn(),
+    deleteGuardrailPattern: vi.fn(),
   },
 }))
 
@@ -47,6 +50,13 @@ const ENV_DEFAULT_SETTINGS = {
   knowledge_base_purge_days_is_db_override: false,
   api_key_purge_days: 30,
   api_key_purge_days_is_db_override: false,
+  max_input_length: 4000,
+  max_input_length_is_db_override: false,
+  guardrails_input_enabled: true,
+  guardrails_input_enabled_is_db_override: false,
+  guardrails_output_enabled: true,
+  guardrails_output_enabled_is_db_override: false,
+  guardrail_patterns: [],
   available_providers: {
     llm: [
       { provider: 'fake', url: '', label: 'Fake (mocked, for testing)', requires_manual_entry: false },
@@ -94,6 +104,21 @@ describe('Settings retention section', () => {
     localStorage.setItem('access_token', ADMIN_TOKEN)
     vi.mocked(settingsClient.getSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
     vi.mocked(settingsClient.updateSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+    vi.mocked(settingsClient.createGuardrailPattern).mockResolvedValue({
+      id: 'new-pattern',
+      source: 'custom',
+      label: '',
+      pattern_text: '',
+      enabled: true,
+    })
+    vi.mocked(settingsClient.setGuardrailPatternEnabled).mockResolvedValue({
+      id: 'pattern-1',
+      source: 'built_in',
+      label: 'SQL injection',
+      pattern_text: null,
+      enabled: true,
+    })
+    vi.mocked(settingsClient.deleteGuardrailPattern).mockResolvedValue(undefined)
   })
 
   it('displays the current conversation retention window', async () => {

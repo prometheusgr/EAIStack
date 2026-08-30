@@ -10,6 +10,7 @@ from app.services.embedding_service import (
     generate_embedding,
     replace_embeddings,
 )
+from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
 from app.services.retention_service import (
     RetentionConfig,
     purge_expired_api_keys,
@@ -37,6 +38,8 @@ __all__ = [
     "generate_and_attach_embeddings",
     "replace_embeddings",
     "EmbeddingResult",
+    "GuardrailConfig",
+    "resolve_guardrail_config",
     "RetentionConfig",
     "purge_expired_api_keys",
     "purge_expired_conversations",

@@ -28,10 +28,16 @@ from sqlalchemy.orm import Session
 from app.guardrails.input_guardrail import GuardrailVerdict, InputGuardrailResult, check_input
 from app.guardrails.output_guardrail import OutputGuardrailResult, filter_output
 from app.repositories import AuditLogRepository
+from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
 
 
 def check_input_guardrail(
-    db: Session, *, message: str, actor_user_id: str, now: datetime
+    db: Session,
+    *,
+    message: str,
+    actor_user_id: str,
+    now: datetime,
+    config: GuardrailConfig | None = None,
 ) -> InputGuardrailResult:
     """Run the input guardrail and audit-log a rejection.
 
@@ -45,12 +51,42 @@ def check_input_guardrail(
     and legible to the caller (see app.guardrails.input_guardrail for the
     full rationale).
 
+    Config (max_input_length, which built-in patterns are enabled, custom
+    phrases, and the on/off switch itself) is resolved fresh from
+    SystemSettings/GuardrailPatternRepository -- see
+    app.services.guardrail_config_service -- so an admin's change via the
+    settings screen takes effect on the very next chat request. If the
+    input guardrail is switched off entirely, the check never runs at all:
+    the message is allowed and nothing is audit-logged, exactly as if it
+    had passed the check normally (an allowed message is never an
+    audit-worthy event).
+
+    config: the caller's already-resolved GuardrailConfig, if it has one.
+    A single chat request calls both this function and
+    filter_agent_response, and each independent resolve_guardrail_config()
+    call was previously paying for its own SystemSettings SELECT plus a
+    GuardrailPattern seed-check and list -- doubling guardrail-config DB
+    work per request for a value that cannot change mid-request. Pass the
+    same resolved config to both calls (see app.api.agents.chat) to avoid
+    that; omitted only by callers (e.g. unit tests) that don't have one
+    handy, in which case this function resolves its own, same as before.
+
     A rejection is a compliance-relevant event and is recorded in the
     append-only audit trail, attributed to the caller who sent the
     message. An allowed message is not audit-logged -- only violations are
     compliance-relevant, not every chat turn.
     """
-    result = check_input(message)
+    if config is None:
+        config = resolve_guardrail_config(db)
+    if not config.input_enabled:
+        return InputGuardrailResult(verdict=GuardrailVerdict.ALLOWED, reason=None, message=None)
+
+    result = check_input(
+        message,
+        max_input_length=config.max_input_length,
+        enabled_pattern_ids=config.enabled_pattern_ids,
+        custom_phrases=config.custom_phrases,
+    )
     if result.verdict == GuardrailVerdict.REJECTED:
         AuditLogRepository(db).record(
             actor_user_id=actor_user_id,
@@ -71,6 +107,7 @@ def filter_agent_response(
     actor_user_id: str,
     thread_id: str,
     now: datetime,
+    config: GuardrailConfig | None = None,
 ) -> OutputGuardrailResult:
     """Run the output guardrail on the agent's final message and audit-log
     a redaction.
@@ -98,12 +135,25 @@ def filter_agent_response(
     system-prompt echo or a credential-shaped string (see
     app.guardrails.output_guardrail for the full rationale).
 
+    Config resolution and the config parameter follow the same shape as
+    check_input_guardrail -- see that function's docstring for why passing
+    an already-resolved config matters (avoiding a second, redundant
+    resolution within the same chat request). If the output guardrail is
+    switched off entirely, filter_output is never called: the response is
+    returned unmodified and nothing is audit-logged, exactly as if it had
+    passed the filter with no redactions needed.
+
     A redaction is a compliance-relevant event, just like an input
     rejection, and is recorded in the append-only audit trail -- keyed by
     thread_id, never by the redacted response text itself, since that text
     is exactly what must not be written into an indefinitely-retained
     audit record. An unmodified response is not audit-logged.
     """
+    if config is None:
+        config = resolve_guardrail_config(db)
+    if not config.output_enabled:
+        return OutputGuardrailResult(text=final_message.text, was_modified=False)
+
     result = filter_output(final_message.text, system_prompt=system_prompt)
     if result.was_modified:
         AuditLogRepository(db).record(

@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage
 
 from app.core.auth import get_current_user
 from app.core.llm_client import FakeChatModel
-from app.guardrails.input_guardrail import MAX_INPUT_LENGTH
+from app.guardrails.input_guardrail import DEFAULT_MAX_INPUT_LENGTH
 from app.main import app
 from app.repositories import AuditLogRepository
 
@@ -52,12 +52,12 @@ def test_chat_endpoint_rejects_prompt_injection_with_400(client):
 
 @pytest.mark.unit
 def test_chat_endpoint_rejects_over_length_message_with_400(client):
-    """A message over MAX_INPUT_LENGTH is rejected before reaching the agent."""
+    """A message over DEFAULT_MAX_INPUT_LENGTH is rejected before reaching the agent."""
     _login_as("user-a")
 
     response = client.post(
         "/api/agents/chat",
-        json={"message": "a" * (MAX_INPUT_LENGTH + 1)},
+        json={"message": "a" * (DEFAULT_MAX_INPUT_LENGTH + 1)},
     )
 
     app.dependency_overrides.clear()

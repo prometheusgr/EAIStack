@@ -5,6 +5,7 @@ import pytest
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.main import app
+from app.repositories import AuditLogRepository, GuardrailPatternRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services import available_provider_options
 
@@ -413,3 +414,292 @@ def test_available_provider_options_never_suggests_a_url_for_fake(monkeypatch):
     options = available_provider_options()
 
     assert next(o for o in options["llm"] if o["provider"] == "fake")["url"] == ""
+
+
+# --- Guardrail config (issue #16) ---------------------------------------------
+
+
+@pytest.mark.unit
+def test_get_settings_includes_guardrail_fields_with_env_defaults(client):
+    """With no SystemSettings row, GET reflects env-level guardrail
+    defaults and reports every guardrail field as not DB-overridden.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["max_input_length"] == settings.guardrail_max_input_length
+    assert data["max_input_length_is_db_override"] is False
+    assert data["guardrails_input_enabled"] is True
+    assert data["guardrails_input_enabled_is_db_override"] is False
+    assert data["guardrails_output_enabled"] is True
+    assert data["guardrails_output_enabled_is_db_override"] is False
+    assert isinstance(data["guardrail_patterns"], list)
+    assert len(data["guardrail_patterns"]) > 0
+
+
+@pytest.mark.unit
+def test_put_settings_updates_guardrail_fields_and_get_reflects_override(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    put_response = client.put(
+        "/api/settings",
+        json={
+            "max_input_length": 500,
+            "guardrails_input_enabled": False,
+            "guardrails_output_enabled": False,
+        },
+    )
+    assert put_response.status_code == 200
+
+    get_response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    data = get_response.json()
+    assert data["max_input_length"] == 500
+    assert data["max_input_length_is_db_override"] is True
+    assert data["guardrails_input_enabled"] is False
+    assert data["guardrails_input_enabled_is_db_override"] is True
+    assert data["guardrails_output_enabled"] is False
+    assert data["guardrails_output_enabled_is_db_override"] is True
+
+
+@pytest.mark.unit
+def test_put_settings_max_input_length_over_ceiling_returns_422(client):
+    """8001 exceeds MAX_INPUT_LENGTH_CEILING -- rejected by Pydantic
+    validation before it ever reaches the service/DB layer.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"max_input_length": 8001})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_put_settings_max_input_length_below_one_returns_422(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"max_input_length": 0})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_put_settings_records_guardrail_config_update_audit_entries_only_for_changed_fields(
+    client, db_session
+):
+    """Mirrors the retention audit test: re-saving settings without
+    touching guardrail fields must not fabricate audit entries, and a
+    changed field is recorded under the "guardrail.config_update" action.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"guardrails_input_enabled": False})
+    client.put("/api/settings", json={"guardrails_input_enabled": False})  # unchanged re-save
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "guardrail.config_update"
+    ]
+    assert len(entries) == 1
+    assert entries[0].field_name == "guardrails_input_enabled"
+    assert entries[0].old_value is None
+    assert entries[0].new_value == "False"
+
+
+@pytest.mark.unit
+def test_put_settings_guardrail_audit_entry_records_actual_transition(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"max_input_length": 500})
+    client.put("/api/settings", json={"max_input_length": 250})
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "guardrail.config_update" and e.field_name == "max_input_length"
+    ]
+    # Newest first: the second PUT (500 -> 250) then the first (None -> 500).
+    assert entries[0].old_value == "500"
+    assert entries[0].new_value == "250"
+    assert entries[1].old_value is None
+    assert entries[1].new_value == "500"
+
+
+# --- Guardrail pattern endpoints (issue #16) ----------------------------------
+
+
+@pytest.mark.unit
+def test_create_guardrail_pattern_happy_path(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.post(
+        "/api/settings/guardrail-patterns",
+        json={"label": "Leak the secret sauce", "pattern_text": "leak the secret sauce"},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "custom"
+    assert data["label"] == "Leak the secret sauce"
+    assert data["pattern_text"] == "leak the secret sauce"
+    assert data["enabled"] is True
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "guardrail.pattern_update"
+    ]
+    assert len(entries) == 1
+    assert entries[0].field_name == data["id"]
+    assert entries[0].old_value is None
+    assert entries[0].new_value == "leak the secret sauce"
+
+
+@pytest.mark.unit
+def test_toggle_guardrail_pattern_happy_path(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    create_response = client.post(
+        "/api/settings/guardrail-patterns",
+        json={"label": "Custom phrase", "pattern_text": "custom phrase"},
+    )
+    pattern_id = create_response.json()["id"]
+
+    toggle_response = client.put(
+        f"/api/settings/guardrail-patterns/{pattern_id}", json={"enabled": False}
+    )
+
+    app.dependency_overrides.clear()
+
+    assert toggle_response.status_code == 200
+    assert toggle_response.json()["enabled"] is False
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "guardrail.pattern_update" and e.field_name == pattern_id
+    ]
+    assert entries[0].old_value == "enabled"
+    assert entries[0].new_value == "disabled"
+
+
+@pytest.mark.unit
+def test_toggle_guardrail_pattern_unknown_id_returns_404(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put(
+        "/api/settings/guardrail-patterns/does-not-exist", json={"enabled": False}
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+
+
+@pytest.mark.unit
+def test_toggle_guardrail_pattern_can_toggle_a_built_in_pattern(client, db_session):
+    """Built-in patterns can be toggled (only deletion is refused)."""
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    # GET seeds the built-in rows.
+    client.get("/api/settings")
+    built_in_id = GuardrailPatternRepository(db_session).list_all()[0].id
+
+    response = client.put(
+        f"/api/settings/guardrail-patterns/{built_in_id}", json={"enabled": False}
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+
+
+@pytest.mark.unit
+def test_delete_guardrail_pattern_happy_path(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    create_response = client.post(
+        "/api/settings/guardrail-patterns",
+        json={"label": "Custom phrase", "pattern_text": "custom phrase"},
+    )
+    pattern_id = create_response.json()["id"]
+
+    delete_response = client.delete(f"/api/settings/guardrail-patterns/{pattern_id}")
+
+    app.dependency_overrides.clear()
+
+    assert delete_response.status_code == 204
+    assert GuardrailPatternRepository(db_session).get(pattern_id) is None
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "guardrail.pattern_update" and e.field_name == pattern_id
+    ]
+    assert entries[0].old_value == "custom phrase"
+    assert entries[0].new_value is None
+
+
+@pytest.mark.unit
+def test_delete_guardrail_pattern_unknown_id_returns_404(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.delete("/api/settings/guardrail-patterns/does-not-exist")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+
+
+@pytest.mark.unit
+def test_delete_guardrail_pattern_refuses_a_built_in_pattern(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.get("/api/settings")  # seeds built-ins
+    built_in_id = GuardrailPatternRepository(db_session).list_all()[0].id
+
+    response = client.delete(f"/api/settings/guardrail-patterns/{built_in_id}")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert GuardrailPatternRepository(db_session).get(built_in_id) is not None
+
+
+@pytest.mark.unit
+def test_guardrail_pattern_endpoints_require_admin(client):
+    app.dependency_overrides[get_current_user] = _override_user(NON_ADMIN_USER)
+
+    create_response = client.post(
+        "/api/settings/guardrail-patterns",
+        json={"label": "Custom phrase", "pattern_text": "custom phrase"},
+    )
+    toggle_response = client.put(
+        "/api/settings/guardrail-patterns/some-id", json={"enabled": False}
+    )
+    delete_response = client.delete("/api/settings/guardrail-patterns/some-id")
+
+    app.dependency_overrides.clear()
+
+    assert create_response.status_code == 403
+    assert toggle_response.status_code == 403
+    assert delete_response.status_code == 403
