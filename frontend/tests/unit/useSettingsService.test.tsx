@@ -9,6 +9,9 @@ vi.mock('../../src/api/settingsClient', () => ({
   settingsClient: {
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    createGuardrailPattern: vi.fn(),
+    setGuardrailPatternEnabled: vi.fn(),
+    deleteGuardrailPattern: vi.fn(),
   },
 }))
 
@@ -60,6 +63,13 @@ const SETTINGS_RESPONSE = {
   knowledge_base_purge_days_is_db_override: false,
   api_key_purge_days: 30,
   api_key_purge_days_is_db_override: false,
+  max_input_length: 4000,
+  max_input_length_is_db_override: false,
+  guardrails_input_enabled: true,
+  guardrails_input_enabled_is_db_override: false,
+  guardrails_output_enabled: true,
+  guardrails_output_enabled_is_db_override: false,
+  guardrail_patterns: [],
   available_providers: { llm: [], embedding: [] },
 }
 
@@ -143,5 +153,78 @@ describe('useSettingsService', () => {
     await waitFor(() => {
       expect(result.current.update.error?.message).toBe('Unknown llm_provider: bogus')
     })
+  })
+
+  it('createGuardrailPattern.mutateAsync() calls settingsClient.createGuardrailPattern with the constructor token', async () => {
+    vi.mocked(settingsClient.createGuardrailPattern).mockResolvedValue({
+      id: 'pattern-1',
+      source: 'custom',
+      label: 'Block foo',
+      pattern_text: 'foo bar',
+      enabled: true,
+    })
+
+    const { result } = renderHook(() => useSettingsServiceHarness(), { wrapper })
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.createGuardrailPattern.mutateAsync({
+        label: 'Block foo',
+        patternText: 'foo bar',
+      })
+    })
+
+    expect(settingsClient.createGuardrailPattern).toHaveBeenCalledWith(
+      MOCK_TOKEN,
+      expect.any(Function),
+      'Block foo',
+      'foo bar'
+    )
+    expect(result.current.createGuardrailPattern.data?.id).toBe('pattern-1')
+  })
+
+  it('setGuardrailPatternEnabled.mutateAsync() calls settingsClient.setGuardrailPatternEnabled with the constructor token', async () => {
+    vi.mocked(settingsClient.setGuardrailPatternEnabled).mockResolvedValue({
+      id: 'pattern-1',
+      source: 'built_in',
+      label: 'SQL injection',
+      pattern_text: null,
+      enabled: false,
+    })
+
+    const { result } = renderHook(() => useSettingsServiceHarness(), { wrapper })
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.setGuardrailPatternEnabled.mutateAsync({
+        id: 'pattern-1',
+        enabled: false,
+      })
+    })
+
+    expect(settingsClient.setGuardrailPatternEnabled).toHaveBeenCalledWith(
+      MOCK_TOKEN,
+      expect.any(Function),
+      'pattern-1',
+      false
+    )
+    expect(result.current.setGuardrailPatternEnabled.data?.enabled).toBe(false)
+  })
+
+  it('deleteGuardrailPattern.mutateAsync() calls settingsClient.deleteGuardrailPattern with the constructor token', async () => {
+    vi.mocked(settingsClient.deleteGuardrailPattern).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useSettingsServiceHarness(), { wrapper })
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.deleteGuardrailPattern.mutateAsync('pattern-1')
+    })
+
+    expect(settingsClient.deleteGuardrailPattern).toHaveBeenCalledWith(
+      MOCK_TOKEN,
+      expect.any(Function),
+      'pattern-1'
+    )
   })
 })

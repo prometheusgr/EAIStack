@@ -6,17 +6,25 @@ from sqlalchemy.orm import Session
 from app.api.schemas import (
     AuditLogEntry,
     AuditLogResponse,
+    CreateGuardrailPatternRequest,
+    GuardrailPatternResponse,
     ProviderOption,
     SystemSettingsResponse,
+    UpdateGuardrailPatternRequest,
     UpdateSettingsRequest,
 )
 from app.core.auth import require_admin
 from app.db.database import get_db
 from app.db.models import SystemSettings, utc_now
-from app.repositories import AuditLogRepository, SystemSettingsRepository
+from app.repositories import (
+    AuditLogRepository,
+    GuardrailPatternRepository,
+    SystemSettingsRepository,
+)
 from app.services import (
     available_provider_options,
     resolve_embedding_config,
+    resolve_guardrail_config,
     resolve_llm_config,
     resolve_retention_config,
 )
@@ -55,6 +63,8 @@ def _to_response(
     llm_config = resolve_llm_config(db, db_settings)
     embedding_config = resolve_embedding_config(db, db_settings)
     retention_config = resolve_retention_config(db, db_settings)
+    guardrail_config = resolve_guardrail_config(db, db_settings)
+    guardrail_patterns = GuardrailPatternRepository(db).list_all()
 
     return SystemSettingsResponse(
         llm_provider=llm_config.provider,
@@ -89,6 +99,21 @@ def _to_response(
         api_key_purge_days_is_db_override=bool(
             db_settings and db_settings.api_key_purge_days is not None
         ),
+        max_input_length=guardrail_config.max_input_length,
+        max_input_length_is_db_override=bool(
+            db_settings and db_settings.max_input_length is not None
+        ),
+        guardrails_input_enabled=guardrail_config.input_enabled,
+        guardrails_input_enabled_is_db_override=bool(
+            db_settings and db_settings.guardrails_input_enabled is not None
+        ),
+        guardrails_output_enabled=guardrail_config.output_enabled,
+        guardrails_output_enabled_is_db_override=bool(
+            db_settings and db_settings.guardrails_output_enabled is not None
+        ),
+        guardrail_patterns=[
+            GuardrailPatternResponse.model_validate(pattern) for pattern in guardrail_patterns
+        ],
         available_providers={
             category: [ProviderOption(**option) for option in options]
             for category, options in available_provider_options().items()
@@ -163,6 +188,7 @@ async def update_settings(
     # Captured before the write: the audit trail must show the actual
     # transition (72 -> 24), which is unrecoverable once upsert has run.
     previous_retention = _retention_override_values(db_settings)
+    previous_guardrail = _guardrail_override_values(db_settings)
 
     updated_settings = repo.upsert(
         llm_provider=payload.llm_provider,
@@ -175,6 +201,9 @@ async def update_settings(
         cleanup_on_logout=payload.cleanup_on_logout,
         knowledge_base_purge_days=payload.knowledge_base_purge_days,
         api_key_purge_days=payload.api_key_purge_days,
+        max_input_length=payload.max_input_length,
+        guardrails_input_enabled=payload.guardrails_input_enabled,
+        guardrails_output_enabled=payload.guardrails_output_enabled,
         updated_by=user["user_id"],
     )
 
@@ -183,6 +212,12 @@ async def update_settings(
         actor_user_id=user["user_id"],
         previous=previous_retention,
         current=_retention_override_values(updated_settings),
+    )
+    _record_guardrail_changes(
+        db,
+        actor_user_id=user["user_id"],
+        previous=previous_guardrail,
+        current=_guardrail_override_values(updated_settings),
     )
 
     db.commit()
@@ -254,3 +289,158 @@ def _record_retention_changes(
             new_value=new_value,
             now=changed_at,
         )
+
+
+def _guardrail_override_values(db_settings: SystemSettings | None) -> dict[str, str | None]:
+    """Snapshot the guardrail scalar columns' raw override values as strings.
+
+    Mirrors _retention_override_values exactly, for the same reason: the
+    audit trail must record what the admin set (including "cleared back to
+    the env default", as None), not what the value happened to resolve to.
+    Deliberately not generalized into one shared helper with the retention
+    version -- see _record_guardrail_changes' docstring for why.
+    """
+    fields = ("max_input_length", "guardrails_input_enabled", "guardrails_output_enabled")
+    if db_settings is None:
+        return {field: None for field in fields}
+
+    return {
+        field: None if getattr(db_settings, field) is None else str(getattr(db_settings, field))
+        for field in fields
+    }
+
+
+def _record_guardrail_changes(
+    db: Session,
+    *,
+    actor_user_id: str,
+    previous: dict[str, str | None],
+    current: dict[str, str | None],
+) -> None:
+    """Append one "guardrail.config_update" audit entry per guardrail scalar
+    field whose value actually changed.
+
+    Mirrors _record_retention_changes' shape exactly (only changed fields
+    recorded, one shared timestamp per request). Kept as its own function
+    rather than generalizing the two into one action-name-parameterized
+    helper: per AGENTS.md's no-premature-abstraction standard, two small,
+    clearly-named functions that happen to look alike are preferable to a
+    shared one that takes on an extra parameter for the sole purpose of
+    being reused twice -- this was a deliberate call, not an oversight.
+    """
+    repo = AuditLogRepository(db)
+    changed_at = utc_now()
+
+    for field, new_value in current.items():
+        if previous[field] == new_value:
+            continue
+        repo.record(
+            actor_user_id=actor_user_id,
+            action="guardrail.config_update",
+            field_name=field,
+            old_value=previous[field],
+            new_value=new_value,
+            now=changed_at,
+        )
+
+
+@router.post("/guardrail-patterns", response_model=GuardrailPatternResponse)
+async def create_guardrail_pattern(
+    payload: CreateGuardrailPatternRequest,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Add a custom prompt-injection detection phrase.
+
+    pattern_text is stored and matched as a literal, case-insensitive
+    substring by app.guardrails.input_guardrail.check_input -- never
+    compiled as regex (see the GuardrailPattern model docstring for why
+    admin-supplied regex is out of scope).
+    """
+    pattern = GuardrailPatternRepository(db).upsert_custom(
+        label=payload.label,
+        pattern_text=payload.pattern_text,
+        created_by=user["user_id"],
+    )
+    AuditLogRepository(db).record(
+        actor_user_id=user["user_id"],
+        action="guardrail.pattern_update",
+        field_name=pattern.id,
+        old_value=None,
+        new_value=pattern.pattern_text,
+        now=utc_now(),
+    )
+    db.commit()
+    return GuardrailPatternResponse.model_validate(pattern)
+
+
+@router.put("/guardrail-patterns/{pattern_id}", response_model=GuardrailPatternResponse)
+async def update_guardrail_pattern(
+    pattern_id: str,
+    payload: UpdateGuardrailPatternRequest,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Toggle a pattern (built-in or custom) on or off.
+
+    Toggle only -- editing a custom pattern's phrase text after creation is
+    not in this issue's scope. 404 if pattern_id doesn't exist; a built-in
+    pattern can be toggled here (only deletion is refused, see
+    delete_guardrail_pattern).
+    """
+    repo = GuardrailPatternRepository(db)
+    existing = repo.get(pattern_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Guardrail pattern not found")
+
+    was_enabled = existing.enabled
+    pattern = repo.set_enabled(pattern_id, payload.enabled)
+
+    if was_enabled != payload.enabled:
+        AuditLogRepository(db).record(
+            actor_user_id=user["user_id"],
+            action="guardrail.pattern_update",
+            field_name=pattern_id,
+            old_value="enabled" if was_enabled else "disabled",
+            new_value="enabled" if payload.enabled else "disabled",
+            now=utc_now(),
+        )
+
+    db.commit()
+    return GuardrailPatternResponse.model_validate(pattern)
+
+
+@router.delete("/guardrail-patterns/{pattern_id}", status_code=204)
+async def delete_guardrail_pattern(
+    pattern_id: str,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete a custom prompt-injection detection phrase.
+
+    404 if pattern_id doesn't exist at all; 400 if it exists but is a
+    built_in row -- a built-in pattern's row carries its on/off state and
+    must always exist for that toggle to mean anything, so only a custom
+    row is ever deletable (see GuardrailPatternRepository.delete_custom).
+    """
+    repo = GuardrailPatternRepository(db)
+    existing = repo.get(pattern_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Guardrail pattern not found")
+    if existing.source != "custom":
+        raise HTTPException(
+            status_code=400, detail="Only a custom guardrail pattern can be deleted"
+        )
+
+    pattern_text = existing.pattern_text
+    repo.delete_custom(pattern_id)
+
+    AuditLogRepository(db).record(
+        actor_user_id=user["user_id"],
+        action="guardrail.pattern_update",
+        field_name=pattern_id,
+        old_value=pattern_text,
+        new_value=None,
+        now=utc_now(),
+    )
+    db.commit()

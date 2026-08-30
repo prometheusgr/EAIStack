@@ -50,6 +50,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Safety: the Settings UI requires explicit confirmation before applying a *shortened* window, naming each affected store and its old→new value. Purges are batched (500/round-trip), never one unbounded DELETE.
 - Time is injected (`now: datetime`) throughout the retention service, so time-dependent logic is deterministic under test without patching `datetime`.
 
+**Phase 4c Complete ✓**: Configurable Guardrail Thresholds & Heuristics (issue #16)
+- `MAX_INPUT_LENGTH`, and both guardrails' on/off state, are now admin-configurable — same env-default + nullable-DB-override pattern as retention/LLM provider config, resolved per-call by `app.services.guardrail_config_service.resolve_guardrail_config`. `max_input_length` is bounded by a hard, non-overridable ceiling (`input_guardrail.MAX_INPUT_LENGTH_CEILING`, 8000), enforced at the API request-schema boundary, not just documented.
+- Independent kill switches, not one combined switch: `guardrails_input_enabled`/`guardrails_output_enabled` — the two guardrails have different trip behavior (reject vs. sanitize) and risk profiles, and a fork may want to disable one without the other.
+- Prompt-injection patterns are now individually toggleable (`GuardrailPattern` table, `GuardrailPatternRepository`): built-in patterns keep their regex in code and expose only an `enabled` bit (a toggle can never smuggle in arbitrary regex); admin-added custom patterns are literal case-insensitive substring matches only, never regex — a deliberate scope decision to avoid a ReDoS surface, not an oversight. Full custom-regex support is deferred to a follow-up issue.
+- Every config change (scalar settings and pattern add/toggle/delete alike) is audit-logged (`"guardrail.config_update"`, `"guardrail.pattern_update"`), following the same before/after-diff pattern as `"retention.update"`.
+- See `docs/SECURITY.md`'s "Guardrails & Compliance" section for the full design rationale and the admin-configurable-fields table.
+
 ## Common Development Commands
 
 ### Backend (Python)

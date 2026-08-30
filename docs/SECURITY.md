@@ -276,7 +276,9 @@ independently valid.
 ## Audit & Compliance
 
 **Status**: Phase 4b — `audit_logs` exists and records retention configuration
-changes. Phase 4 added a second action type, `guardrail.input_rejected` (see
+changes. Phase 4 added `guardrail.input_rejected`/`guardrail.output_redacted`
+for guardrail *violations*; issue #16 added `guardrail.config_update` and
+`guardrail.pattern_update` for changes to guardrail *configuration* (see
 "Guardrails & Compliance" below). Checkpoint-mutation auditing is not yet in
 scope.
 
@@ -286,7 +288,10 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
     actor_user_id: str   # who made the change (Keycloak subject)
     action: str          # "retention.update" | "guardrail.input_rejected"
-    field_name: str      # e.g. "conversation_retention_hours", or "message"
+                          # | "guardrail.output_redacted" | "guardrail.config_update"
+                          # | "guardrail.pattern_update"
+    field_name: str      # e.g. "conversation_retention_hours", "message",
+                          # "max_input_length", or a guardrail_patterns.id
     old_value: str | None  # NULL = had no DB override before the change
     new_value: str | None
     created_at: datetime
@@ -317,7 +322,11 @@ All data stays on-premise (fully air-gapped). No external logging, no cloud stor
 ### Guardrails & Compliance
 
 **Status**: Phase 4 — input and output guardrails are implemented
-(`backend/app/guardrails/`). No separate `guardrail_violations` table: a
+(`backend/app/guardrails/`). Issue #16 (Phase 4c) made thresholds and
+heuristics admin-configurable, following the same env-default + nullable
+DB-override pattern as retention and LLM provider config, resolved fresh on
+every call by `app.services.guardrail_config_service.resolve_guardrail_config`
+— no backend restart required. No separate `guardrail_violations` table: a
 tripped input guardrail is recorded through the existing `AuditLog`
 (`action="guardrail.input_rejected"`, `field_name="message"`,
 `new_value` = the rejection reason code) rather than a new table, keeping
@@ -326,13 +335,63 @@ one append-only audit path instead of two.
 **Input guardrail** (`app/guardrails/input_guardrail.py`): runs on every
 `POST /api/agents/chat` request before the agent (and therefore the LLM) is
 invoked. Checks, in order, are empty input, a length cap
-(`MAX_INPUT_LENGTH`), and a set of prompt-injection heuristics (instruction
-override, role reassignment, system-prompt exfiltration phrasings). Trip
-behavior is **reject**: the endpoint returns `400` with the reason code as
-`detail`, and the message never reaches the LLM. Reject was chosen over
-silently sanitizing the message (which risks answering a different question
-than the user asked, without their knowledge) or merely flagging-and-allowing
-(which still lets an injection attempt reach the model).
+(`max_input_length`), and a set of prompt-injection heuristics (instruction
+override, role reassignment, system-prompt exfiltration phrasings, plus any
+admin-added custom phrases — see below). Trip behavior is **reject**: the
+endpoint returns `400` with the reason code as `detail`, and the message
+never reaches the LLM. Reject was chosen over silently sanitizing the
+message (which risks answering a different question than the user asked,
+without their knowledge) or merely flagging-and-allowing (which still lets
+an injection attempt reach the model).
+
+**Admin-configurable thresholds and switches** (issue #16), all resolved
+DB-override-over-env-default with `is not None` semantics, same as
+retention:
+
+| Setting | Env default | Bound | DB override column |
+|---|---|---|---|
+| `max_input_length` | 8000 chars | Hard ceiling of **8000**, enforced at the API boundary (`UpdateSettingsRequest`'s `Field(ge=1, le=8000)`) — an admin can tighten this but never loosen it past the ceiling. `input_guardrail.MAX_INPUT_LENGTH_CEILING` is the one place that ceiling is defined. | `SystemSettings.max_input_length` |
+| Input guardrail on/off | on | — | `SystemSettings.guardrails_input_enabled` |
+| Output guardrail on/off | on | — | `SystemSettings.guardrails_output_enabled` |
+
+**Independent per-guardrail switches, not one combined kill switch**: input
+rejection and output redaction have different trip behavior and risk
+profiles (see below), and a fork may reasonably want to disable one without
+the other — e.g. a controlled internal pilot that accepts the input-guardrail
+false-positive tradeoff but still wants output redaction. Disabling either
+switch is a reversible posture change, not a destructive one: no data is
+lost, and re-enabling restores protection immediately, so the Settings UI
+surfaces it as inline warning text rather than the confirmation modal used
+for irreversibly-destructive retention shortening.
+
+**Prompt-injection pattern configurability** (issue #16): the built-in
+heuristics above are now individually toggleable, and admins can add
+detection phrases of their own, backed by a new `guardrail_patterns` table
+(`GuardrailPattern` in `app/db/models.py`, `GuardrailPatternRepository`).
+Two deliberately different mechanisms, not one:
+
+- **Built-in patterns** (`source="built_in"`) keep their regex in code
+  (`input_guardrail.py`'s pattern dict, keyed by a stable id like
+  `"instruction_override"`) — the DB row only carries an `enabled` bit,
+  seeded idempotently from code on first read. A toggle can never smuggle in
+  arbitrary regex; the detection logic itself is still reviewed like any
+  other code change.
+- **Custom patterns** (`source="custom"`) are admin-entered, but restricted
+  to **literal, case-insensitive substring matching** — never regex. This
+  was a deliberate scope decision, not an oversight: exposing a regex engine
+  to admin-supplied input is a ReDoS risk, and a malformed custom regex could
+  silently create false negatives (fail to compile, or worse, compile but
+  never match) in a way that's much harder to notice than a plain phrase
+  failing to match. Full regex support for custom patterns is tracked as a
+  follow-up (see the issue #16 PR for the tracking issue link) pending a
+  ReDoS-safety story (e.g. a timeout-bounded regex engine or a static
+  complexity check on save) — it is explicitly deferred, not silently
+  dropped.
+
+Both kinds are audit-logged identically on create/toggle/delete via
+`action="guardrail.pattern_update"`; only custom patterns can be deleted
+(deleting a built-in pattern's row is rejected — disabling it is the
+equivalent operation).
 
 **Output guardrail** (`app/guardrails/output_guardrail.py`): runs on the
 agent's response before it's returned. Redacts system-prompt disclosures,

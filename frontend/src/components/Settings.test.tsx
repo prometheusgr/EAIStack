@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings } from './Settings'
 import { ToastProvider } from './ui/toast'
 import { AuthProvider } from '../context/AuthContext'
 import { settingsClient } from '../api/settingsClient'
+import type { SystemSettingsResponse } from '../types/settings'
 
 vi.mock('../api/settingsClient', () => ({
   settingsClient: {
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    createGuardrailPattern: vi.fn(),
+    setGuardrailPatternEnabled: vi.fn(),
+    deleteGuardrailPattern: vi.fn(),
   },
 }))
 
@@ -26,7 +30,7 @@ const ADMIN_TOKEN = buildToken({
   realm_access: { roles: ['admin'] },
 })
 
-const ENV_DEFAULT_SETTINGS = {
+const ENV_DEFAULT_SETTINGS: SystemSettingsResponse = {
   llm_provider: 'fake',
   llm_url: '',
   llm_model: '',
@@ -47,6 +51,28 @@ const ENV_DEFAULT_SETTINGS = {
   knowledge_base_purge_days_is_db_override: false,
   api_key_purge_days: 30,
   api_key_purge_days_is_db_override: false,
+  max_input_length: 4000,
+  max_input_length_is_db_override: false,
+  guardrails_input_enabled: true,
+  guardrails_input_enabled_is_db_override: false,
+  guardrails_output_enabled: true,
+  guardrails_output_enabled_is_db_override: false,
+  guardrail_patterns: [
+    {
+      id: 'built-in-1',
+      source: 'built_in',
+      label: 'SQL injection',
+      pattern_text: null,
+      enabled: true,
+    },
+    {
+      id: 'custom-1',
+      source: 'custom',
+      label: 'Block foo',
+      pattern_text: 'foo bar',
+      enabled: true,
+    },
+  ],
   available_providers: {
     llm: [
       { provider: 'fake', url: '', label: 'Fake (mocked, for testing)', requires_manual_entry: false },
@@ -89,6 +115,21 @@ describe('Settings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.setItem('access_token', ADMIN_TOKEN)
+    vi.mocked(settingsClient.createGuardrailPattern).mockResolvedValue({
+      id: 'new-pattern',
+      source: 'custom',
+      label: 'New pattern',
+      pattern_text: 'new phrase',
+      enabled: true,
+    })
+    vi.mocked(settingsClient.setGuardrailPatternEnabled).mockResolvedValue({
+      id: 'built-in-1',
+      source: 'built_in',
+      label: 'SQL injection',
+      pattern_text: null,
+      enabled: false,
+    })
+    vi.mocked(settingsClient.deleteGuardrailPattern).mockResolvedValue(undefined)
   })
 
   it('loads and displays the current effective LLM and embedding providers', async () => {
@@ -266,8 +307,13 @@ describe('Settings', () => {
     const user = userEvent.setup()
     renderSettings()
 
-    const resetButtons = await screen.findAllByRole('button', { name: /reset to default/i })
-    const llmResetButton = resetButtons[0]
+    // Scoped to the LLM Provider section specifically: "Reset to default" is
+    // no longer a unique button label on this page now that the Guardrails
+    // section (see below) has its own max_input_length reset button with
+    // the same text.
+    const llmHeading = await screen.findByRole('heading', { name: 'LLM Provider' })
+    const llmSection = llmHeading.closest('div') as HTMLElement
+    const llmResetButton = within(llmSection).getByRole('button', { name: /reset to default/i })
     await user.click(llmResetButton)
 
     const saveButton = screen.getByRole('button', { name: /^save$/i })
@@ -301,5 +347,280 @@ describe('Settings', () => {
 
     expect(screen.getByLabelText('Custom URL')).toHaveValue('http://custom-llama-host:9000/v1')
     expect(screen.getByLabelText('Custom Model')).toHaveValue('custom-model-name')
+  })
+})
+
+describe('Settings guardrails section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.setItem('access_token', ADMIN_TOKEN)
+    vi.mocked(settingsClient.getSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+    vi.mocked(settingsClient.updateSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+    vi.mocked(settingsClient.createGuardrailPattern).mockResolvedValue({
+      id: 'new-pattern',
+      source: 'custom',
+      label: 'New pattern',
+      pattern_text: 'new phrase',
+      enabled: true,
+    })
+    vi.mocked(settingsClient.setGuardrailPatternEnabled).mockResolvedValue({
+      id: 'built-in-1',
+      source: 'built_in',
+      label: 'SQL injection',
+      pattern_text: null,
+      enabled: false,
+    })
+    vi.mocked(settingsClient.deleteGuardrailPattern).mockResolvedValue(undefined)
+  })
+
+  async function waitForGuardrailsLoaded() {
+    await waitFor(() => {
+      expect(settingsClient.getSettings).toHaveBeenCalled()
+    })
+    const input = await screen.findByLabelText(/maximum input length/i)
+    await waitFor(() => {
+      expect(input).not.toHaveValue(null)
+    })
+    return input
+  }
+
+  it('renders the guardrails section with fetched values', async () => {
+    renderSettings()
+
+    const maxInputLength = await waitForGuardrailsLoaded()
+
+    expect(maxInputLength).toHaveValue(4000)
+    expect(screen.getByLabelText(/reject unsafe input/i)).toBeChecked()
+    expect(screen.getByLabelText(/filter unsafe output/i)).toBeChecked()
+
+    const guardrailsSection = screen.getByRole('region', { name: /guardrails/i })
+    expect(guardrailsSection).toHaveTextContent(/env default/i)
+  })
+
+  it('shows "overridden" for guardrail fields with a DB override', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      max_input_length: 2000,
+      max_input_length_is_db_override: true,
+    })
+
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const guardrailsSection = screen.getByRole('region', { name: /guardrails/i })
+    expect(guardrailsSection).toHaveTextContent(/overridden/i)
+  })
+
+  it('shows an inline warning when turning off "reject unsafe input", and hides it when re-enabled', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const inputToggle = screen.getByLabelText(/reject unsafe input/i)
+    await user.click(inputToggle)
+
+    expect(
+      screen.getByText(/removes protection against unsafe input/i)
+    ).toBeInTheDocument()
+
+    await user.click(inputToggle)
+
+    expect(
+      screen.queryByText(/removes protection against unsafe input/i)
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows an inline warning when turning off "filter unsafe output"', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const outputToggle = screen.getByLabelText(/filter unsafe output/i)
+    await user.click(outputToggle)
+
+    expect(
+      screen.getByText(/removes protection against unsafe output/i)
+    ).toBeInTheDocument()
+  })
+
+  it('does not show a warning when a toggle is already off and stays off', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      guardrails_input_enabled: false,
+    })
+
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    expect(
+      screen.queryByText(/removes protection against unsafe input/i)
+    ).not.toBeInTheDocument()
+  })
+
+  it('editing max_input_length and saving sends the right payload without clobbering retention fields', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    const maxInputLength = await waitForGuardrailsLoaded()
+    await user.clear(maxInputLength)
+    await user.type(maxInputLength, '2000')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({
+      max_input_length: 2000,
+      conversation_retention_hours: 24,
+      knowledge_base_purge_days: 30,
+      api_key_purge_days: 30,
+    })
+  })
+
+  it('sends null for max_input_length when its "Reset to default" is clicked', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      max_input_length: 2000,
+      max_input_length_is_db_override: true,
+    })
+
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const maxInputLengthResetButton = screen.getByRole('button', {
+      name: /reset to default/i,
+    })
+    await user.click(maxInputLengthResetButton)
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload.max_input_length).toBeNull()
+  })
+
+  it('turning off a guardrail toggle and saving sends false in the payload', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    await user.click(screen.getByLabelText(/reject unsafe input/i))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({ guardrails_input_enabled: false })
+  })
+
+  it('renders built-in pattern rows without a delete button', async () => {
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const builtInRow = screen.getByText('SQL injection').closest('li') as HTMLElement
+    expect(within(builtInRow).queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
+  })
+
+  it('renders custom pattern rows with a delete button and the pattern text', async () => {
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const customRow = screen.getByText('Block foo').closest('li') as HTMLElement
+    expect(within(customRow).getByText('foo bar')).toBeInTheDocument()
+    expect(within(customRow).getByRole('button', { name: /delete/i })).toBeInTheDocument()
+  })
+
+  it('toggling a pattern checkbox calls the enable mutation with the right id and value', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const builtInRow = screen.getByText('SQL injection').closest('li') as HTMLElement
+    await user.click(within(builtInRow).getByRole('checkbox'))
+
+    await waitFor(() => {
+      expect(settingsClient.setGuardrailPatternEnabled).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Function),
+        'built-in-1',
+        false
+      )
+    })
+  })
+
+  it('shows a toast after successfully toggling a pattern', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const builtInRow = screen.getByText('SQL injection').closest('li') as HTMLElement
+    await user.click(within(builtInRow).getByRole('checkbox'))
+
+    expect(await screen.findByText(/pattern updated/i)).toBeInTheDocument()
+  })
+
+  it('submitting the add-custom-pattern form calls the create mutation and clears the form', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const labelInput = screen.getByLabelText(/pattern label/i)
+    const phraseInput = screen.getByLabelText(/pattern phrase/i)
+    await user.type(labelInput, 'Block bar')
+    await user.type(phraseInput, 'bar baz')
+    await user.click(screen.getByRole('button', { name: /add pattern/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.createGuardrailPattern).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Function),
+        'Block bar',
+        'bar baz'
+      )
+    })
+
+    await waitFor(() => {
+      expect(labelInput).toHaveValue('')
+      expect(phraseInput).toHaveValue('')
+    })
+  })
+
+  it('the add-pattern submit button is disabled until both fields are non-empty', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const submitButton = screen.getByRole('button', { name: /add pattern/i })
+    expect(submitButton).toBeDisabled()
+
+    await user.type(screen.getByLabelText(/pattern label/i), 'Block bar')
+    expect(submitButton).toBeDisabled()
+
+    await user.type(screen.getByLabelText(/pattern phrase/i), 'bar baz')
+    expect(submitButton).not.toBeDisabled()
+  })
+
+  it('clicking delete on a custom pattern calls the delete mutation with the right id', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const customRow = screen.getByText('Block foo').closest('li') as HTMLElement
+    await user.click(within(customRow).getByRole('button', { name: /delete/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.deleteGuardrailPattern).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Function),
+        'custom-1'
+      )
+    })
   })
 })

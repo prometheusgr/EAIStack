@@ -24,6 +24,7 @@ from app.guardrails.input_guardrail import GuardrailVerdict
 from app.prompts.chat_prompts import CHAT_AGENT_SYSTEM_PROMPT
 from app.repositories import ThreadRepository
 from app.services import check_input_guardrail, filter_agent_response
+from app.services.guardrail_config_service import resolve_guardrail_config
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -56,9 +57,23 @@ async def chat(
     rejecting it. Both guardrails' audit-log writes (on rejection and on
     redaction, respectively) live in app.services.chat_guardrail_service,
     alongside the rationale for each guardrail's trip behavior.
+
+    Guardrail config (thresholds, on/off switches, enabled patterns) is
+    resolved once here and passed to both check_input_guardrail and
+    filter_agent_response, rather than letting each resolve its own --
+    config cannot legitimately change partway through one request, so
+    resolving it twice was pure redundant DB work (a SystemSettings SELECT
+    plus a GuardrailPattern seed-check and list, twice over) on this
+    endpoint's hot path.
     """
+    guardrail_config = resolve_guardrail_config(db)
+
     guardrail_result = check_input_guardrail(
-        db, message=request.message, actor_user_id=user["user_id"], now=utc_now()
+        db,
+        message=request.message,
+        actor_user_id=user["user_id"],
+        now=utc_now(),
+        config=guardrail_config,
     )
     if guardrail_result.verdict == GuardrailVerdict.REJECTED:
         db.commit()
@@ -90,6 +105,7 @@ async def chat(
         system_prompt=CHAT_AGENT_SYSTEM_PROMPT.render().text,
         actor_user_id=user["user_id"],
         thread_id=thread.id,
+        config=guardrail_config,
         now=utc_now(),
     )
 

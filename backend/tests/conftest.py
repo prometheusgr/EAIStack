@@ -11,7 +11,7 @@ import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.utils import to_base64url_uint
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 # testcontainers 3.7.1 misdetects the Docker host as the literal string
@@ -92,6 +92,9 @@ def db_session(test_db_url):
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             conn.commit()
 
+    if "sqlite" in test_db_url:
+        _enable_sqlite_savepoints(engine)
+
     Base.metadata.drop_all(engine)  # Clean up from previous tests
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine)
@@ -99,6 +102,31 @@ def db_session(test_db_url):
     yield session
     session.close()
     engine.dispose()
+
+
+def _enable_sqlite_savepoints(engine) -> None:
+    """Make Session.begin_nested() (SAVEPOINT) work correctly against SQLite.
+
+    pysqlite's default driver-level transaction handling issues its own
+    implicit BEGIN on the first DML statement and only understands the
+    outermost transaction, so a nested SAVEPOINT silently behaves like a
+    full commit instead of a scoped rollback point -- exactly the failure
+    mode that broke GuardrailPatternRepository.ensure_built_ins_seeded's
+    "does not commit; the caller owns the transaction" contract under this
+    fixture (see test_guardrail_pattern_repository.py). This is SQLAlchemy's
+    own documented workaround: disable pysqlite's implicit transaction
+    handling and issue BEGIN explicitly, so SAVEPOINT/RELEASE work as real
+    nested transactions. Production runs against Postgres, where this is
+    unnecessary -- begin_nested() already works correctly there.
+    """
+
+    @event.listens_for(engine, "connect")
+    def _do_connect(dbapi_connection, connection_record):
+        dbapi_connection.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _do_begin(conn):
+        conn.exec_driver_sql("BEGIN")
 
 
 @pytest.fixture
