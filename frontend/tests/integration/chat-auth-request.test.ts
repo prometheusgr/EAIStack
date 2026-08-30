@@ -295,6 +295,7 @@ describe('Chat Message Authentication - Integration Test', () => {
           json: async () => ({
             response: 'Agent response',
             thread_id: 'thread-123',
+            sources: [],
           }),
         } as Response)
       })

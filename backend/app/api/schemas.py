@@ -32,11 +32,28 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
 
 
+class SourceReference(BaseModel):
+    """One knowledge-base document that grounded a chat response.
+
+    Mirrors app.mcp_client.doc_search_client.Source, the structured
+    provenance ToolMessage.artifact carries out of search_knowledge_base
+    (see app.agents.chat_agent.extract_sources_from_messages) -- this is
+    the API-facing copy of that shape, kept separate the same way every
+    other internal/response schema pair in this file is (e.g.
+    KnowledgeBaseResponse vs. the KnowledgeBase model).
+    """
+
+    knowledge_base_id: str
+    title: str
+    heading_path: Optional[str] = None
+
+
 class ChatResponse(BaseModel):
     """Response body for chat endpoint."""
 
     response: str
     thread_id: str
+    sources: list[SourceReference] = Field(default_factory=list)
 
 
 class ThreadSummary(BaseModel):

@@ -1,11 +1,9 @@
 import { useAuth } from '@/context/AuthContext'
 import { sendChatMessage } from '@/api/agentsClient'
+import type { ChatResponse } from '@/types/chat'
 import { useApiMutation } from './useApiMutation'
 
-export interface ChatResponse {
-  threadId: string
-  response: string
-}
+export type { ChatResponse }
 
 export function useChatService() {
   const { token, refreshAccessToken } = useAuth()

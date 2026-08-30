@@ -17,7 +17,12 @@ import pytest
 
 from app.config import settings
 from app.models import Embedding, KnowledgeBase, SystemSettings
-from app.search import generate_query_embedding, resolve_embedding_config, search_knowledge_base
+from app.search import (
+    generate_query_embedding,
+    resolve_embedding_config,
+    search_knowledge_base,
+    search_knowledge_base_with_sources,
+)
 
 
 def _seed_chunk(
@@ -260,6 +265,129 @@ def test_search_knowledge_base_passes_bare_top_k_to_search_hybrid(db_session, mo
 
     assert captured_kwargs["top_k"] == 5
     assert captured_kwargs["return_candidates"] is True
+
+
+# search_knowledge_base_with_sources: the same ranking/formatting as
+# search_knowledge_base, plus structured provenance (doc_id/title/heading_path)
+# per matching document — see issue #19. search_knowledge_base itself is
+# unchanged (still returns the bare rendered str the LLM reads) so its
+# existing test coverage above stays valid; this is an additive sibling, not
+# a replacement.
+
+
+@pytest.mark.integration
+def test_search_knowledge_base_with_sources_returns_same_text_as_plain_search(db_session):
+    """The .text half of the result must be byte-identical to what
+    search_knowledge_base returns, so switching a caller from one function to
+    the other never changes what the LLM reads.
+    """
+    _seed_chunk(
+        db_session,
+        user_id="user-a",
+        title="Vacation Policy",
+        chunk_text="Employees receive 25 days of paid vacation per year.",
+    )
+
+    plain_result = search_knowledge_base(
+        db_session, user_id="user-a", query="vacation days", top_k=5
+    )
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="vacation days", top_k=5
+    )
+
+    assert result.text == plain_result
+
+
+@pytest.mark.integration
+def test_search_knowledge_base_with_sources_includes_doc_id_and_title(db_session):
+    """Each matching document surfaces its doc_id and title as structured
+    data, not just baked into the prose text.
+    """
+    doc_id = _seed_chunk(
+        db_session,
+        user_id="user-a",
+        title="Vacation Policy",
+        chunk_text="Employees receive 25 days of paid vacation per year.",
+    )
+
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="vacation days", top_k=5
+    )
+
+    assert len(result.sources) == 1
+    assert result.sources[0].knowledge_base_id == doc_id
+    assert result.sources[0].title == "Vacation Policy"
+
+
+@pytest.mark.integration
+def test_search_knowledge_base_with_sources_includes_heading_path_when_present(db_session):
+    """A source's heading_path is carried through as structured data
+    (None when the chunk has no enclosing heading), mirroring the "Section:"
+    line search_knowledge_base includes in prose.
+    """
+    _seed_chunk(
+        db_session,
+        user_id="user-a",
+        title="Deployment Guide",
+        chunk_text="Rotate certs every 90 days.",
+        heading_path="TLS > Certificate rotation",
+    )
+    _seed_chunk(
+        db_session,
+        user_id="user-a",
+        title="Plain Doc",
+        chunk_text="Just a plain paragraph.",
+        heading_path=None,
+    )
+
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="certificate rotation plain paragraph", top_k=5
+    )
+
+    by_title = {source.title: source for source in result.sources}
+    assert by_title["Deployment Guide"].heading_path == "TLS > Certificate rotation"
+    assert by_title["Plain Doc"].heading_path is None
+
+
+@pytest.mark.integration
+def test_search_knowledge_base_with_sources_returns_no_sources_when_no_matches(db_session):
+    """No matching documents means an empty sources list, not an error."""
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-with-no-docs", query="anything", top_k=5
+    )
+
+    assert result.sources == []
+
+
+@pytest.mark.integration
+def test_search_knowledge_base_with_sources_deduplicates_to_one_source_per_document(db_session):
+    """Multiple matching chunks from the same document produce exactly one
+    source entry, mirroring search_knowledge_base's text-level dedup.
+    """
+    doc_id = _seed_chunk(
+        db_session,
+        user_id="user-a",
+        title="Big Doc",
+        chunk_text="Best matching chunk about certificates.",
+        chunk_index=0,
+        heading_path="Section A",
+    )
+    _seed_chunk(
+        db_session,
+        user_id="user-a",
+        title="Big Doc",
+        chunk_text="Second chunk about certificates too.",
+        chunk_index=1,
+        heading_path="Section B",
+        doc_id=doc_id,
+    )
+
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="certificates", top_k=5
+    )
+
+    assert len(result.sources) == 1
+    assert result.sources[0].knowledge_base_id == doc_id
 
 
 # resolve_embedding_config: DB-override-vs-env-default resolution.

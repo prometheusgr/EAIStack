@@ -1,6 +1,7 @@
 """Tests for the agents API endpoint."""
 
 import uuid
+from uuid import uuid4
 
 import pytest
 from langchain_core.messages import AIMessage, ToolCall
@@ -258,9 +259,10 @@ def test_chat_endpoint_response_shape(client):
     data = response.json()
 
     # Validate schema
-    assert set(data.keys()) == {"response", "thread_id"}
+    assert set(data.keys()) == {"response", "thread_id", "sources"}
     assert isinstance(data["response"], str)
     assert isinstance(data["thread_id"], str)
+    assert data["sources"] == []
 
 
 @pytest.mark.unit
@@ -401,6 +403,76 @@ def test_chat_endpoint_tool_call_does_not_hit_nested_asyncio_run_under_real_even
         "invoked from an already-running event loop -- the real cause (a connection "
         "failure to the unreachable MCP URL) is being masked"
     )
+
+
+@pytest.mark.integration
+def test_chat_endpoint_returns_sources_grounding_the_answer(
+    client, db_session, test_db_url, fake_keycloak_jwks_server, monkeypatch
+):
+    """POST /api/agents/chat's response includes which knowledge-base
+    document(s) grounded the answer, end-to-end through the real doc-search
+    MCP server -- the full slice for issue #19.
+    """
+    from app.core.config import settings
+    from app.db.models import Embedding, KnowledgeBase
+    from app.services import generate_embedding
+    from tests.conftest import FAKE_KEYCLOAK_PRIVATE_KEY
+    from tests.integration.doc_search_helper import (
+        make_signed_token,
+        running_doc_search_subprocess,
+    )
+
+    kb = KnowledgeBase(
+        id=str(uuid4()),
+        user_id="test-user-123",
+        title="Vacation Policy",
+        content="Employees receive 25 days of paid vacation per year.",
+    )
+    db_session.add(kb)
+    db_session.commit()
+    db_session.add(
+        Embedding(
+            id=str(uuid4()),
+            doc_id=kb.id,
+            embedding=generate_embedding(db_session, kb.content).vector,
+        )
+    )
+    db_session.commit()
+
+    tool_call_message = AIMessage(
+        content="",
+        tool_calls=[
+            ToolCall(name="search_knowledge_base", args={"query": "vacation days"}, id="call-1")
+        ],
+    )
+    final_message = AIMessage(content="You get 25 days of paid vacation per year.")
+    fake_llm = FakeChatModel(responses=[tool_call_message, final_message])
+    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+
+    token = make_signed_token("test-user-123", FAKE_KEYCLOAK_PRIVATE_KEY)
+    fake_user = {
+        "user_id": "test-user-123",
+        "username": "testuser",
+        "email": "test@example.com",
+        "name": "Test User",
+        "token": {},
+        "access_token": token,
+    }
+    app.dependency_overrides[get_current_user] = lambda: fake_user
+
+    with running_doc_search_subprocess(test_db_url, fake_keycloak_jwks_server, 8197) as mcp_url:
+        monkeypatch.setattr(settings, "doc_search_mcp_url", mcp_url)
+        response = client.post(
+            "/api/agents/chat", json={"message": "How many vacation days do I get?"}
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sources"] == [
+        {"knowledge_base_id": kb.id, "title": "Vacation Policy", "heading_path": None}
+    ]
 
 
 def _login_as(user_id: str) -> dict:

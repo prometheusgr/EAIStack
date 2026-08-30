@@ -10,7 +10,8 @@ structural move, not a behavior change.
 
 import pytest
 
-from app.mcp_client import make_search_knowledge_base_tool
+from app.mcp_client import Source, make_search_knowledge_base_tool
+from app.mcp_client.doc_search_client import _extract_sources
 
 
 @pytest.mark.unit
@@ -43,3 +44,66 @@ def test_search_knowledge_base_tool_has_same_name_and_schema_as_before():
     schema_fields = tool.args_schema.model_fields
     assert "query" in schema_fields
     assert "top_k" in schema_fields
+
+
+class _FakeCallToolResult:
+    """Stand-in for mcp.types.CallToolResult, carrying just the
+    structuredContent attribute _extract_sources reads.
+    """
+
+    def __init__(self, structured_content):
+        self.structuredContent = structured_content
+
+
+@pytest.mark.unit
+def test_extract_sources_parses_structured_content_into_source_objects():
+    """doc-search's structuredContent.sources list (knowledge_base_id/title/
+    heading_path dicts) becomes a list of Source dataclass instances — see
+    issue #19.
+    """
+    result = _FakeCallToolResult(
+        {
+            "sources": [
+                {"knowledge_base_id": "kb-1", "title": "Vacation Policy", "heading_path": None},
+                {
+                    "knowledge_base_id": "kb-2",
+                    "title": "Deployment Guide",
+                    "heading_path": "TLS > Certificate rotation",
+                },
+            ]
+        }
+    )
+
+    sources = _extract_sources(result)
+
+    assert sources == [
+        Source(knowledge_base_id="kb-1", title="Vacation Policy", heading_path=None),
+        Source(
+            knowledge_base_id="kb-2",
+            title="Deployment Guide",
+            heading_path="TLS > Certificate rotation",
+        ),
+    ]
+
+
+@pytest.mark.unit
+def test_extract_sources_returns_empty_list_when_structured_content_missing():
+    """A result with no structuredContent at all (an older/misbehaving
+    server) degrades to no sources rather than raising.
+    """
+    result = _FakeCallToolResult(None)
+
+    assert _extract_sources(result) == []
+
+
+@pytest.mark.unit
+async def test_search_knowledge_base_tool_returns_empty_sources_when_server_unreachable():
+    """The unreachable-server fallback (see the error-handling test above)
+    must still satisfy response_format="content_and_artifact"'s two-tuple
+    contract: empty sources, not a crash building the ToolMessage.
+    """
+    tool = make_search_knowledge_base_tool(token="some.jwt.token", mcp_url="http://localhost:1/mcp")
+
+    result = await tool.ainvoke({"query": "anything"})
+
+    assert isinstance(result, str)

@@ -99,7 +99,10 @@ export function ChatWindow() {
       if (isMounted() && stillOnSameThread) {
         activeThreadIdRef.current = result.threadId;
         setThreadId(result.threadId);
-        setMessages((prev) => [...prev, { role: "agent", text: result.response }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "agent", text: result.response, sources: result.sources },
+        ]);
       }
       listThreads.execute();
     } catch (error) {
@@ -161,6 +164,17 @@ export function ChatWindow() {
                 >
                   {msg.text}
                 </p>
+                {msg.role === "agent" && msg.sources && msg.sources.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border/50 text-xs text-muted-foreground">
+                    <span className="font-semibold">Sources: </span>
+                    {msg.sources.map((source, sourceIdx) => (
+                      <span key={source.knowledgeBaseId}>
+                        {sourceIdx > 0 && ", "}
+                        {source.title}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ))}

@@ -80,9 +80,20 @@ test.describe('Knowledge base search grounding', () => {
 
     await expect(page.getByText(question)).toBeVisible({ timeout: 5000 })
 
-    // A generous timeout: this round trip is a real LLM call plus a real
-    // MCP tool call to doc-search plus a real embedding-server call, not a
-    // mocked response.
-    await expect(page.getByText(secretCode)).toBeVisible({ timeout: 30000 })
+    // A generous timeout: this round trip is two real LLM calls (the
+    // tool-call turn and the grounded-answer turn) plus a real MCP tool
+    // call to doc-search plus a real embedding-server call, not a mocked
+    // response -- on CPU-only inference each LLM call alone has been
+    // observed to take 10-13s once the seeded testuser's prior conversation
+    // history grows the prompt past a few hundred tokens.
+    await expect(page.getByText(secretCode)).toBeVisible({ timeout: 60000 })
+
+    // Issue #19: the response also names which document grounded it. Same
+    // "requires a real model" constraint as the assertion above -- the
+    // fake LLM provider (see backend/app/core/llm_client.py's FakeChatModel)
+    // never emits a tool call at all, so ChatResponse.sources is always []
+    // under CI's default profile regardless of app correctness.
+    await expect(page.getByText('Sources:')).toBeVisible()
+    await expect(page.getByText(title)).toBeVisible()
   })
 })

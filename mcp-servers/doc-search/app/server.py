@@ -18,6 +18,7 @@ import contextvars
 import anyio.to_thread
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import CallToolResult, TextContent
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -28,7 +29,7 @@ from starlette.types import ASGIApp
 
 import app.db as app_db
 from app.auth import TokenVerificationError, verify_bearer_token
-from app.search import search_knowledge_base as _search_knowledge_base
+from app.search import search_knowledge_base_with_sources as _search_knowledge_base_with_sources
 
 _current_user_id: contextvars.ContextVar[str] = contextvars.ContextVar("current_user_id")
 
@@ -142,7 +143,7 @@ def _build_mcp() -> FastMCP:
             "matching document, or a message saying nothing matched."
         ),
     )
-    async def search_knowledge_base(query: str, top_k: int = 5) -> str:
+    async def search_knowledge_base(query: str, top_k: int = 5) -> CallToolResult:
         """Search the calling user's knowledge base.
 
         user_id is never a parameter here — it comes only from the verified
@@ -155,24 +156,51 @@ def _build_mcp() -> FastMCP:
         request's own async task (no thread offload of its own — unlike
         LangChain's tool-calling layer on the backend side), so the blocking
         SQLAlchemy queries and (for the llama-cpp embedding provider) the
-        synchronous httpx call inside _search_knowledge_base would otherwise
-        block this server's single ASGI event loop for every concurrent
-        request. anyio.to_thread.run_sync moves that blocking work onto a
-        worker thread, matching how any other blocking-I/O call is bridged
-        into async code in this codebase (see
+        synchronous httpx call inside _search_knowledge_base_with_sources
+        would otherwise block this server's single ASGI event loop for every
+        concurrent request. anyio.to_thread.run_sync moves that blocking work
+        onto a worker thread, matching how any other blocking-I/O call is
+        bridged into async code in this codebase (see
         backend/app/agents/checkpointer.py's a* methods for the same
         pattern).
+
+        Returns a CallToolResult built by hand, rather than a bare str,
+        so the tool result carries structuredContent (each matching
+        document's knowledge_base_id/title/heading_path, for issue #19)
+        alongside the unchanged prose text block the LLM reads. Returning
+        CallToolResult directly (rather than a Pydantic model) opts out of
+        FastMCP's automatic content conversion, which would otherwise
+        replace the hand-formatted prose text block with a JSON dump of the
+        return value — see mcp.server.fastmcp.utilities.func_metadata.
+        FuncMetadata.convert_result's isinstance(result, CallToolResult)
+        branch, which returns such a result unmodified.
         """
         user_id = _current_user_id.get()
 
-        def run_search() -> str:
+        def run_search():
             db = app_db.SessionLocal()
             try:
-                return _search_knowledge_base(db, user_id=user_id, query=query, top_k=top_k)
+                return _search_knowledge_base_with_sources(
+                    db, user_id=user_id, query=query, top_k=top_k
+                )
             finally:
                 db.close()
 
-        return await anyio.to_thread.run_sync(run_search)
+        result = await anyio.to_thread.run_sync(run_search)
+
+        return CallToolResult(
+            content=[TextContent(type="text", text=result.text)],
+            structuredContent={
+                "sources": [
+                    {
+                        "knowledge_base_id": source.knowledge_base_id,
+                        "title": source.title,
+                        "heading_path": source.heading_path,
+                    }
+                    for source in result.sources
+                ]
+            },
+        )
 
     return mcp
 

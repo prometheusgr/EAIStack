@@ -14,6 +14,7 @@ logging is the easiest way to accidentally widen that further.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 
 import httpx
@@ -27,6 +28,25 @@ from app.core.tls import get_ssl_context
 logger = logging.getLogger(__name__)
 
 MCP_CALL_TIMEOUT = timedelta(seconds=30)
+
+
+@dataclass(frozen=True)
+class Source:
+    """One document doc-search reported as grounding a search result.
+
+    Mirrors mcp-servers/doc-search/app/search.py's SourceMatch — this is the
+    backend-side copy of the same shape, carried as the tool's "artifact"
+    (see response_format="content_and_artifact" below) rather than folded
+    into the LLM-facing content string. Kept as its own dataclass (not the
+    doc-search one) for the same reason every other doc-search/backend
+    duplicate pair in this codebase exists: they are separate deployables
+    with no shared package to import from.
+    """
+
+    knowledge_base_id: str
+    title: str
+    heading_path: str | None
+
 
 # Connect/write timeout and the long-lived read timeout for the server-sent
 # event stream, respectively. These are the values the MCP SDK's deprecated
@@ -101,6 +121,26 @@ def _render_search_result(result) -> str:
     return "".join(block.text for block in result.content if hasattr(block, "text"))
 
 
+def _extract_sources(result) -> list[Source]:
+    """Pull the structured source list out of doc-search's tool result.
+
+    result.structuredContent is only present on the newer, hand-built
+    CallToolResult doc-search now returns (see mcp-servers/doc-search/app/
+    server.py) — absent or missing "sources" resolves to an empty list
+    rather than raising, so a caller talking to an older/misbehaving server
+    degrades to "no sources shown" instead of crashing the tool call.
+    """
+    structured = getattr(result, "structuredContent", None) or {}
+    return [
+        Source(
+            knowledge_base_id=entry["knowledge_base_id"],
+            title=entry["title"],
+            heading_path=entry.get("heading_path"),
+        )
+        for entry in structured.get("sources", [])
+    ]
+
+
 def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:
     """Build a search_knowledge_base tool bound to one user's forwarded token.
 
@@ -118,7 +158,7 @@ def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:
     tool should paper over by bridging event loops itself.
     """
 
-    async def search_knowledge_base(query: str, top_k: int = 5) -> str:
+    async def search_knowledge_base(query: str, top_k: int = 5) -> tuple[str, list[Source]]:
         try:
             result = await _open_doc_search_session(token, mcp_url, query, top_k)
         except Exception:
@@ -126,9 +166,10 @@ def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:
             return (
                 "The knowledge base search is currently unavailable due to an "
                 "internal error. Answer using only what you already know, and "
-                "let the user know document search wasn't available."
+                "let the user know document search wasn't available.",
+                [],
             )
-        return _render_search_result(result)
+        return _render_search_result(result), _extract_sources(result)
 
     return StructuredTool.from_function(
         coroutine=search_knowledge_base,
@@ -141,4 +182,5 @@ def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:
             "matching document, or a message saying nothing matched."
         ),
         args_schema=_SearchKnowledgeBaseInput,
+        response_format="content_and_artifact",
     )

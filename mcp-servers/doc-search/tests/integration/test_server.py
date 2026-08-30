@@ -170,6 +170,57 @@ async def test_search_via_real_http_with_valid_token_returns_matches(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_search_via_real_http_returns_structured_sources(db_session, test_db_url, jwks_mock):
+    """The tool result's structuredContent carries the matching document's
+    provenance (knowledge_base_id/title) alongside the prose text block, so a
+    caller can show "grounded in Vacation Policy" without parsing it back out
+    of the text the LLM reads. See issue #19.
+    """
+    kb = KnowledgeBase(
+        id="kb-1", user_id="user-a", title="Vacation Policy", content="25 days of paid vacation."
+    )
+    db_session.add(kb)
+    db_session.commit()
+    db_session.add(
+        Embedding(
+            id="emb-1",
+            doc_id=kb.id,
+            embedding=generate_query_embedding(db_session, kb.content),
+            chunk_text=kb.content,
+        )
+    )
+    db_session.commit()
+
+    token, jwks = _make_signed_token(
+        {
+            "sub": "user-a",
+            "aud": "eaistack-web",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+        }
+    )
+    jwks_mock["jwks"] = jwks
+
+    with _running_server(jwks_mock, test_db_url) as url:
+        async with _mcp_streams(url, token) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "search_knowledge_base", {"query": "vacation days"}
+                )
+
+        assert result.structuredContent is not None
+        sources = result.structuredContent["sources"]
+        assert len(sources) == 1
+        assert sources[0]["knowledge_base_id"] == "kb-1"
+        assert sources[0]["title"] == "Vacation Policy"
+        # The text content block is unchanged by adding structuredContent —
+        # same prose the LLM has always read.
+        assert "Vacation Policy" in result.content[0].text
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_search_via_real_http_rejects_missing_token(db_session, test_db_url, jwks_mock):
     """A request with no Authorization header is rejected before any tool runs."""
     with _running_server(jwks_mock, test_db_url) as url:

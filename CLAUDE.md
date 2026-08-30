@@ -57,6 +57,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Every config change (scalar settings and pattern add/toggle/delete alike) is audit-logged (`"guardrail.config_update"`, `"guardrail.pattern_update"`), following the same before/after-diff pattern as `"retention.update"`.
 - See `docs/SECURITY.md`'s "Guardrails & Compliance" section for the full design rationale and the admin-configurable-fields table.
 
+**Phase 4d Complete ✓**: Chat Response Source Citations (issue #19)
+- Which knowledge-base document(s) grounded a chat answer is now structured data the user can see, not just prose the LLM may or may not repeat. Plumbed end-to-end: doc-search's `search_knowledge_base_with_sources` (`mcp-servers/doc-search/app/search.py`) returns the same rendered text alongside each match's `SourceMatch` (knowledge_base_id/title/heading_path); the FastMCP tool (`app/server.py`) returns a hand-built `CallToolResult` carrying that as `structuredContent`, leaving the LLM-facing text block byte-identical to before.
+- The backend's MCP client (`app/mcp_client/doc_search_client.py`) reads `structuredContent` and returns `(text, sources)` via LangChain's `response_format="content_and_artifact"`, so `ToolMessage.artifact` carries structured `Source` objects through LangGraph state with no new `ChatState` field needed. `app.agents.chat_agent.extract_sources_from_messages` collects and dedupes them (by `knowledge_base_id`) from a turn's message list after the graph finishes.
+- `ChatResponse.sources` (new field, additive) is populated by `POST /api/agents/chat`; `ChatWindow` renders a "Sources: ..." line under a grounded agent reply. Scoped to the live turn only — thread history replay (`GET /api/agents/threads/{id}`) does not (yet) reconstruct past turns' sources, since `_render_messages` already discards tool messages when replaying.
+- Verified end-to-end against a real llama-server + embedding-server + doc-search stack (`docker-compose up --profile llm`), extending `knowledge-base-search-grounding.spec.ts` — same `requires-profile-llm` exclusion from CI as the rest of that spec, since the fake LLM provider never emits a tool call at all.
+
 ## Common Development Commands
 
 ### Backend (Python)

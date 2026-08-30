@@ -6,11 +6,12 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.base import CheckpointTuple
 from sqlalchemy.orm import Session
 
-from app.agents.chat_agent import create_chat_agent
+from app.agents.chat_agent import create_chat_agent, extract_sources_from_messages
 from app.agents.checkpointer import SqlAlchemyCheckpointSaver
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
+    SourceReference,
     ThreadHistoryResponse,
     ThreadListResponse,
     ThreadMessage,
@@ -112,7 +113,20 @@ async def chat(
     thread_repository.touch(thread.id, now=utc_now())
     db.commit()
 
-    return ChatResponse(response=filtered.text, thread_id=result["thread_id"])
+    sources = extract_sources_from_messages(result["messages"])
+
+    return ChatResponse(
+        response=filtered.text,
+        thread_id=result["thread_id"],
+        sources=[
+            SourceReference(
+                knowledge_base_id=source.knowledge_base_id,
+                title=source.title,
+                heading_path=source.heading_path,
+            )
+            for source in sources
+        ],
+    )
 
 
 @router.get("/threads")

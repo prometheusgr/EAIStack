@@ -1,6 +1,13 @@
+export interface SourceReference {
+  knowledgeBaseId: string;
+  title: string;
+  headingPath: string | null;
+}
+
 export interface ChatMessage {
   role: "user" | "agent";
   text: string;
+  sources?: SourceReference[];
 }
 
 export interface ChatRequest {
@@ -11,6 +18,7 @@ export interface ChatRequest {
 export interface ChatResponse {
   response: string;
   threadId: string;
+  sources: SourceReference[];
 }
 
 export interface ThreadSummary {

@@ -20,7 +20,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.mcp_client import make_search_knowledge_base_tool
+from app.mcp_client import Source, make_search_knowledge_base_tool
 from tests.conftest import FAKE_KEYCLOAK_PRIVATE_KEY
 from tests.integration.doc_search_helper import (
     make_signed_token,
@@ -30,7 +30,7 @@ from tests.integration.doc_search_helper import (
 TEST_PORT = 8198
 
 
-def _seed_document(db_session, user_id: str, title: str, content: str) -> None:
+def _seed_document(db_session, user_id: str, title: str, content: str) -> str:
     from app.db.models import Embedding, KnowledgeBase
     from app.services import generate_embedding
 
@@ -46,6 +46,7 @@ def _seed_document(db_session, user_id: str, title: str, content: str) -> None:
     )
     db_session.add(embedding)
     db_session.commit()
+    return kb.id
 
 
 @pytest.mark.integration
@@ -99,6 +100,45 @@ async def test_search_knowledge_base_tool_is_scoped_to_the_forwarded_token(
 
     assert "User B Confidential Doc" not in result
     assert "belongs only to user B" not in result
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_search_knowledge_base_tool_carries_sources_as_the_tool_message_artifact(
+    db_session, test_db_url, fake_keycloak_jwks_server
+):
+    """When invoked the way LangGraph's ToolNode actually invokes tools (a
+    ToolCall dict, not a bare args dict), the resulting ToolMessage's
+    .artifact carries the matching document's Source — the same structured
+    provenance issue #19 needs the chat agent to accumulate per turn. The
+    LLM-facing .content text is unaffected: same title/excerpt string as the
+    other tests in this file.
+    """
+    doc_id = _seed_document(
+        db_session,
+        user_id="user-a",
+        title="Vacation Policy",
+        content="Employees receive 25 days of paid vacation per year.",
+    )
+    token = make_signed_token("user-a", FAKE_KEYCLOAK_PRIVATE_KEY)
+
+    with running_doc_search_subprocess(
+        test_db_url, fake_keycloak_jwks_server, TEST_PORT
+    ) as mcp_url:
+        tool = make_search_knowledge_base_tool(token=token, mcp_url=mcp_url)
+        tool_message = await tool.ainvoke(
+            {
+                "name": "search_knowledge_base",
+                "args": {"query": "vacation days"},
+                "id": "call-1",
+                "type": "tool_call",
+            }
+        )
+
+    assert "Vacation Policy" in tool_message.content
+    assert tool_message.artifact == [
+        Source(knowledge_base_id=doc_id, title="Vacation Policy", heading_path=None)
+    ]
 
 
 @pytest.mark.integration

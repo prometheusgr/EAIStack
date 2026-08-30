@@ -2,7 +2,7 @@
 
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import AIMessage, AnyMessage
+from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.checkpointer import SqlAlchemyCheckpointSaver
 from app.core.llm_client import get_llm_client
-from app.mcp_client import make_search_knowledge_base_tool
+from app.mcp_client import Source, make_search_knowledge_base_tool
 from app.prompts.chat_prompts import CHAT_AGENT_SYSTEM_PROMPT
 
 MAX_TOOL_CALL_ROUNDS = 5
@@ -33,6 +33,37 @@ def _count_tool_call_rounds(state: ChatState) -> int:
     return sum(
         1 for message in state["messages"] if isinstance(message, AIMessage) and message.tool_calls
     )
+
+
+def extract_sources_from_messages(messages: list[AnyMessage]) -> list[Source]:
+    """Collect every search_knowledge_base call's structured sources
+    (see app.mcp_client.doc_search_client's response_format=
+    "content_and_artifact") out of a turn's full message list into one flat,
+    deduplicated list.
+
+    Deduplicated by knowledge_base_id, preserving first-seen order: a
+    document that grounded more than one tool call in the same turn (e.g.
+    the model called the tool twice with different queries and both matched
+    the same document) should still surface as a single source in the
+    response, not one entry per call.
+
+    A caller-facing helper, not part of ChatState — it's derived read-only
+    from messages after the graph finishes, the same way app.api.agents.chat
+    already pulls the final AIMessage back out of result["messages"]. Adding
+    a dedicated state field would mean every node threads it through for no
+    benefit, since nothing inside the graph itself needs to branch on it.
+    """
+    sources: list[Source] = []
+    seen_ids: set[str] = set()
+    for message in messages:
+        if not isinstance(message, ToolMessage) or not message.artifact:
+            continue
+        for source in message.artifact:
+            if source.knowledge_base_id in seen_ids:
+                continue
+            seen_ids.add(source.knowledge_base_id)
+            sources.append(source)
+    return sources
 
 
 def create_chat_agent(db: Session, token: str, mcp_url: str):

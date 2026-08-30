@@ -32,10 +32,16 @@ export async function sendChatMessage(
   const data = (await response.json()) as {
     response: string;
     thread_id: string;
+    sources: { knowledge_base_id: string; title: string; heading_path: string | null }[];
   };
 
   return {
     response: data.response,
     threadId: data.thread_id,
+    sources: data.sources.map((source) => ({
+      knowledgeBaseId: source.knowledge_base_id,
+      title: source.title,
+      headingPath: source.heading_path,
+    })),
   };
 }

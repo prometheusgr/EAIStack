@@ -43,6 +43,7 @@ describe("ChatWindow", () => {
     const mockResponse = {
       response: "Test response from agent",
       threadId: "test-thread-123",
+      sources: [],
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -64,6 +65,7 @@ describe("ChatWindow", () => {
     const mockResponse = {
       response: "This is the agent response",
       threadId: "test-thread-456",
+      sources: [],
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -84,6 +86,7 @@ describe("ChatWindow", () => {
     const mockResponse = {
       response: "Test response",
       threadId: "test-thread-789",
+      sources: [],
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -104,6 +107,7 @@ describe("ChatWindow", () => {
     const mockResponse = {
       response: "Test response",
       threadId: "test-thread-999",
+      sources: [],
     };
 
     const mockSendChat = vi
@@ -420,6 +424,50 @@ describe("ChatWindow", () => {
     expect(screen.getByText("Existing thread-2 message")).toBeInTheDocument();
     // The error must not be shown against thread-2.
     expect(screen.queryByText(/couldn.?t be sent/i)).not.toBeInTheDocument();
+  });
+
+  it("should display the source documents that grounded the agent's answer", async () => {
+    const mockResponse = {
+      response: "You get 25 days of paid vacation per year.",
+      threadId: "test-thread-sources",
+      sources: [
+        { knowledgeBaseId: "kb-1", title: "Vacation Policy", headingPath: null },
+      ],
+    };
+
+    vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
+
+    render(<ChatWindow />);
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: "How many vacation days do I get?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("You get 25 days of paid vacation per year.")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Vacation Policy")).toBeInTheDocument();
+  });
+
+  it("should not show a sources section when the answer wasn't grounded in any document", async () => {
+    const mockResponse = {
+      response: "I don't have specific information on that.",
+      threadId: "test-thread-no-sources",
+      sources: [],
+    };
+
+    vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
+
+    render(<ChatWindow />);
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: "What is the meaning of life?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("I don't have specific information on that.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/sources?:/i)).not.toBeInTheDocument();
   });
 
   it("should clear messages and start a new thread when New chat is clicked", async () => {

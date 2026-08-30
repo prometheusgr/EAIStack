@@ -3,11 +3,12 @@
 from uuid import uuid4
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolCall
+from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
 
-from app.agents.chat_agent import create_chat_agent
+from app.agents.chat_agent import create_chat_agent, extract_sources_from_messages
 from app.core.llm_client import FakeChatModel
 from app.db.models import Embedding, KnowledgeBase
+from app.mcp_client import Source
 from app.repositories import ThreadRepository
 from app.services import generate_embedding
 from tests.conftest import FAKE_KEYCLOAK_PRIVATE_KEY
@@ -152,6 +153,67 @@ def test_chat_agent_plain_response_skips_tool_node(db_session, monkeypatch):
     messages = result["messages"]
     assert isinstance(messages[-1], AIMessage)
     assert messages[-1].content == "No tool needed here."
+
+
+@pytest.mark.unit
+def test_extract_sources_from_messages_collects_tool_message_artifacts():
+    """Every ToolMessage in a turn's message list contributes its .artifact
+    (a list[Source], see app.mcp_client.doc_search_client) to one flat,
+    order-preserving list — the shape app.api.agents.chat needs to populate
+    ChatResponse.sources, see issue #19.
+    """
+    messages = [
+        HumanMessage(content="How many vacation days do I get?"),
+        AIMessage(content="", tool_calls=[]),
+        ToolMessage(
+            content="Title: Vacation Policy\n25 days of paid vacation.",
+            tool_call_id="call-1",
+            artifact=[Source(knowledge_base_id="kb-1", title="Vacation Policy", heading_path=None)],
+        ),
+        AIMessage(content="You get 25 days of paid vacation per year."),
+    ]
+
+    sources = extract_sources_from_messages(messages)
+
+    assert sources == [Source(knowledge_base_id="kb-1", title="Vacation Policy", heading_path=None)]
+
+
+@pytest.mark.unit
+def test_extract_sources_from_messages_deduplicates_by_knowledge_base_id():
+    """Two tool calls in the same turn (or a re-ranked repeat match) that
+    both surface the same document must not produce a duplicate source
+    entry in the final response.
+    """
+    same_source = Source(knowledge_base_id="kb-1", title="Vacation Policy", heading_path=None)
+    messages = [
+        ToolMessage(content="...", tool_call_id="call-1", artifact=[same_source]),
+        ToolMessage(content="...", tool_call_id="call-2", artifact=[same_source]),
+    ]
+
+    sources = extract_sources_from_messages(messages)
+
+    assert sources == [same_source]
+
+
+@pytest.mark.unit
+def test_extract_sources_from_messages_returns_empty_list_when_no_tool_messages():
+    """A turn that never called the tool (plain conversational answer)
+    contributes no sources, not an error.
+    """
+    messages = [HumanMessage(content="Hello"), AIMessage(content="Hi there!")]
+
+    assert extract_sources_from_messages(messages) == []
+
+
+@pytest.mark.unit
+def test_extract_sources_from_messages_tolerates_tool_message_with_no_artifact():
+    """A ToolMessage from a tool other than search_knowledge_base (or the
+    unreachable-server fallback, whose artifact is an empty list per
+    doc_search_client) must not crash source extraction.
+    """
+    messages = [ToolMessage(content="unrelated tool output", tool_call_id="call-1")]
+
+    assert extract_sources_from_messages(messages) == []
 
 
 @pytest.mark.integration

@@ -57,6 +57,33 @@ EMBEDDING_DIMENSION = 768
 
 
 @dataclass(frozen=True)
+class SourceMatch:
+    """One document that grounded a search_knowledge_base_with_sources call.
+
+    Structured provenance for a matching document — knowledge_base_id/title/
+    heading_path, the same fields already baked into search_knowledge_base's
+    prose "Title: ..." / "Section: ..." lines — kept separate from that text
+    so a caller (the backend's MCP client) can carry it as data instead of
+    parsing it back out of a string meant for the LLM to read.
+    """
+
+    knowledge_base_id: str
+    title: str
+    heading_path: str | None
+
+
+@dataclass(frozen=True)
+class SearchResultWithSources:
+    """search_knowledge_base_with_sources's return value: the same rendered
+    text search_knowledge_base returns, plus the structured sources it was
+    built from.
+    """
+
+    text: str
+    sources: list[SourceMatch]
+
+
+@dataclass(frozen=True)
 class EmbeddingConfig:
     """Effective embedding config for one call, DB override merged over env defaults."""
 
@@ -154,6 +181,30 @@ def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5)
     _deduplicate_by_document) so one document's many chunks can't crowd out
     other documents in the result.
     """
+    return _search_and_render(db, user_id, query, top_k).text
+
+
+def search_knowledge_base_with_sources(
+    db: Session, user_id: str, query: str, top_k: int = 5
+) -> SearchResultWithSources:
+    """Same ranking and rendered text as search_knowledge_base, plus each
+    matching document's provenance (knowledge_base_id/title/heading_path) as
+    structured data.
+
+    Exists as a separate function, rather than changing
+    search_knowledge_base's return type, so every existing caller and test
+    of the plain string result is unaffected — see issue #19, which needs
+    the sources without changing what the LLM-facing tool result looks like.
+    """
+    return _search_and_render(db, user_id, query, top_k)
+
+
+def _search_and_render(
+    db: Session, user_id: str, query: str, top_k: int
+) -> SearchResultWithSources:
+    """Shared ranking + formatting for search_knowledge_base and
+    search_knowledge_base_with_sources, so the two never drift apart.
+    """
     query_embedding = embed_query(db, query)
 
     repo = EmbeddingRepository(db)
@@ -162,11 +213,14 @@ def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5)
     )
 
     if not candidates:
-        return "No matching documents were found in the knowledge base."
+        return SearchResultWithSources(
+            text="No matching documents were found in the knowledge base.", sources=[]
+        )
 
     matches = _deduplicate_by_document(candidates)[:top_k]
 
     excerpts = []
+    sources = []
     for embedding, knowledge_base, _ in matches:
         excerpt = embedding.chunk_text[:MAX_EXCERPT_CHARS]
         if len(embedding.chunk_text) > MAX_EXCERPT_CHARS:
@@ -177,7 +231,15 @@ def search_knowledge_base(db: Session, user_id: str, query: str, top_k: int = 5)
             header += f"\nSection: {embedding.heading_path}"
         excerpts.append(f"{header}\n{excerpt}")
 
-    return "\n\n".join(excerpts)
+        sources.append(
+            SourceMatch(
+                knowledge_base_id=knowledge_base.id,
+                title=knowledge_base.title,
+                heading_path=embedding.heading_path,
+            )
+        )
+
+    return SearchResultWithSources(text="\n\n".join(excerpts), sources=sources)
 
 
 def _deduplicate_by_document(
