@@ -312,7 +312,9 @@ describe('Settings', () => {
     // section (see below) has its own max_input_length reset button with
     // the same text.
     const llmSection = await screen.findByRole('region', { name: 'LLM configuration' })
-    const llmResetButton = within(llmSection).getByRole('button', { name: /reset to default/i })
+    const llmResetButton = await within(llmSection).findByRole('button', {
+      name: /reset to default/i,
+    })
     await user.click(llmResetButton)
 
     const saveButton = screen.getByRole('button', { name: /^save$/i })
