@@ -2,7 +2,7 @@
 
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -36,26 +36,39 @@ def _count_tool_call_rounds(state: ChatState) -> int:
 
 
 def extract_sources_from_messages(messages: list[AnyMessage]) -> list[Source]:
-    """Collect every search_knowledge_base call's structured sources
-    (see app.mcp_client.doc_search_client's response_format=
-    "content_and_artifact") out of a turn's full message list into one flat,
-    deduplicated list.
+    """Collect the current turn's search_knowledge_base sources (see
+    app.mcp_client.doc_search_client's response_format=
+    "content_and_artifact") into one flat, deduplicated list.
 
-    Deduplicated by knowledge_base_id, preserving first-seen order: a
-    document that grounded more than one tool call in the same turn (e.g.
-    the model called the tool twice with different queries and both matched
-    the same document) should still surface as a single source in the
-    response, not one entry per call.
+    messages is the full result["messages"] from a graph invocation, which
+    -- per LangGraph's add_messages reducer and the SqlAlchemyCheckpointSaver
+    -- is the *entire accumulated thread history*, not just this turn's new
+    messages (see test_conversation_persists_across_two_invokes_same_thread_
+    same_user in tests/unit/test_chat_agent.py, which pins exactly this
+    behavior). Scanning the whole list would both resurface a document that
+    grounded a *previous* turn's unrelated answer, and crash outright on any
+    ToolMessage restored from a checkpoint: SqlAlchemyCheckpointSaver
+    round-trips messages through langgraph's JsonPlusSerializer, which
+    deserializes ToolMessage.artifact as a plain dict, not a Source instance
+    (Source has no custom serializer registered) -- so `source.
+    knowledge_base_id` on a prior turn's artifact raises AttributeError.
 
-    A caller-facing helper, not part of ChatState — it's derived read-only
-    from messages after the graph finishes, the same way app.api.agents.chat
-    already pulls the final AIMessage back out of result["messages"]. Adding
-    a dedicated state field would mean every node threads it through for no
-    benefit, since nothing inside the graph itself needs to branch on it.
+    Restricting to messages after the last HumanMessage sidesteps both
+    problems at once: within a single ainvoke() call, everything from the
+    new HumanMessage onward (the turn currently being answered) is
+    constructed fresh in this call and never round-tripped through the
+    checkpointer, so its ToolMessage.artifact values are still real Source
+    dataclass instances.
     """
+    last_human_index = -1
+    for index, message in enumerate(messages):
+        if isinstance(message, HumanMessage):
+            last_human_index = index
+    current_turn_messages = messages[last_human_index + 1 :]
+
     sources: list[Source] = []
     seen_ids: set[str] = set()
-    for message in messages:
+    for message in current_turn_messages:
         if not isinstance(message, ToolMessage) or not message.artifact:
             continue
         for source in message.artifact:

@@ -20,7 +20,6 @@ from app.models import Embedding, KnowledgeBase, SystemSettings
 from app.search import (
     generate_query_embedding,
     resolve_embedding_config,
-    search_knowledge_base,
     search_knowledge_base_with_sources,
 )
 
@@ -59,7 +58,7 @@ def _seed_chunk(
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_returns_matching_chunk_text(db_session):
+def test_search_knowledge_base_with_sources_returns_matching_chunk_text(db_session):
     """Returns the seeded document's title and matching chunk's text for a
     matching query, not the whole document.
     """
@@ -70,17 +69,19 @@ def test_search_knowledge_base_returns_matching_chunk_text(db_session):
         chunk_text="Employees receive 25 days of paid vacation per year.",
     )
 
-    result = search_knowledge_base(db_session, user_id="user-a", query="vacation days", top_k=5)
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="vacation days", top_k=5
+    )
 
-    assert "Vacation Policy" in result
-    assert "25 days of paid vacation" in result
+    assert "Vacation Policy" in result.text
+    assert "25 days of paid vacation" in result.text
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_uses_hybrid_search_for_exact_token_queries(db_session):
-    """search_knowledge_base itself (not just the repository directly) ranks
-    an exact-token query (an error code) via hybrid search — the end-to-end
-    wiring for issue #7 Prompt 3's motivating case.
+def test_search_knowledge_base_with_sources_uses_hybrid_search_for_exact_token_queries(db_session):
+    """search_knowledge_base_with_sources itself (not just the repository
+    directly) ranks an exact-token query (an error code) via hybrid search
+    — the end-to-end wiring for issue #7 Prompt 3's motivating case.
     """
     _seed_chunk(
         db_session,
@@ -96,16 +97,18 @@ def test_search_knowledge_base_uses_hybrid_search_for_exact_token_queries(db_ses
             chunk_text=f"How to troubleshoot common database errors, guide {i}.",
         )
 
-    result = search_knowledge_base(db_session, user_id="user-a", query="ORA-01555", top_k=6)
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="ORA-01555", top_k=6
+    )
 
-    first_result_title = result.split("\n", 1)[0]
+    first_result_title = result.text.split("\n", 1)[0]
     assert first_result_title == "Title: ORA-01555 Troubleshooting"
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_includes_heading_path_when_present(db_session):
-    """A chunk's heading path is included in the result, so the LLM sees
-    which section of the document the excerpt came from.
+def test_search_knowledge_base_with_sources_includes_heading_path_in_text_when_present(db_session):
+    """A chunk's heading path is included in the rendered text, so the LLM
+    sees which section of the document the excerpt came from.
     """
     _seed_chunk(
         db_session,
@@ -115,16 +118,18 @@ def test_search_knowledge_base_includes_heading_path_when_present(db_session):
         heading_path="TLS > Certificate rotation",
     )
 
-    result = search_knowledge_base(db_session, user_id="user-a", query="certificate", top_k=5)
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="certificate", top_k=5
+    )
 
-    assert "TLS > Certificate rotation" in result
-    assert "Rotate certs every 90 days." in result
+    assert "TLS > Certificate rotation" in result.text
+    assert "Rotate certs every 90 days." in result.text
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_omits_heading_path_line_when_none(db_session):
+def test_search_knowledge_base_with_sources_omits_heading_path_line_when_none(db_session):
     """A chunk with no enclosing heading (heading_path=None) doesn't produce
-    a dangling "Section: None" line in the formatted result.
+    a dangling "Section: None" line in the rendered text.
     """
     _seed_chunk(
         db_session,
@@ -134,25 +139,27 @@ def test_search_knowledge_base_omits_heading_path_line_when_none(db_session):
         heading_path=None,
     )
 
-    result = search_knowledge_base(db_session, user_id="user-a", query="plain", top_k=5)
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="plain", top_k=5
+    )
 
-    assert "None" not in result
+    assert "None" not in result.text
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_returns_empty_message_when_no_documents(db_session):
+def test_search_knowledge_base_with_sources_returns_empty_message_when_no_documents(db_session):
     """A clear, non-crashing message is returned when the user has no documents."""
-    result = search_knowledge_base(
+    result = search_knowledge_base_with_sources(
         db_session, user_id="user-with-no-docs", query="anything", top_k=5
     )
 
-    assert isinstance(result, str)
-    assert len(result) > 0
-    assert "Vacation Policy" not in result
+    assert isinstance(result.text, str)
+    assert len(result.text) > 0
+    assert "Vacation Policy" not in result.text
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_is_scoped_to_requested_user(db_session):
+def test_search_knowledge_base_with_sources_is_scoped_to_requested_user(db_session):
     """Only documents owned by the requested user_id are returned — the
     critical isolation guarantee once search runs in a separate process from
     the backend: user_id here always comes from a verified JWT's sub claim
@@ -165,14 +172,16 @@ def test_search_knowledge_base_is_scoped_to_requested_user(db_session):
         chunk_text="This document belongs only to user B.",
     )
 
-    result = search_knowledge_base(db_session, user_id="user-a", query="confidential", top_k=5)
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="confidential", top_k=5
+    )
 
-    assert "User B Confidential Doc" not in result
-    assert "belongs only to user B" not in result
+    assert "User B Confidential Doc" not in result.text
+    assert "belongs only to user B" not in result.text
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_truncates_chunk_text_exceeding_excerpt_cap(db_session):
+def test_search_knowledge_base_with_sources_truncates_chunk_text_exceeding_excerpt_cap(db_session):
     """A chunk whose own text exceeds MAX_EXCERPT_CHARS (a safety cap, not
     the primary excerpting mechanism now that chunks are already
     passage-sized) is truncated with a trailing ellipsis.
@@ -182,44 +191,17 @@ def test_search_knowledge_base_truncates_chunk_text_exceeding_excerpt_cap(db_ses
     long_chunk = "A" * (MAX_EXCERPT_CHARS + 200)
     _seed_chunk(db_session, user_id="user-a", title="Long Doc", chunk_text=long_chunk)
 
-    result = search_knowledge_base(db_session, user_id="user-a", query="long", top_k=5)
+    result = search_knowledge_base_with_sources(db_session, user_id="user-a", query="long", top_k=5)
 
-    assert "A" * MAX_EXCERPT_CHARS in result
-    assert "..." in result
-    assert "A" * (MAX_EXCERPT_CHARS + 1) not in result
-
-
-@pytest.mark.integration
-def test_search_knowledge_base_deduplicates_to_one_chunk_per_document(db_session):
-    """Multiple matching chunks from the same document are deduplicated to
-    the single highest-ranked chunk, so one document can't flood the top-k
-    result set at the expense of other documents.
-    """
-    doc_id = _seed_chunk(
-        db_session,
-        user_id="user-a",
-        title="Big Doc",
-        chunk_text="Best matching chunk about certificates.",
-        chunk_index=0,
-        heading_path="Section A",
-    )
-    _seed_chunk(
-        db_session,
-        user_id="user-a",
-        title="Big Doc",
-        chunk_text="Second chunk about certificates too.",
-        chunk_index=1,
-        heading_path="Section B",
-        doc_id=doc_id,
-    )
-
-    result = search_knowledge_base(db_session, user_id="user-a", query="certificates", top_k=5)
-
-    assert result.count("Big Doc") == 1
+    assert "A" * MAX_EXCERPT_CHARS in result.text
+    assert "..." in result.text
+    assert "A" * (MAX_EXCERPT_CHARS + 1) not in result.text
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_dedup_still_returns_top_k_distinct_documents(db_session):
+def test_search_knowledge_base_with_sources_dedup_still_returns_top_k_distinct_documents(
+    db_session,
+):
     """Deduplication must not shrink the result set below top_k when there
     are enough distinct matching documents — it only removes extra chunks
     from a document already represented, never reduces document coverage.
@@ -232,15 +214,19 @@ def test_search_knowledge_base_dedup_still_returns_top_k_distinct_documents(db_s
             chunk_text=f"Certificate rotation content {i}.",
         )
 
-    result = search_knowledge_base(db_session, user_id="user-a", query="certificate", top_k=3)
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="certificate", top_k=3
+    )
 
-    assert result.count("Doc 0") + result.count("Doc 1") + result.count("Doc 2") == 3
+    assert result.text.count("Doc 0") + result.text.count("Doc 1") + result.text.count("Doc 2") == 3
 
 
 @pytest.mark.integration
-def test_search_knowledge_base_passes_bare_top_k_to_search_hybrid(db_session, monkeypatch):
-    """search_knowledge_base must not pre-multiply top_k before calling
-    search_hybrid — search_hybrid already widens its own per-branch
+def test_search_knowledge_base_with_sources_passes_bare_top_k_to_search_hybrid(
+    db_session, monkeypatch
+):
+    """search_knowledge_base_with_sources must not pre-multiply top_k before
+    calling search_hybrid — search_hybrid already widens its own per-branch
     candidate fetch internally (_CANDIDATE_MULTIPLIER, in
     app.repositories.embedding_repository), and dedup headroom comes from
     requesting that candidate pool via return_candidates=True, not from a
@@ -261,41 +247,10 @@ def test_search_knowledge_base_passes_bare_top_k_to_search_hybrid(db_session, mo
 
     monkeypatch.setattr(EmbeddingRepository, "search_hybrid", _spy_search_hybrid)
 
-    search_knowledge_base(db_session, user_id="user-a", query="certificate", top_k=5)
+    search_knowledge_base_with_sources(db_session, user_id="user-a", query="certificate", top_k=5)
 
     assert captured_kwargs["top_k"] == 5
     assert captured_kwargs["return_candidates"] is True
-
-
-# search_knowledge_base_with_sources: the same ranking/formatting as
-# search_knowledge_base, plus structured provenance (doc_id/title/heading_path)
-# per matching document — see issue #19. search_knowledge_base itself is
-# unchanged (still returns the bare rendered str the LLM reads) so its
-# existing test coverage above stays valid; this is an additive sibling, not
-# a replacement.
-
-
-@pytest.mark.integration
-def test_search_knowledge_base_with_sources_returns_same_text_as_plain_search(db_session):
-    """The .text half of the result must be byte-identical to what
-    search_knowledge_base returns, so switching a caller from one function to
-    the other never changes what the LLM reads.
-    """
-    _seed_chunk(
-        db_session,
-        user_id="user-a",
-        title="Vacation Policy",
-        chunk_text="Employees receive 25 days of paid vacation per year.",
-    )
-
-    plain_result = search_knowledge_base(
-        db_session, user_id="user-a", query="vacation days", top_k=5
-    )
-    result = search_knowledge_base_with_sources(
-        db_session, user_id="user-a", query="vacation days", top_k=5
-    )
-
-    assert result.text == plain_result
 
 
 @pytest.mark.integration
@@ -323,7 +278,7 @@ def test_search_knowledge_base_with_sources_includes_doc_id_and_title(db_session
 def test_search_knowledge_base_with_sources_includes_heading_path_when_present(db_session):
     """A source's heading_path is carried through as structured data
     (None when the chunk has no enclosing heading), mirroring the "Section:"
-    line search_knowledge_base includes in prose.
+    line included in the rendered text.
     """
     _seed_chunk(
         db_session,
@@ -362,7 +317,8 @@ def test_search_knowledge_base_with_sources_returns_no_sources_when_no_matches(d
 @pytest.mark.integration
 def test_search_knowledge_base_with_sources_deduplicates_to_one_source_per_document(db_session):
     """Multiple matching chunks from the same document produce exactly one
-    source entry, mirroring search_knowledge_base's text-level dedup.
+    source entry, mirroring the rendered text's own dedup to one excerpt
+    per document.
     """
     doc_id = _seed_chunk(
         db_session,
