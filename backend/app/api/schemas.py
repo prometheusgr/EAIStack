@@ -319,6 +319,12 @@ class SystemSettingsResponse(BaseModel):
     guardrails_output_enabled: bool
     guardrails_output_enabled_is_db_override: bool
     guardrail_patterns: list[GuardrailPatternResponse]
+    # LLM observability (issue #4). Unlike every other field above, a
+    # change here requires a backend restart to take effect - see
+    # app.services.tracing_config_service's module docstring - since it is
+    # resolved once at process startup, not per-request.
+    tracing_enabled: bool
+    tracing_enabled_is_db_override: bool
     available_providers: dict[str, list[ProviderOption]]
 
 
@@ -351,3 +357,6 @@ class UpdateSettingsRequest(BaseModel):
     max_input_length: Optional[int] = Field(default=None, ge=1, le=MAX_INPUT_LENGTH_CEILING)
     guardrails_input_enabled: Optional[bool] = None
     guardrails_output_enabled: Optional[bool] = None
+    # See SystemSettingsResponse.tracing_enabled: takes effect on the next
+    # backend restart, not the next request.
+    tracing_enabled: Optional[bool] = None

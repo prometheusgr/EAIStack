@@ -1,32 +1,48 @@
 """LLM observability: OpenTelemetry tracing for the chat agent (issue #4).
 
 Traces are sent to a self-hosted Arize Phoenix instance (see docker-compose's
-`phoenix` service) via OTLP. Instrumentation is registered once, at process
-start, not resolved per-request like the LLM/embedding provider config -
-there is no supported way to swap a LangChainInstrumentor's tracer provider
-on a running process, so this is a one-time setup call rather than a
-per-call resolution.
+`phoenix` service) via OTLP. Instrumentation is registered once per process,
+not resolved per-request like the LLM/embedding provider config - there is
+no supported way to swap a LangChainInstrumentor's tracer provider on a
+running process, so this is a one-time setup call rather than a per-call
+resolution.
+
+Called from app.main's lifespan hook at startup, after resolving
+tracing_enabled from the DB-override-over-env-default pattern (see
+app.services.tracing_config_service.resolve_tracing_config) - the caller
+passes the already-resolved boolean in, rather than this module reading
+settings.tracing_enabled itself, so a DB override actually takes effect
+(previously this field was env-only). Because that resolution happens once,
+at startup, an admin's change via the settings screen requires a backend
+restart to take effect - unlike llm_provider, which every call re-resolves.
 """
 
 from app.core.config import Settings
 
+# Module-level guard against double registration: a second call in the same
+# process (e.g. a lifespan hook that somehow runs twice, or a test harness
+# that constructs the app more than once) must be a safe no-op rather than
+# re-registering OTel/LangChain instrumentation, which would either raise
+# or silently duplicate every span.
+_configured = False
 
-def configure_tracing(settings: Settings) -> None:
+
+def configure_tracing(settings: Settings, *, enabled: bool) -> None:
     """Register OTel tracing and LangChain auto-instrumentation, if enabled.
 
-    A no-op when settings.tracing_enabled is False - the default, and what
-    every unit test process runs with. This must only ever be called once,
-    explicitly, from app.main's startup path; it must never run as a
-    side effect of importing app.agents.chat_agent or app.core.llm_client,
-    so hermetic tests using FakeChatModel never construct a real OTel
-    exporter or make a network call.
+    A no-op when `enabled` is False - the default, and what every unit test
+    process runs with, since FakeChatModel-based tests never resolve
+    tracing_enabled to True. Idempotent: a second call in the same process
+    is also a no-op, regardless of `enabled`, so callers don't need to
+    track whether they've already called this themselves.
 
     When disabled, OpenTelemetry's global tracer provider is left as its
     default no-op implementation, so any instrumentation elsewhere in the
     dependency tree that calls trace.get_tracer() incurs no overhead and
     sends nothing.
     """
-    if not settings.tracing_enabled:
+    global _configured
+    if _configured or not enabled:
         return
 
     from openinference.instrumentation.langchain import LangChainInstrumentor
@@ -46,3 +62,4 @@ def configure_tracing(settings: Settings) -> None:
         verbose=False,
     )
     LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+    _configured = True

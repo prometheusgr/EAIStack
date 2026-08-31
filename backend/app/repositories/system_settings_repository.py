@@ -41,6 +41,7 @@ class SystemSettingsRepository:
         max_input_length: int | None = None,
         guardrails_input_enabled: bool | None = None,
         guardrails_output_enabled: bool | None = None,
+        tracing_enabled: bool | None = None,
     ) -> SystemSettings:
         """Create or update the singleton settings row.
 
@@ -71,6 +72,7 @@ class SystemSettingsRepository:
         settings_row.max_input_length = max_input_length
         settings_row.guardrails_input_enabled = guardrails_input_enabled
         settings_row.guardrails_output_enabled = guardrails_output_enabled
+        settings_row.tracing_enabled = tracing_enabled
         settings_row.updated_by = updated_by
 
         self.db.flush()

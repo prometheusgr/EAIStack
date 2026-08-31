@@ -27,6 +27,7 @@ from app.services.system_settings_service import (
     resolve_embedding_config,
     resolve_llm_config,
 )
+from app.services.tracing_config_service import TracingConfig, resolve_tracing_config
 
 __all__ = [
     "check_input_guardrail",
@@ -52,4 +53,6 @@ __all__ = [
     "available_provider_options",
     "resolve_embedding_config",
     "resolve_llm_config",
+    "TracingConfig",
+    "resolve_tracing_config",
 ]

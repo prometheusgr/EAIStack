@@ -27,6 +27,7 @@ from app.services import (
     resolve_guardrail_config,
     resolve_llm_config,
     resolve_retention_config,
+    resolve_tracing_config,
 )
 from app.services.system_settings_service import (
     NOT_PROVIDED,
@@ -65,6 +66,7 @@ def _to_response(
     retention_config = resolve_retention_config(db, db_settings)
     guardrail_config = resolve_guardrail_config(db, db_settings)
     guardrail_patterns = GuardrailPatternRepository(db).list_all()
+    tracing_config = resolve_tracing_config(db, db_settings)
 
     return SystemSettingsResponse(
         llm_provider=llm_config.provider,
@@ -114,6 +116,10 @@ def _to_response(
         guardrail_patterns=[
             GuardrailPatternResponse.model_validate(pattern) for pattern in guardrail_patterns
         ],
+        tracing_enabled=tracing_config.enabled,
+        tracing_enabled_is_db_override=bool(
+            db_settings and db_settings.tracing_enabled is not None
+        ),
         available_providers={
             category: [ProviderOption(**option) for option in options]
             for category, options in available_provider_options().items()
@@ -189,6 +195,7 @@ async def update_settings(
     # transition (72 -> 24), which is unrecoverable once upsert has run.
     previous_retention = _retention_override_values(db_settings)
     previous_guardrail = _guardrail_override_values(db_settings)
+    previous_tracing = _tracing_override_values(db_settings)
 
     updated_settings = repo.upsert(
         llm_provider=payload.llm_provider,
@@ -204,6 +211,7 @@ async def update_settings(
         max_input_length=payload.max_input_length,
         guardrails_input_enabled=payload.guardrails_input_enabled,
         guardrails_output_enabled=payload.guardrails_output_enabled,
+        tracing_enabled=payload.tracing_enabled,
         updated_by=user["user_id"],
     )
 
@@ -218,6 +226,12 @@ async def update_settings(
         actor_user_id=user["user_id"],
         previous=previous_guardrail,
         current=_guardrail_override_values(updated_settings),
+    )
+    _record_tracing_changes(
+        db,
+        actor_user_id=user["user_id"],
+        previous=previous_tracing,
+        current=_tracing_override_values(updated_settings),
     )
 
     db.commit()
@@ -337,6 +351,57 @@ def _record_guardrail_changes(
         repo.record(
             actor_user_id=actor_user_id,
             action="guardrail.config_update",
+            field_name=field,
+            old_value=previous[field],
+            new_value=new_value,
+            now=changed_at,
+        )
+
+
+def _tracing_override_values(db_settings: SystemSettings | None) -> dict[str, str | None]:
+    """Snapshot the tracing_enabled column's raw override value as a string.
+
+    Mirrors _guardrail_override_values exactly, for the same reason: the
+    audit trail must record what the admin set (including "cleared back to
+    the env default", as None), not what the value happened to resolve to.
+    A single-field dict rather than a bare value to keep the same
+    shape/call pattern _record_tracing_changes shares with its siblings.
+    """
+    fields = ("tracing_enabled",)
+    if db_settings is None:
+        return {field: None for field in fields}
+
+    return {
+        field: None if getattr(db_settings, field) is None else str(getattr(db_settings, field))
+        for field in fields
+    }
+
+
+def _record_tracing_changes(
+    db: Session,
+    *,
+    actor_user_id: str,
+    previous: dict[str, str | None],
+    current: dict[str, str | None],
+) -> None:
+    """Append a "tracing.config_update" audit entry if tracing_enabled's
+    override actually changed.
+
+    Mirrors _record_guardrail_changes' shape exactly (only changed fields
+    recorded, one shared timestamp per request). Kept as its own function
+    rather than generalizing across all three families, per AGENTS.md's
+    no-premature-abstraction standard - see _record_guardrail_changes'
+    docstring for the same reasoning applied there.
+    """
+    repo = AuditLogRepository(db)
+    changed_at = utc_now()
+
+    for field, new_value in current.items():
+        if previous[field] == new_value:
+            continue
+        repo.record(
+            actor_user_id=actor_user_id,
+            action="tracing.config_update",
             field_name=field,
             old_value=previous[field],
             new_value=new_value,

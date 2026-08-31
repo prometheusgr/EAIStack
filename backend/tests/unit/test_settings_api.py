@@ -541,6 +541,95 @@ def test_put_settings_guardrail_audit_entry_records_actual_transition(client, db
     assert entries[1].new_value == "500"
 
 
+# --- Tracing config (issue #4) ------------------------------------------------
+
+
+@pytest.mark.unit
+def test_get_settings_includes_tracing_field_with_env_default(client):
+    """With no SystemSettings row, GET reflects the env-level
+    tracing_enabled default and reports it as not DB-overridden.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tracing_enabled"] == settings.tracing_enabled
+    assert data["tracing_enabled_is_db_override"] is False
+
+
+@pytest.mark.unit
+def test_put_settings_updates_tracing_field_and_get_reflects_override(client):
+    """PUT should persist a tracing_enabled override, and a following GET
+    should reflect it with is_db_override flipped to True -- the same
+    round trip every other overridable field goes through, even though
+    (unlike them) this one requires a backend restart to actually take
+    effect on the running tracer.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    put_response = client.put("/api/settings", json={"tracing_enabled": True})
+    assert put_response.status_code == 200
+
+    get_response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    data = get_response.json()
+    assert data["tracing_enabled"] is True
+    assert data["tracing_enabled_is_db_override"] is True
+
+
+@pytest.mark.unit
+def test_put_settings_records_tracing_config_update_audit_entries_only_for_changed_fields(
+    client, db_session
+):
+    """Mirrors the guardrail audit test: re-saving settings without
+    touching tracing_enabled must not fabricate audit entries, and a
+    changed field is recorded under the "tracing.config_update" action.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"tracing_enabled": True})
+    client.put("/api/settings", json={"tracing_enabled": True})  # unchanged re-save
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "tracing.config_update"
+    ]
+    assert len(entries) == 1
+    assert entries[0].field_name == "tracing_enabled"
+    assert entries[0].old_value is None
+    assert entries[0].new_value == "True"
+
+
+@pytest.mark.unit
+def test_put_settings_tracing_audit_entry_records_actual_transition(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"tracing_enabled": True})
+    client.put("/api/settings", json={"tracing_enabled": False})
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "tracing.config_update" and e.field_name == "tracing_enabled"
+    ]
+    # Newest first: the second PUT (True -> False) then the first (None -> True).
+    assert entries[0].old_value == "True"
+    assert entries[0].new_value == "False"
+    assert entries[1].old_value is None
+    assert entries[1].new_value == "True"
+
+
 # --- Guardrail pattern endpoints (issue #16) ----------------------------------
 
 
