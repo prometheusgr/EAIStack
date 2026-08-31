@@ -41,6 +41,11 @@ export interface SystemSettingsResponse {
   guardrails_output_enabled: boolean
   guardrails_output_enabled_is_db_override: boolean
   guardrail_patterns: GuardrailPattern[]
+  // LLM observability (issue #4). Unlike every other field above, a change
+  // here requires a backend restart to take effect - it is resolved once
+  // at process startup, not per-request.
+  tracing_enabled: boolean
+  tracing_enabled_is_db_override: boolean
   available_providers: {
     llm: ProviderOption[]
     embedding: ProviderOption[]
@@ -61,4 +66,7 @@ export interface UpdateSettingsRequest {
   max_input_length?: number | null
   guardrails_input_enabled?: boolean | null
   guardrails_output_enabled?: boolean | null
+  // See SystemSettingsResponse.tracing_enabled: takes effect on the next
+  // backend restart, not the next request.
+  tracing_enabled?: boolean | null
 }

@@ -57,6 +57,8 @@ const ENV_DEFAULT_SETTINGS: SystemSettingsResponse = {
   guardrails_input_enabled_is_db_override: false,
   guardrails_output_enabled: true,
   guardrails_output_enabled_is_db_override: false,
+  tracing_enabled: false,
+  tracing_enabled_is_db_override: false,
   guardrail_patterns: [
     {
       id: 'built-in-1',
@@ -311,9 +313,10 @@ describe('Settings', () => {
     // no longer a unique button label on this page now that the Guardrails
     // section (see below) has its own max_input_length reset button with
     // the same text.
-    const llmHeading = await screen.findByRole('heading', { name: 'LLM Provider' })
-    const llmSection = llmHeading.closest('div') as HTMLElement
-    const llmResetButton = within(llmSection).getByRole('button', { name: /reset to default/i })
+    const llmSection = await screen.findByRole('region', { name: 'LLM configuration' })
+    const llmResetButton = await within(llmSection).findByRole('button', {
+      name: /reset to default/i,
+    })
     await user.click(llmResetButton)
 
     const saveButton = screen.getByRole('button', { name: /^save$/i })
@@ -518,6 +521,46 @@ describe('Settings guardrails section', () => {
 
     const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
     expect(payload).toMatchObject({ guardrails_input_enabled: false })
+  })
+
+  it('renders the tracing toggle reflecting its env-default state', async () => {
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const tracingToggle = screen.getByLabelText(/enable llm tracing/i) as HTMLInputElement
+    expect(tracingToggle.checked).toBe(false)
+    expect(screen.getByText(/enable llm tracing \(env default\)/i)).toBeInTheDocument()
+  })
+
+  it('reflects tracing_enabled_is_db_override as "Overridden"', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      tracing_enabled: true,
+      tracing_enabled_is_db_override: true,
+    })
+
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    const tracingToggle = screen.getByLabelText(/enable llm tracing/i) as HTMLInputElement
+    expect(tracingToggle.checked).toBe(true)
+    expect(screen.getByText(/enable llm tracing \(overridden\)/i)).toBeInTheDocument()
+  })
+
+  it('turning on tracing and saving sends true in the payload', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForGuardrailsLoaded()
+
+    await user.click(screen.getByLabelText(/enable llm tracing/i))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({ tracing_enabled: true })
   })
 
   it('renders built-in pattern rows without a delete button', async () => {

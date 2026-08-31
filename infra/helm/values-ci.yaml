@@ -90,6 +90,7 @@ backend:
     url: "https://eaistack-doc-search:8100/mcp"
   tls:
     enabled: true
+  tracingEnabled: true  # exercises the cross-chart phoenix.fullname wiring in CI
 
 doc-search:
   enabled: true
@@ -103,6 +104,18 @@ doc-search:
     url: "http://eaistack-embedding-server:8000/v1"
   tls:
     enabled: true
+
+phoenix:
+  enabled: true  # enabled in CI (unlike the umbrella default) so the chart renders and is asserted on
+  image:
+    repository: arizephoenix/phoenix
+    tag: latest
+    pullPolicy: IfNotPresent
+  storage:
+    size: 20Gi
+    storageClassName: "standard"  # CI placeholder
+  # No tls key: the phoenix chart has no tls.enabled flag (see
+  # infra/helm/charts/phoenix/values.yaml - deferred to issue #33).
 
 frontend:
   enabled: true

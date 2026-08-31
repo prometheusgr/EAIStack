@@ -170,6 +170,21 @@ Alembic history: initial schema → embedding dimension fix (768) → system set
 
 Adding a second MCP server (a second tool, or a different backing store) should follow this same shape — see [AGENT_LIBRARY.md](AGENT_LIBRARY.md) for the equivalent guidance on agents.
 
+## Observability
+
+**Location:** `backend/app/core/tracing.py`, docker-compose's `phoenix` service, `infra/helm/charts/phoenix/`
+
+| Concern | Technology | Status |
+|---|---|---|
+| Tracing backend | Self-hosted Arize Phoenix (`arizephoenix/phoenix`, prebuilt upstream image, no Dockerfile of our own) | ✅ |
+| Instrumentation | OpenTelemetry via `arize-phoenix-otel` + `openinference-instrumentation-langchain`, auto-instruments LangChain's callback machinery (which LangGraph runs through) | ✅ |
+| What's captured | Full trace tree per chat turn (LangGraph run → LLM calls → tool calls), latency, token counts, and the exact prompt/response content | ✅ (verified by hand — see [docs/OBSERVABILITY.md](OBSERVABILITY.md)) |
+| Config | `tracing_enabled` (default `false`) / `tracing_otlp_endpoint`, env-only — not a DB-backed admin override, since instrumentation registers once at process start | ✅ |
+| Storage | Phoenix's own SQLite on a dedicated `phoenix_data` volume, not the shared `eaistack` Postgres (no multi-database provisioning in this repo, and it isn't part of Alembic's owned schema) | ✅ |
+| Deployment | No Dockerfile (prebuilt image), Helm chart (`infra/helm/charts/phoenix/`), off by default in the umbrella chart | ✅ |
+
+**Known gaps:** no retention policy for trace data yet ([#32](../../../issues/32) — traces carry the same sensitive prompt/response content as `conversation_threads` but currently accumulate indefinitely); no TLS termination on the Phoenix Helm chart yet ([#33](../../../issues/33) — an unmodified upstream image, unlike every other chart, which terminates TLS itself). Trace clustering/search ([#29](../../../issues/29)), evaluation hooks ([#30](../../../issues/30)), and cost-per-span ([#31](../../../issues/31)) are separate, unimplemented follow-ups. See [docs/OBSERVABILITY.md](OBSERVABILITY.md) for the full design writeup.
+
 ## Data retention & audit
 
 **Location:** `backend/app/services/retention_service.py`, `backend/app/cli/retention_sweep.py`, `backend/app/repositories/audit_log_repository.py`

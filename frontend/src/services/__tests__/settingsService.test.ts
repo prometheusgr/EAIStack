@@ -45,6 +45,8 @@ describe('SettingsService', () => {
     guardrails_input_enabled_is_db_override: false,
     guardrails_output_enabled: true,
     guardrails_output_enabled_is_db_override: false,
+    tracing_enabled: false,
+    tracing_enabled_is_db_override: false,
     guardrail_patterns: [],
     available_providers: { llm: [], embedding: [] },
   }

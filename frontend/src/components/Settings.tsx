@@ -82,6 +82,7 @@ export function Settings() {
   const [maxInputLength, setMaxInputLength] = useState<NumericSettingInput>('')
   const [guardrailsInputEnabled, setGuardrailsInputEnabled] = useState(true)
   const [guardrailsOutputEnabled, setGuardrailsOutputEnabled] = useState(true)
+  const [tracingEnabled, setTracingEnabled] = useState(false)
   const [newPatternLabel, setNewPatternLabel] = useState('')
   const [newPatternPhrase, setNewPatternPhrase] = useState('')
   // Mirrors get.data.guardrail_patterns locally, patched in place by each
@@ -135,6 +136,7 @@ export function Settings() {
     setGuardrailsInputEnabled(get.data.guardrails_input_enabled)
     setGuardrailsOutputEnabled(get.data.guardrails_output_enabled)
     setGuardrailPatterns(get.data.guardrail_patterns)
+    setTracingEnabled(get.data.tracing_enabled)
     setClearedFields(new Set())
   }, [get.data])
 
@@ -194,6 +196,7 @@ export function Settings() {
       guardrails_output_enabled: clearedFields.has('guardrails_output_enabled')
         ? null
         : guardrailsOutputEnabled,
+      tracing_enabled: clearedFields.has('tracing_enabled') ? null : tracingEnabled,
     }
   }
 
@@ -349,7 +352,10 @@ export function Settings() {
         </p>
       </div>
 
-      <div className="space-y-4 rounded-lg border border-border p-4">
+      <section
+        className="space-y-4 rounded-lg border border-border p-4"
+        aria-label="LLM configuration"
+      >
         <h3 className="text-lg font-semibold">LLM Provider</h3>
         <p className="text-sm text-muted-foreground">
           Current: {get.data.llm_provider} ({overrideLabel(get.data.llm_provider_is_db_override)})
@@ -422,9 +428,12 @@ export function Settings() {
             </Button>
           </div>
         )}
-      </div>
+      </section>
 
-      <div className="space-y-4 rounded-lg border border-border p-4">
+      <section
+        className="space-y-4 rounded-lg border border-border p-4"
+        aria-label="Embedding configuration"
+      >
         <h3 className="text-lg font-semibold">Embedding Provider</h3>
         <p className="text-sm text-muted-foreground">
           Current: {get.data.embedding_provider} (
@@ -498,7 +507,7 @@ export function Settings() {
             </Button>
           </div>
         )}
-      </div>
+      </section>
 
       <section
         className="space-y-4 rounded-lg border border-border p-4"
@@ -760,6 +769,36 @@ export function Settings() {
               </Button>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-border p-4" aria-label="Observability">
+        <h3 className="text-lg font-semibold">Observability</h3>
+        <p className="text-sm text-muted-foreground">
+          LLM request tracing to the self-hosted Phoenix instance, for inspecting chat agent runs
+          (prompts, tool calls, latency, token counts).
+        </p>
+
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <input
+              id="tracing-enabled"
+              type="checkbox"
+              checked={tracingEnabled}
+              onChange={(e) => {
+                setTracingEnabled(e.target.checked)
+                markFieldEdited('tracing_enabled')
+              }}
+            />
+            <label className="text-sm font-medium" htmlFor="tracing-enabled">
+              Enable LLM tracing ({overrideLabel(get.data.tracing_enabled_is_db_override)})
+            </label>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Unlike the other settings on this page, this change takes effect only after the
+            backend is restarted — it is resolved once at process startup, not on the next
+            request.
+          </p>
         </div>
       </section>
 

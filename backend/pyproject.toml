@@ -32,6 +32,8 @@ dependencies = [
     "mcp==1.29.0",
     "pypdf==4.0.1",
     "python-docx==1.1.0",
+    "arize-phoenix-otel==0.17.1",
+    "openinference-instrumentation-langchain==0.1.73",
 ]
 
 [project.optional-dependencies]

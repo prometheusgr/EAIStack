@@ -12,6 +12,7 @@ All service-to-service communication is encrypted:
 - Backend ↔ MinIO: TLS
 - Backend ↔ llama-server: TLS (optional, can be unencrypted on private network)
 - Backend ↔ MCP servers: TLS
+- Backend ↔ Phoenix (tracing): **not yet** — see below
 
 `backend/app/storage/minio_client.py` derives its `secure`/CA-bundle
 behavior from `MINIO_URL`'s scheme, the same "let the URL decide" rule
@@ -20,6 +21,23 @@ MinIO above is `https://`, so it always gets a TLS+CA-verified client.
 docker-compose's local MinIO is plaintext, like every other service in
 that stack; moving local dev to TLS-by-default across the board is tracked
 separately (issue #17), not built into the MinIO client itself.
+
+**Phoenix (issue #4) is the one exception to "TLS enabled by default via
+cert-manager."** Every other Helm chart in `infra/helm/charts/` terminates
+TLS itself using a cert-manager-issued certificate; Phoenix is an
+unmodified upstream image (`arizephoenix/phoenix`), so this repo doesn't
+control its entrypoint the way it does for services it builds (e.g.
+doc-search's own `docker-entrypoint.sh`). This project is air-gapped, so
+#4's implementation had no way to verify whether the real vendored image
+supports native TLS termination without guessing at unverified infra.
+`infra/helm/charts/phoenix/values.yaml` deliberately has no `tls.enabled`
+flag at all (removed rather than shipped as a permanently-false no-op,
+since a flag with no working `true` path invites an operator to flip it and
+get silent plaintext instead of a clear "not supported yet") — a
+documented exception, not an oversight. Tracked in issue #33: verify
+against the real image, then add `tls.enabled` back correctly, wired to
+either native TLS support or a TLS-terminating sidecar. See
+[docs/OBSERVABILITY.md](OBSERVABILITY.md) for detail.
 
 **Implementation**: 
 - cert-manager with self-signed internal CA (no external ACME)
@@ -89,6 +107,7 @@ effect on the next retention sweep — no backend restart.
 | `embeddings` | Follows its parent document — purged in the same batch. | Inherited | `purge_expired_knowledge_base` |
 | MinIO object (uploaded file, if any) | Follows its parent document — deleted in the same purge as the DB row. A pasted-text entry has no object (`storage_key` is NULL) and nothing is deleted for it. | Inherited | `purge_expired_knowledge_base` (via `DocumentStore.delete_many`) |
 | `api_keys` (revoked) | **30 days** after `revoked_at`, then hard-deleted. Active keys are never purged. | Yes (`api_key_purge_days`) | `purge_expired_api_keys` |
+| Phoenix traces (LLM prompts/responses, tool calls — issue #4) | **None yet — accumulates indefinitely.** Carries the same sensitive prompt/response content as `conversation_threads`, which defaults to 24h; this store has no bound at all today. | **Not yet** ([#32](../../../issues/32)) | **Not yet** ([#32](../../../issues/32)) — lives in Phoenix's own SQLite store, outside the `eaistack` database this sweep purges directly |
 | `system_settings` | **Forever** (configuration, single row). | n/a | Never purged |
 | `audit_logs` | **Forever** — retained on a schedule independent of session cleanup. | **No, by design** | Never purged (see below) |
 

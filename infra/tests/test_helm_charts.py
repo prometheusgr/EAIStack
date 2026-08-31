@@ -24,6 +24,7 @@ Compliance rules under test (see CLAUDE.md, AGENTS.md, Phase 5 plan):
 import importlib.util
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -50,8 +51,56 @@ CHART_SPECS = {
     "embedding-server": {"uid": 1000, "kind": "Deployment"},
     "backend": {"uid": 1000, "kind": "Deployment", "replicas": 1},
     "doc-search": {"uid": 1000, "kind": "Deployment", "replicas": 1},
+    "phoenix": {"uid": 1000, "kind": "StatefulSet", "replicas": 1},
     "frontend": {"uid": 1000, "kind": "Deployment", "replicas": 1},
 }
+
+
+# Charts whose standalone values.yaml expects storage.storageClassName (and
+# friends) at the chart's own top level, but whose values-ci.yaml block is
+# nested one level down (e.g. `phoenix.storage.storageClassName`) for the
+# eaistack-umbrella chart's subchart-values convention. Rendering these
+# charts standalone with `helm template <chart> -f values-ci.yaml` therefore
+# never satisfies their `required(...)` storage-class guard - the guard
+# trips, `helm template` exits non-zero, and render_chart() used to treat
+# any non-zero exit as "chart not implemented yet" and silently skip the
+# test instead of failing it. See STANDALONE_VALUES_NESTED_KEY below for the
+# fix: extract the chart's own nested block and pass just that as its
+# top-level values.
+CHARTS_WITH_NESTED_CI_VALUES = ("postgres", "minio", "phoenix")
+
+
+def _standalone_values_from_ci(chart_name: str, values_file: Path) -> Path:
+    """Extract values-ci.yaml's `<chart_name>:` block and write it out as a
+    standalone values file with that block's contents at the top level,
+    plus the file's `global:` block preserved as `global:` (Helm shares
+    `global` across every subchart automatically in the umbrella context;
+    standing the chart up alone has to do that sharing by hand).
+
+    values-ci.yaml is shaped for eaistack-umbrella's subchart-values
+    convention (each subchart's overrides live nested under its own key,
+    e.g. `phoenix.storage.storageClassName`, with cross-cutting secrets in
+    `global.postgresPassword` etc.), but `helm template <chart>` for one of
+    these charts run standalone reads the whole file as that chart's own
+    top-level values - so neither `storage.storageClassName` nor
+    `global.postgresPassword` is found at the path the chart's
+    `required(...)` guards check, even though the CI file clearly intends
+    to supply both. This re-nests the chart's own block to the top level
+    while keeping `global` as `global`, matching what the umbrella chart
+    would actually pass its subchart.
+    """
+    with open(values_file) as f:
+        all_values = yaml.safe_load(f)
+
+    chart_values = dict(all_values.get(chart_name, {}))
+    chart_values["global"] = all_values.get("global", {})
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=f"-{chart_name}-standalone-values.yaml", delete=False
+    )
+    yaml.safe_dump(chart_values, tmp)
+    tmp.close()
+    return Path(tmp.name)
 
 
 def render_chart(chart_path: Path, values_file: Path = None, extra_set: dict = None) -> list[dict]:
@@ -61,9 +110,20 @@ def render_chart(chart_path: Path, values_file: Path = None, extra_set: dict = N
     template --set`, layered on top of values_file. Used to render the same
     chart under both tls.enabled: true/false without needing a second values
     file (e.g. verifying probe scheme flips correctly with the flag).
+
+    For postgres/minio/phoenix (CHARTS_WITH_NESTED_CI_VALUES), a non-zero
+    `helm template` exit is a hard test failure, not a skip: these charts
+    are complete and their values-ci.yaml block is deliberately supplied
+    (re-nested via _standalone_values_from_ci) specifically so their render
+    succeeds. A render failure here means a real regression - either in the
+    chart's templates or in this nesting logic - not an unfinished chart.
+    Every other chart keeps the skip-on-failure behavior, which is still the
+    right default for a chart genuinely still under construction.
     """
     cmd = ["helm", "template", str(chart_path)]
-    if values_file:
+    if values_file and chart_path.name in CHARTS_WITH_NESTED_CI_VALUES:
+        cmd.extend(["-f", str(_standalone_values_from_ci(chart_path.name, values_file))])
+    elif values_file:
         cmd.extend(["-f", str(values_file)])
     if extra_set:
         for key, value in extra_set.items():
@@ -71,6 +131,8 @@ def render_chart(chart_path: Path, values_file: Path = None, extra_set: dict = N
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        if chart_path.name in CHARTS_WITH_NESTED_CI_VALUES:
+            pytest.fail(f"Chart render failed for {chart_path.name}: {result.stderr}")
         pytest.skip(f"Chart render failed (expected if chart incomplete): {result.stderr}")
 
     docs = yaml.safe_load_all(result.stdout)
@@ -332,18 +394,60 @@ class TestRequiredValueGuards:
 class TestPostgres:
     """Postgres-specific tests."""
 
-    def test_pvc_has_storageclassname(self):
-        """Test: PVC references a non-empty storageClassName (Decision 6)."""
+    def test_statefulset_volume_claim_template_has_storageclassname(self):
+        """Test: the StatefulSet's volumeClaimTemplate references a
+        non-empty storageClassName (Decision 6).
+
+        Postgres provisions its disk via volumeClaimTemplates on its
+        StatefulSet, not a standalone PersistentVolumeClaim manifest - this
+        test used to look for `kind: PersistentVolumeClaim` and silently
+        skip (see render_chart's former behavior on a failed render, fixed
+        alongside this test), so it had never actually run against real
+        output since the StatefulSet conversion. It was actually asserting
+        against a resource kind this chart has never emitted.
+        """
         chart_path = CHARTS_DIR / "postgres"
         docs = render_chart(chart_path, VALUES_CI)
 
-        pvcs = [doc for doc in docs if doc.get("kind") == "PersistentVolumeClaim"]
-        assert len(pvcs) > 0, "No PVC found in postgres chart"
+        statefulsets = [doc for doc in docs if doc.get("kind") == "StatefulSet"]
+        assert len(statefulsets) > 0, "No StatefulSet found in postgres chart"
 
-        for pvc in pvcs:
-            storage_class = pvc.get("spec", {}).get("storageClassName")
-            assert storage_class and storage_class.strip(), \
-                f"PVC {pvc.get('metadata', {}).get('name')} has empty storageClassName"
+        for statefulset in statefulsets:
+            templates = statefulset.get("spec", {}).get("volumeClaimTemplates", [])
+            assert len(templates) > 0, \
+                f"No volumeClaimTemplates found in postgres StatefulSet {statefulset.get('metadata', {}).get('name')}"
+            for template in templates:
+                storage_class = template.get("spec", {}).get("storageClassName")
+                assert storage_class and storage_class.strip(), \
+                    f"volumeClaimTemplate {template.get('metadata', {}).get('name')} has empty storageClassName"
+
+
+class TestPhoenix:
+    """Phoenix-specific tests."""
+
+    def test_statefulset_volume_claim_template_has_storageclassname(self):
+        """Test: the StatefulSet's volumeClaimTemplate references a
+        non-empty storageClassName (Decision 6).
+
+        Mirrors TestPostgres's equivalent test: phoenix moved from a
+        Deployment + standalone PersistentVolumeClaim to a StatefulSet +
+        volumeClaimTemplates (same storage shape as postgres), so its
+        storage-class guard is asserted the same way.
+        """
+        chart_path = CHARTS_DIR / "phoenix"
+        docs = render_chart(chart_path, VALUES_CI)
+
+        statefulsets = [doc for doc in docs if doc.get("kind") == "StatefulSet"]
+        assert len(statefulsets) > 0, "No StatefulSet found in phoenix chart"
+
+        for statefulset in statefulsets:
+            templates = statefulset.get("spec", {}).get("volumeClaimTemplates", [])
+            assert len(templates) > 0, \
+                f"No volumeClaimTemplates found in phoenix StatefulSet {statefulset.get('metadata', {}).get('name')}"
+            for template in templates:
+                storage_class = template.get("spec", {}).get("storageClassName")
+                assert storage_class and storage_class.strip(), \
+                    f"volumeClaimTemplate {template.get('metadata', {}).get('name')} has empty storageClassName"
 
 
 class TestKeycloak:
@@ -743,7 +847,7 @@ class TestUmbrellaChart:
         assert len(docs) > 0, "Umbrella chart rendered to empty output"
 
     def test_umbrella_includes_all_subcharts(self):
-        """Test: Umbrella chart Chart.yaml declares all eight subcharts as dependencies."""
+        """Test: Umbrella chart Chart.yaml declares all nine subcharts as dependencies."""
         chart_yaml_path = UMBRELLA_CHART / "Chart.yaml"
         if not chart_yaml_path.exists():
             pytest.skip("Umbrella Chart.yaml not yet created")
@@ -754,7 +858,7 @@ class TestUmbrellaChart:
         dependencies = chart_yaml.get("dependencies", [])
         dep_names = [dep.get("name") for dep in dependencies]
 
-        expected_subcharts = ["postgres", "keycloak", "minio", "llama-server", "embedding-server", "backend", "doc-search", "frontend"]
+        expected_subcharts = ["postgres", "keycloak", "minio", "llama-server", "embedding-server", "backend", "doc-search", "phoenix", "frontend"]
         for subchart in expected_subcharts:
             assert subchart in dep_names, f"Umbrella missing dependency: {subchart}"
 
@@ -851,6 +955,60 @@ class TestUmbrellaChart:
 
         violations = _validator.validate_manifests(result.stdout)
         assert violations == [], "\n".join(v.message for v in violations)
+
+    def test_tracing_enabled_without_phoenix_fails_render(self):
+        """Test: backend.tracingEnabled=true with phoenix.enabled=false must
+        fail the render (see templates/_validations.tpl) - tracing has no
+        destination without Phoenix installed, and OTLP export failures are
+        silently swallowed by the BatchSpanProcessor's background thread
+        (app.core.tracing), so this misconfiguration would otherwise go
+        unnoticed until someone wonders why Phoenix shows no traces.
+        """
+        result = render_chart_expecting_failure(
+            UMBRELLA_CHART,
+            VALUES_CI,
+            extra_set={"backend.tracingEnabled": True, "phoenix.enabled": False},
+        )
+
+        assert result.returncode != 0, (
+            "expected `helm template` to fail with backend.tracingEnabled=true "
+            "and phoenix.enabled=false, but it rendered successfully - the "
+            "fail-fast guard in _validations.tpl is missing or no longer enforced."
+        )
+        assert "backend.tracingEnabled requires phoenix.enabled=true" in result.stderr, (
+            f"render failed as expected, but not with the tracing/phoenix "
+            f"guard's message - got: {result.stderr!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "tracing_enabled,phoenix_enabled",
+        [
+            (True, True),
+            (False, False),
+            (False, True),
+        ],
+    )
+    def test_tracing_phoenix_valid_combinations_render_successfully(
+        self, tracing_enabled: bool, phoenix_enabled: bool
+    ):
+        """Test: every combination other than (tracingEnabled=true,
+        phoenix.enabled=false) must render without tripping the guard -
+        confirms the check is scoped to exactly the one invalid combination,
+        not e.g. accidentally requiring phoenix.enabled whenever tracing is
+        merely available.
+        """
+        docs = render_chart(
+            UMBRELLA_CHART,
+            VALUES_CI,
+            extra_set={
+                "backend.tracingEnabled": tracing_enabled,
+                "phoenix.enabled": phoenix_enabled,
+            },
+        )
+        assert len(docs) > 0, (
+            f"Umbrella chart failed to render for tracingEnabled={tracing_enabled}, "
+            f"phoenix.enabled={phoenix_enabled} - this combination should be valid"
+        )
 
 
 if __name__ == "__main__":

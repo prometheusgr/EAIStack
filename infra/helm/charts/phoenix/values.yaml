@@ -1,0 +1,66 @@
+# Phoenix chart values
+
+image:
+  repository: arizephoenix/phoenix
+  tag: latest
+  pullPolicy: IfNotPresent
+
+port: 6006       # UI + OTLP HTTP trace ingest (/v1/traces)
+grpcPort: 4317   # OTLP gRPC trace ingest (unused by the backend today, which
+                 # exports over HTTP - published for parity with the port
+                 # pair docker-compose's phoenix service also exposes)
+
+# Storage: Phoenix's own SQLite file on a volumeClaimTemplate-backed disk
+# (the StatefulSet owns and provisions its PVC, same shape as the postgres
+# chart), not the shared eaistack Postgres - see docker-compose.yml's
+# phoenix service comment and issue #4 for why (no multi-database
+# provisioning in this repo's Postgres chart, and Phoenix's trace schema
+# isn't part of Alembic's owned application schema).
+storage:
+  size: 20Gi
+  storageClassName: ""  # Must be set to an encrypted StorageClass at install time (Decision 6)
+  mountPath: /mnt/data
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Readiness/liveness probe timings
+probe:
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# External hostname for Phoenix's SANs (if exposed outside the cluster)
+externalHostname: ""
+
+# Replica count
+replicas: 1
+
+# TLS: deferred to issue #33, deliberately with no tls.enabled flag (or
+# certificate.yaml/probe scheme conditional) scaffolded in this chart in
+# the meantime. Phoenix is an unmodified upstream image (arizephoenix/
+# phoenix) - we don't control its entrypoint the way doc-search's own
+# docker-entrypoint.sh does, this repo is air-gapped, and #4's
+# implementation had no way to verify whether the real vendored image
+# supports native TLS termination (env var/flag) without guessing at infra
+# that might not match. A tls.enabled: false flag with no working
+# tls.enabled: true path is worse than no flag at all - it invites an
+# operator to flip it and get silent plaintext instead of a clear "not
+# supported yet." #33 will verify against the real image, then add
+# tls.enabled back correctly, wired to either native TLS support (matching
+# every other chart) or a TLS-terminating sidecar. Until then, traffic to
+# Phoenix inside the cluster is plaintext - a documented, deliberate
+# exception, not an oversight. See docs/OBSERVABILITY.md.

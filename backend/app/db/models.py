@@ -348,6 +348,11 @@ class SystemSettings(Base):
     max_input_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
     guardrails_input_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     guardrails_output_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # LLM observability (issue #4). Unlike every other override above, this
+    # one is resolved once at process startup, not per-call - see
+    # app.services.tracing_config_service and app.main's lifespan hook - so
+    # a change here takes effect only after a backend restart.
+    tracing_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )
