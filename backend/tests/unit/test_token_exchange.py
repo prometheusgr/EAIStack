@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi.testclient import TestClient
+import pytest
 
 from app.main import app
 
@@ -16,8 +16,15 @@ class TestTokenExchange:
         # The endpoint should accept POST requests with code and redirect_uri
         assert app  # App is loaded
 
-    def test_exchange_code_for_token_success(self):
-        """Test successful code exchange."""
+    @pytest.mark.unit
+    def test_exchange_code_for_token_success(self, client):
+        """Test successful code exchange.
+
+        Uses the `client`/`db_session` fixtures (not a bare TestClient) so
+        the endpoint's rate-limit check (issue #25), which reads
+        SystemSettings, has a real DB session behind app's get_db override
+        instead of falling through to the unbound production SessionLocal.
+        """
         # Given: Keycloak returns a valid token response
         mock_token_response = {
             "access_token": "eyJhbGciOiJSUzI1NiIsInR5cC...",
@@ -40,7 +47,6 @@ class TestTokenExchange:
 
             mock_client_class.return_value = mock_client_instance
 
-            client = TestClient(app)
             response = client.post(
                 "/api/auth/token",
                 json={
@@ -56,11 +62,11 @@ class TestTokenExchange:
             assert data["token_type"] == "Bearer"
             assert data["refresh_token"] == "refresh_token_value"
 
-    def test_exchange_missing_code(self):
+    @pytest.mark.unit
+    def test_exchange_missing_code(self, client):
         """Test that missing code returns validation error."""
         # When: Frontend doesn't send code
         # Then: Should get validation error
-        client = TestClient(app)
         response = client.post(
             "/api/auth/token",
             json={
@@ -72,11 +78,11 @@ class TestTokenExchange:
         # Should get error from validation (400 or 422)
         assert response.status_code in [400, 422]
 
-    def test_exchange_missing_redirect_uri(self):
+    @pytest.mark.unit
+    def test_exchange_missing_redirect_uri(self, client):
         """Test that missing redirect_uri returns validation error."""
         # When: Frontend doesn't send redirect_uri
         # Then: Should get validation error
-        client = TestClient(app)
         response = client.post(
             "/api/auth/token",
             json={
@@ -88,11 +94,11 @@ class TestTokenExchange:
         # Should get error from validation (400 or 422)
         assert response.status_code in [400, 422]
 
-    def test_exchange_empty_code(self):
+    @pytest.mark.unit
+    def test_exchange_empty_code(self, client):
         """Test that empty code is rejected."""
         # When: Frontend sends empty code
         # Then: Keycloak will reject it or Pydantic validates it
-        client = TestClient(app)
         response = client.post(
             "/api/auth/token",
             json={

@@ -366,17 +366,30 @@ def test_chat_openai_client_reuses_cached_ssl_context(
 
 
 @pytest.mark.unit
-async def test_keycloak_token_exchange_verifies_against_ca_bundle(ca_bundle_path):
+async def test_keycloak_token_exchange_verifies_against_ca_bundle(ca_bundle_path, db_session):
     """Call site 5 — backend → Keycloak token endpoint.
 
     Every authorization-code and refresh-token grant flows through here, so a
     missing bundle breaks login entirely rather than degrading one feature.
     This is a low-frequency, per-login call, so it uses httpx_verify()
     directly rather than get_ssl_context().
+
+    Calls exchange_token directly (bypassing FastAPI's dependency
+    injection), so it must supply its own db session and a minimal
+    Request-like stand-in for the rate-limit check (issue #25) added ahead
+    of the Keycloak call — a fresh db_session's bucket starts full, so this
+    fake request never trips the limiter and reaches the mocked
+    httpx.AsyncClient exactly as before.
     """
     ca_bundle_path(CA_BUNDLE)
 
     from app.api import auth as auth_api
+
+    class _FakeClientAddress:
+        host = "127.0.0.1"
+
+    class _FakeRequest:
+        client = _FakeClientAddress()
 
     with patch.object(auth_api.httpx, "AsyncClient") as mock_client:
         mock_client.return_value.__aenter__.side_effect = RuntimeError("stop after construction")
@@ -386,7 +399,9 @@ async def test_keycloak_token_exchange_verifies_against_ca_bundle(ca_bundle_path
                     grant_type="authorization_code",
                     code="some-code",
                     redirect_uri="https://frontend/callback",
-                )
+                ),
+                _FakeRequest(),
+                db_session,
             )
 
     assert mock_client.call_args.kwargs["verify"] == CA_BUNDLE

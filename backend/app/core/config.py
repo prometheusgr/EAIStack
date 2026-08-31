@@ -136,6 +136,21 @@ class Settings(BaseSettings):
     guardrails_input_enabled: bool = True
     guardrails_output_enabled: bool = True
 
+    # Rate limiting (env-level defaults; an admin can override each at
+    # runtime via the settings screen, which writes to SystemSettings — see
+    # app.services.rate_limit_config_service.resolve_rate_limit_config).
+    # Token-bucket shaped: *_capacity is the burst size (max tokens the
+    # bucket can hold), *_refill_per_minute is the sustained rate tokens
+    # accrue at. Chat (POST /api/agents/chat) is keyed by the caller's
+    # user_id from the validated JWT; auth (POST /api/auth/token) has no
+    # authenticated identity yet, so it's keyed by client IP instead — see
+    # app.services.rate_limiter_service.
+    rate_limit_enabled: bool = True
+    rate_limit_chat_capacity: int = 10
+    rate_limit_chat_refill_per_minute: int = 10
+    rate_limit_auth_capacity: int = 10
+    rate_limit_auth_refill_per_minute: int = 10
+
     # Knowledge-base file upload limits (see app.api.knowledge_base's
     # upload endpoint, issue #13). Enforced at the request boundary before
     # any bytes are read into memory or handed to text extraction - an

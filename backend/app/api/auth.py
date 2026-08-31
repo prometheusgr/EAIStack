@@ -3,7 +3,8 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,8 @@ from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.tls import httpx_verify
 from app.db.database import get_db
-from app.services import purge_user_conversations, resolve_retention_config
+from app.db.models import utc_now
+from app.services import check_auth_rate_limit, purge_user_conversations, resolve_retention_config
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +45,12 @@ class TokenResponse(BaseModel):
     expires_in: int | None = None
 
 
-@router.post("/token", response_model=TokenResponse)
-async def exchange_token(request: TokenExchangeRequest):
+@router.post("/token", response_model=None)
+async def exchange_token(
+    request: TokenExchangeRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+) -> TokenResponse | JSONResponse:
     """
     OAuth2 token endpoint - supports authorization code and refresh token grants.
 
@@ -61,7 +67,28 @@ async def exchange_token(request: TokenExchangeRequest):
     2. Frontend sends refresh_token to this endpoint
     3. This endpoint exchanges it with Keycloak server-to-server
     4. Returns new access token to frontend
+
+    Rate limiting (issue #25) runs before any of the above, keyed by client
+    IP rather than user_id -- this endpoint is how a caller *gets* a JWT in
+    the first place, so no validated identity exists yet to key on. A
+    missing http_request.client (possible under some ASGI test transports)
+    falls back to a single shared "unknown" bucket rather than crashing.
+    Trip is a 429 with a Retry-After header, same shape as the chat
+    endpoint's; also deliberately not audit-logged, for the same reason
+    (see app.services.rate_limiter_service and docs/SECURITY.md).
     """
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    rate_limit_result = check_auth_rate_limit(db, client_ip=client_ip, now=utc_now())
+    if not rate_limit_result.allowed:
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(rate_limit_result.retry_after_seconds)},
+            content={
+                "detail": "rate_limit_exceeded",
+                "message": "Too many requests. Please wait before trying again.",
+            },
+        )
+
     try:
         token_endpoint = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/token"
 

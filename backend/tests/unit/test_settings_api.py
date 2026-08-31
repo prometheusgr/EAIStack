@@ -630,6 +630,129 @@ def test_put_settings_tracing_audit_entry_records_actual_transition(client, db_s
     assert entries[1].new_value == "True"
 
 
+# --- Rate limiting (issue #25) -------------------------------------------------
+
+
+@pytest.mark.unit
+def test_get_settings_includes_rate_limit_fields_with_env_defaults(client):
+    """With no SystemSettings row, GET reflects the env-level rate-limit
+    defaults and reports every field as not DB-overridden.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["rate_limit_enabled"] == settings.rate_limit_enabled
+    assert data["rate_limit_enabled_is_db_override"] is False
+    assert data["rate_limit_chat_capacity"] == settings.rate_limit_chat_capacity
+    assert data["rate_limit_chat_capacity_is_db_override"] is False
+    assert data["rate_limit_chat_refill_per_minute"] == settings.rate_limit_chat_refill_per_minute
+    assert data["rate_limit_chat_refill_per_minute_is_db_override"] is False
+    assert data["rate_limit_auth_capacity"] == settings.rate_limit_auth_capacity
+    assert data["rate_limit_auth_capacity_is_db_override"] is False
+    assert data["rate_limit_auth_refill_per_minute"] == settings.rate_limit_auth_refill_per_minute
+    assert data["rate_limit_auth_refill_per_minute_is_db_override"] is False
+
+
+@pytest.mark.unit
+def test_put_settings_updates_rate_limit_fields_and_get_reflects_override(client):
+    """PUT should persist rate-limit overrides, and a following GET should
+    reflect them with is_db_override flipped to True -- the same round trip
+    every other overridable field goes through.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    put_response = client.put(
+        "/api/settings",
+        json={
+            "rate_limit_enabled": False,
+            "rate_limit_chat_capacity": 3,
+            "rate_limit_chat_refill_per_minute": 2,
+            "rate_limit_auth_capacity": 5,
+            "rate_limit_auth_refill_per_minute": 4,
+        },
+    )
+    assert put_response.status_code == 200
+
+    get_response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    data = get_response.json()
+    assert data["rate_limit_enabled"] is False
+    assert data["rate_limit_enabled_is_db_override"] is True
+    assert data["rate_limit_chat_capacity"] == 3
+    assert data["rate_limit_chat_capacity_is_db_override"] is True
+    assert data["rate_limit_chat_refill_per_minute"] == 2
+    assert data["rate_limit_chat_refill_per_minute_is_db_override"] is True
+    assert data["rate_limit_auth_capacity"] == 5
+    assert data["rate_limit_auth_capacity_is_db_override"] is True
+    assert data["rate_limit_auth_refill_per_minute"] == 4
+    assert data["rate_limit_auth_refill_per_minute_is_db_override"] is True
+
+
+@pytest.mark.unit
+def test_put_settings_rate_limit_capacity_below_one_returns_422(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"rate_limit_chat_capacity": 0})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_put_settings_records_rate_limit_config_update_audit_entries_only_for_changed_fields(
+    client, db_session
+):
+    """Mirrors the tracing audit test: re-saving settings without touching
+    the rate-limit fields must not fabricate audit entries, and a changed
+    field is recorded under the "rate_limit.config_update" action.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"rate_limit_chat_capacity": 5})
+    client.put("/api/settings", json={"rate_limit_chat_capacity": 5})  # unchanged re-save
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "rate_limit.config_update"
+    ]
+    assert len(entries) == 1
+    assert entries[0].field_name == "rate_limit_chat_capacity"
+    assert entries[0].old_value is None
+    assert entries[0].new_value == "5"
+
+
+@pytest.mark.unit
+def test_put_settings_rate_limit_audit_entry_records_actual_transition(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"rate_limit_chat_capacity": 5})
+    client.put("/api/settings", json={"rate_limit_chat_capacity": 8})
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "rate_limit.config_update" and e.field_name == "rate_limit_chat_capacity"
+    ]
+    # Newest first: the second PUT (5 -> 8) then the first (None -> 5).
+    assert entries[0].old_value == "5"
+    assert entries[0].new_value == "8"
+    assert entries[1].old_value is None
+    assert entries[1].new_value == "5"
+
+
 # --- Guardrail pattern endpoints (issue #16) ----------------------------------
 
 

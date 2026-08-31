@@ -353,6 +353,21 @@ class SystemSettings(Base):
     # app.services.tracing_config_service and app.main's lifespan hook - so
     # a change here takes effect only after a backend restart.
     tracing_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Rate limiting (issue #25). Token-bucket capacity/refill for the chat
+    # endpoint (per-user) and unauthenticated auth endpoints (per-IP), plus
+    # one on/off switch for both. Resolved per-call, same as guardrail
+    # config, via app.services.rate_limit_config_service.resolve_rate_limit_config
+    # - an admin's change takes effect on the very next request, no restart.
+    # Unlike the retention windows, 0 has no meaningful interpretation for
+    # capacity/refill (a zero-capacity bucket would never allow anything,
+    # which is not a real deployment need), so these stay plain nullable
+    # ints with no "0 means X" special case - see UpdateSettingsRequest's
+    # Field(ge=1) bound, enforced at the request boundary.
+    rate_limit_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rate_limit_chat_capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rate_limit_chat_refill_per_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rate_limit_auth_capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rate_limit_auth_refill_per_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )

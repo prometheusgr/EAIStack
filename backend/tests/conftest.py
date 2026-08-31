@@ -137,6 +137,30 @@ def mock_llm():
     return FakeChatModel()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_state():
+    """Clear the in-process rate-limit bucket store before and after every
+    unit test.
+
+    app.services.rate_limiter_service intentionally keeps its bucket dict
+    at module scope for the life of the process (see that module's
+    docstring for why -- it's the entire point of the in-process,
+    single-replica design). Left unreset, that state leaks across tests in
+    the same pytest process: two unrelated tests reusing the same user_id
+    (e.g. "user-a") would see each other's consumed tokens, since nothing
+    else about a unit test isolates this particular piece of global state
+    the way db_session's per-test SQLite file isolates the database.
+    Autouse and global (not opt-in per test file) because any test that
+    calls POST /api/agents/chat or POST /api/auth/token is affected,
+    regardless of whether rate limiting is what it's testing.
+    """
+    from app.services.rate_limiter_service import reset_rate_limit_state
+
+    reset_rate_limit_state()
+    yield
+    reset_rate_limit_state()
+
+
 @pytest.fixture
 def client(db_session, test_db_url):
     """Provide a test client for the app with DB dependency.

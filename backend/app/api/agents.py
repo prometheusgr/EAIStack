@@ -26,6 +26,7 @@ from app.prompts.chat_prompts import CHAT_AGENT_SYSTEM_PROMPT
 from app.repositories import ThreadRepository
 from app.services import check_input_guardrail, filter_agent_response
 from app.services.guardrail_config_service import resolve_guardrail_config
+from app.services.rate_limiter_service import check_chat_rate_limit
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -66,7 +67,30 @@ async def chat(
     resolving it twice was pure redundant DB work (a SystemSettings SELECT
     plus a GuardrailPattern seed-check and list, twice over) on this
     endpoint's hot path.
+
+    The rate limit check (issue #25) runs before the guardrail check --
+    it's the cheaper, more fundamental gate (protects resource consumption
+    itself, not content), so a request that's about to be throttled never
+    pays for guardrail regex evaluation. Trip is a 429 with a Retry-After
+    header, keyed by the caller's own user_id from the validated JWT --
+    never request input, the same identity source ThreadRepository uses
+    for thread ownership. Unlike a guardrail rejection, a rate-limit trip
+    is deliberately not audit-logged (see
+    app.services.rate_limiter_service and docs/SECURITY.md's
+    rate-limiting section): it's a high-frequency operational signal, not
+    an individually compliance-relevant event.
     """
+    rate_limit_result = check_chat_rate_limit(db, user_id=user["user_id"], now=utc_now())
+    if not rate_limit_result.allowed:
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(rate_limit_result.retry_after_seconds)},
+            content={
+                "detail": "rate_limit_exceeded",
+                "message": "Too many requests. Please wait before sending another message.",
+            },
+        )
+
     guardrail_config = resolve_guardrail_config(db)
 
     guardrail_result = check_input_guardrail(

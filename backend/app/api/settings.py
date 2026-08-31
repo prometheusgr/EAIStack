@@ -26,6 +26,7 @@ from app.services import (
     resolve_embedding_config,
     resolve_guardrail_config,
     resolve_llm_config,
+    resolve_rate_limit_config,
     resolve_retention_config,
     resolve_tracing_config,
 )
@@ -67,6 +68,7 @@ def _to_response(
     guardrail_config = resolve_guardrail_config(db, db_settings)
     guardrail_patterns = GuardrailPatternRepository(db).list_all()
     tracing_config = resolve_tracing_config(db, db_settings)
+    rate_limit_config = resolve_rate_limit_config(db, db_settings)
 
     return SystemSettingsResponse(
         llm_provider=llm_config.provider,
@@ -119,6 +121,26 @@ def _to_response(
         tracing_enabled=tracing_config.enabled,
         tracing_enabled_is_db_override=bool(
             db_settings and db_settings.tracing_enabled is not None
+        ),
+        rate_limit_enabled=rate_limit_config.enabled,
+        rate_limit_enabled_is_db_override=bool(
+            db_settings and db_settings.rate_limit_enabled is not None
+        ),
+        rate_limit_chat_capacity=rate_limit_config.chat_capacity,
+        rate_limit_chat_capacity_is_db_override=bool(
+            db_settings and db_settings.rate_limit_chat_capacity is not None
+        ),
+        rate_limit_chat_refill_per_minute=rate_limit_config.chat_refill_per_minute,
+        rate_limit_chat_refill_per_minute_is_db_override=bool(
+            db_settings and db_settings.rate_limit_chat_refill_per_minute is not None
+        ),
+        rate_limit_auth_capacity=rate_limit_config.auth_capacity,
+        rate_limit_auth_capacity_is_db_override=bool(
+            db_settings and db_settings.rate_limit_auth_capacity is not None
+        ),
+        rate_limit_auth_refill_per_minute=rate_limit_config.auth_refill_per_minute,
+        rate_limit_auth_refill_per_minute_is_db_override=bool(
+            db_settings and db_settings.rate_limit_auth_refill_per_minute is not None
         ),
         available_providers={
             category: [ProviderOption(**option) for option in options]
@@ -196,6 +218,7 @@ async def update_settings(
     previous_retention = _retention_override_values(db_settings)
     previous_guardrail = _guardrail_override_values(db_settings)
     previous_tracing = _tracing_override_values(db_settings)
+    previous_rate_limit = _rate_limit_override_values(db_settings)
 
     updated_settings = repo.upsert(
         llm_provider=payload.llm_provider,
@@ -212,6 +235,11 @@ async def update_settings(
         guardrails_input_enabled=payload.guardrails_input_enabled,
         guardrails_output_enabled=payload.guardrails_output_enabled,
         tracing_enabled=payload.tracing_enabled,
+        rate_limit_enabled=payload.rate_limit_enabled,
+        rate_limit_chat_capacity=payload.rate_limit_chat_capacity,
+        rate_limit_chat_refill_per_minute=payload.rate_limit_chat_refill_per_minute,
+        rate_limit_auth_capacity=payload.rate_limit_auth_capacity,
+        rate_limit_auth_refill_per_minute=payload.rate_limit_auth_refill_per_minute,
         updated_by=user["user_id"],
     )
 
@@ -232,6 +260,12 @@ async def update_settings(
         actor_user_id=user["user_id"],
         previous=previous_tracing,
         current=_tracing_override_values(updated_settings),
+    )
+    _record_rate_limit_changes(
+        db,
+        actor_user_id=user["user_id"],
+        previous=previous_rate_limit,
+        current=_rate_limit_override_values(updated_settings),
     )
 
     db.commit()
@@ -402,6 +436,62 @@ def _record_tracing_changes(
         repo.record(
             actor_user_id=actor_user_id,
             action="tracing.config_update",
+            field_name=field,
+            old_value=previous[field],
+            new_value=new_value,
+            now=changed_at,
+        )
+
+
+def _rate_limit_override_values(db_settings: SystemSettings | None) -> dict[str, str | None]:
+    """Snapshot the rate-limit columns' raw override values as strings.
+
+    Mirrors _tracing_override_values exactly, for the same reason: the
+    audit trail must record what the admin set (including "cleared back to
+    the env default", as None), not what the value happened to resolve to.
+    """
+    fields = (
+        "rate_limit_enabled",
+        "rate_limit_chat_capacity",
+        "rate_limit_chat_refill_per_minute",
+        "rate_limit_auth_capacity",
+        "rate_limit_auth_refill_per_minute",
+    )
+    if db_settings is None:
+        return {field: None for field in fields}
+
+    return {
+        field: None if getattr(db_settings, field) is None else str(getattr(db_settings, field))
+        for field in fields
+    }
+
+
+def _record_rate_limit_changes(
+    db: Session,
+    *,
+    actor_user_id: str,
+    previous: dict[str, str | None],
+    current: dict[str, str | None],
+) -> None:
+    """Append one "rate_limit.config_update" audit entry per rate-limit
+    field whose value actually changed.
+
+    Mirrors _record_tracing_changes' shape exactly (only changed fields
+    recorded, one shared timestamp per request). This covers only admin
+    config changes, not individual 429 trips -- see docs/SECURITY.md's
+    rate-limiting section for why a trip itself is deliberately not
+    audit-logged (a high-frequency operational signal, not an individual
+    compliance-relevant event like a guardrail rejection).
+    """
+    repo = AuditLogRepository(db)
+    changed_at = utc_now()
+
+    for field, new_value in current.items():
+        if previous[field] == new_value:
+            continue
+        repo.record(
+            actor_user_id=actor_user_id,
+            action="rate_limit.config_update",
             field_name=field,
             old_value=previous[field],
             new_value=new_value,
