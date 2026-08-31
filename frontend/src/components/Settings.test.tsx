@@ -311,8 +311,7 @@ describe('Settings', () => {
     // no longer a unique button label on this page now that the Guardrails
     // section (see below) has its own max_input_length reset button with
     // the same text.
-    const llmHeading = await screen.findByRole('heading', { name: 'LLM Provider' })
-    const llmSection = llmHeading.closest('div') as HTMLElement
+    const llmSection = await screen.findByRole('region', { name: 'LLM configuration' })
     const llmResetButton = within(llmSection).getByRole('button', { name: /reset to default/i })
     await user.click(llmResetButton)
 

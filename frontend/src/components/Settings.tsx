@@ -349,7 +349,10 @@ export function Settings() {
         </p>
       </div>
 
-      <div className="space-y-4 rounded-lg border border-border p-4">
+      <section
+        className="space-y-4 rounded-lg border border-border p-4"
+        aria-label="LLM configuration"
+      >
         <h3 className="text-lg font-semibold">LLM Provider</h3>
         <p className="text-sm text-muted-foreground">
           Current: {get.data.llm_provider} ({overrideLabel(get.data.llm_provider_is_db_override)})
@@ -422,9 +425,12 @@ export function Settings() {
             </Button>
           </div>
         )}
-      </div>
+      </section>
 
-      <div className="space-y-4 rounded-lg border border-border p-4">
+      <section
+        className="space-y-4 rounded-lg border border-border p-4"
+        aria-label="Embedding configuration"
+      >
         <h3 className="text-lg font-semibold">Embedding Provider</h3>
         <p className="text-sm text-muted-foreground">
           Current: {get.data.embedding_provider} (
@@ -498,7 +504,7 @@ export function Settings() {
             </Button>
           </div>
         )}
-      </div>
+      </section>
 
       <section
         className="space-y-4 rounded-lg border border-border p-4"
