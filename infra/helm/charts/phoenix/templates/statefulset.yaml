@@ -1,11 +1,12 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "phoenix.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "phoenix.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ include "phoenix.fullname" . }}
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
@@ -38,9 +39,6 @@ spec:
           httpGet:
             path: /healthz
             port: {{ .Values.port }}
-            {{- if .Values.tls.enabled }}
-            scheme: HTTPS
-            {{- end }}
           initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
           periodSeconds: {{ .Values.probe.periodSeconds }}
           timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
@@ -49,26 +47,16 @@ spec:
           httpGet:
             path: /healthz
             port: {{ .Values.port }}
-            {{- if .Values.tls.enabled }}
-            scheme: HTTPS
-            {{- end }}
           initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
           periodSeconds: {{ .Values.probe.periodSeconds }}
           timeoutSeconds: {{ .Values.probe.timeoutSeconds }}
           failureThreshold: {{ .Values.probe.failureThreshold }}
-      volumes:
-      - name: phoenix-data
-        persistentVolumeClaim:
-          claimName: {{ include "phoenix.fullname" . }}-pvc
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "phoenix.fullname" . }}-pvc
-  namespace: {{ .Release.Namespace }}
-spec:
-  accessModes: [ "ReadWriteOnce" ]
-  storageClassName: {{ required "persistence.storageClassName must be set to an encrypted StorageClass - see docs/SECURITY.md" .Values.storage.storageClassName }}
-  resources:
-    requests:
-      storage: {{ .Values.storage.size }}
+  volumeClaimTemplates:
+  - metadata:
+      name: phoenix-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ required "persistence.storageClassName must be set to an encrypted StorageClass - see docs/SECURITY.md" .Values.storage.storageClassName }}
+      resources:
+        requests:
+          storage: {{ .Values.storage.size }}

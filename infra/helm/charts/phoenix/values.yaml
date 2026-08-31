@@ -10,11 +10,12 @@ grpcPort: 4317   # OTLP gRPC trace ingest (unused by the backend today, which
                  # exports over HTTP - published for parity with the port
                  # pair docker-compose's phoenix service also exposes)
 
-# Storage: Phoenix's own SQLite file on a PVC, not the shared eaistack
-# Postgres - see docker-compose.yml's phoenix service comment and issue #4
-# for why (no multi-database provisioning in this repo's Postgres chart,
-# and Phoenix's trace schema isn't part of Alembic's owned application
-# schema).
+# Storage: Phoenix's own SQLite file on a volumeClaimTemplate-backed disk
+# (the StatefulSet owns and provisions its PVC, same shape as the postgres
+# chart), not the shared eaistack Postgres - see docker-compose.yml's
+# phoenix service comment and issue #4 for why (no multi-database
+# provisioning in this repo's Postgres chart, and Phoenix's trace schema
+# isn't part of Alembic's owned application schema).
 storage:
   size: 20Gi
   storageClassName: ""  # Must be set to an encrypted StorageClass at install time (Decision 6)
