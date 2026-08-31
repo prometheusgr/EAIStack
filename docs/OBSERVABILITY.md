@@ -70,6 +70,68 @@ Then open `http://localhost:6006`. Traces appear under the
 OTLP exporter is ever constructed; this is also what every unit test and
 every default `docker-compose up` gets.
 
+## Reviewing a trace
+
+The walkthrough below is the actual click-path (URLs and page structure)
+against a real chat request through the real stack, not a description of
+Phoenix's docs — confirmed by driving a headless browser through it.
+
+1. **Land on the project.** `http://localhost:6006/` redirects to
+   `/projects`, showing a card per project (`eaistack-chat-agent` is the
+   only one this backend writes to). Each card shows **Traces**,
+   **Sessions**, and **Latency P50** at a glance — useful for "did anything
+   get traced at all" before digging in.
+2. **Open the project.** Clicking the card goes to
+   `/projects/{id}/spans`, which auto-selects the **Spans** tab (there are
+   also **Traces**, **Sessions**, **Metrics**, and **Config** tabs — Traces
+   groups spans by trace instead of listing every span flat; for a single
+   chat turn both views are equivalent, but Traces is the better starting
+   point once a project has many turns). A traffic chart (spans by
+   status/day) sits above a filterable, sortable table with one row per
+   **top-level** span — the default filter is `parent_id is None`, so a
+   turn with a tool call still shows as one row here; the nested LLM/tool
+   spans are inside it, not additional rows.
+3. **Table columns worth knowing**: `status`, `kind` (`chain`/`llm`/`tool`/
+   `agent`), `name`, `input`/`output` (truncated inline preview),
+   `start time`, `latency`, `cumulative tokens`, `cumulative cost` (always
+   `$0` today — no cost model exists for the default llama.cpp path, see
+   [#31](../../../issues/31)). The **Columns** button toggles which of
+   these show.
+4. **Click a row's `name`** (e.g. `LangGraph`) to open the trace detail
+   drawer at `/projects/{id}/spans/{trace_id}?selectedSpanNodeId={span_id}`.
+   The drawer has its own three-part layout: a **span tree** in the middle
+   (the trace's full node hierarchy — for a tool-call turn this is where
+   `call_agent` → `call_tool` → `call_agent` actually becomes visible,
+   unlike the flat top-level table), and a **detail panel** on the right
+   for whichever span is selected, with **Info** / **Attributes** /
+   **Events** / **Annotations** tabs.
+5. **Info tab** (default): pretty-printed, syntax-highlighted **Input**,
+   **Output**, and **Metadata** JSON for the selected span. For a
+   `call_agent` span, Metadata includes LangGraph-specific fields —
+   `langgraph_node`, `langgraph_step`, `langgraph_triggers`,
+   `langgraph_checkpoint_ns` — genuinely useful for tying a span back to
+   the exact node in `app.agents.chat_agent`'s graph definition when a
+   trace has several rounds of tool calls.
+6. **Attributes tab, on the `FakeChatModel`/`ChatOpenAI` LLM span
+   specifically** — this is the view that answers issue #4's "click into
+   any trace and see the exact prompt sent to llama-server, what came
+   back": a flat key/value table including `llm.input_messages.0.message.
+   role` / `.content` (repeated per message — system prompt, prior turns,
+   tool results, all separately), `llm.output_messages.0.message.content`
+   (the model's actual reply), and `llm.invocation_parameters`. This is
+   more directly readable than the raw `input.value`/`output.value` JSON
+   blobs (also present, and what the top-level table's truncated preview
+   shows) because it's already split into role/content pairs instead of
+   LangChain's serialized message format.
+7. **Session grouping** (confirmed with a real two-message conversation):
+   the trace detail view's **View Session** button — or the project's own
+   **Sessions** tab — groups every trace sharing the same LangGraph
+   `thread_id` into one session, labeled by that `thread_id`. The session
+   view lists each turn (`Turns: 2` for a two-message conversation) with
+   its own input/output, so reviewing "everything that happened in one
+   conversation" doesn't mean opening each turn's trace one at a time from
+   the flat spans table.
+
 ## Design notes
 
 - **Storage**: Phoenix keeps its own SQLite file on a dedicated
