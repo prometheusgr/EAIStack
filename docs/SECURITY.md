@@ -30,10 +30,13 @@ control its entrypoint the way it does for services it builds (e.g.
 doc-search's own `docker-entrypoint.sh`). This project is air-gapped, so
 #4's implementation had no way to verify whether the real vendored image
 supports native TLS termination without guessing at unverified infra.
-`infra/helm/charts/phoenix/values.yaml` ships with `tls.enabled: false`, a
-deliberate, documented exception — not an oversight. Tracked in issue #33:
-verify against the real image, then either wire native TLS support in or
-add a TLS-terminating sidecar. See
+`infra/helm/charts/phoenix/values.yaml` deliberately has no `tls.enabled`
+flag at all (removed rather than shipped as a permanently-false no-op,
+since a flag with no working `true` path invites an operator to flip it and
+get silent plaintext instead of a clear "not supported yet") — a
+documented exception, not an oversight. Tracked in issue #33: verify
+against the real image, then add `tls.enabled` back correctly, wired to
+either native TLS support or a TLS-terminating sidecar. See
 [docs/OBSERVABILITY.md](OBSERVABILITY.md) for detail.
 
 **Implementation**: 

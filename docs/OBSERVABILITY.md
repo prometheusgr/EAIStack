@@ -66,9 +66,26 @@ Then open `http://localhost:6006`. Traces appear under the
 `eaistack-chat-agent` project.
 
 `TRACING_ENABLED` defaults to `false` — tracing is opt-in. When disabled,
-`app.core.tracing.configure_tracing` never runs, so no `TracerProvider` or
-OTLP exporter is ever constructed; this is also what every unit test and
-every default `docker-compose up` gets.
+`app.core.tracing.configure_tracing` never registers a `TracerProvider` or
+OTLP exporter; this is also what every unit test and every default
+`docker-compose up` gets.
+
+An admin can also override this via the Settings UI, the same
+DB-override-over-env-default pattern as the other admin-configurable
+fields (`app.services.tracing_config_service.resolve_tracing_config`). The
+one way it differs from every other override on that screen: it is
+resolved once, at process startup (`app.main`'s lifespan hook), not
+per-request — there is no supported way to re-instrument a running
+process's OTel tracer provider — so **a change here takes effect only
+after the backend is restarted**, not on the next request. The Settings UI
+says this explicitly next to the toggle.
+
+An env var left blank (e.g. `TRACING_ENABLED=` in a `.env` file, or a K8s
+ConfigMap that renders an empty string rather than omitting the key) is
+treated the same as the variable being unset — it falls back to the
+field's default rather than crashing `Settings()` construction (a bug this
+fix closed, since pydantic-settings' bool parser otherwise rejects `""`
+outright).
 
 ## Reviewing a trace
 
