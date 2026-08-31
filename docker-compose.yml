@@ -263,6 +263,8 @@ services:
         condition: service_completed_successfully
       doc-search:
         condition: service_healthy
+      phoenix:
+        condition: service_healthy
     volumes:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
