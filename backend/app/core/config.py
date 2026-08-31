@@ -1,7 +1,8 @@
 """Application configuration."""
 
-from typing import List
+from typing import Any, List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -40,11 +41,22 @@ class Settings(BaseSettings):
 
     # LLM observability (Phoenix, issue #4). Off by default — set via
     # TRACING_ENABLED so unit tests (and any deployment that doesn't opt in)
-    # never construct a real OTel exporter. Env-only, unlike llm_provider's
-    # DB-backed admin override: instrumentation is registered once at
-    # process start (see app.core.tracing.configure_tracing), not resolved
-    # per-request, so there's no clean way to honor a runtime toggle without
-    # re-instrumenting a live process.
+    # never construct a real OTel exporter.
+    #
+    # tracing_enabled IS DB-backed (an admin can override it via the
+    # settings screen — see app.services.tracing_config_service), but
+    # unlike llm_provider it is resolved only once, at process startup
+    # (app.main's lifespan hook calls resolve_tracing_config before
+    # app.core.tracing.configure_tracing runs), not per-request: there is
+    # no supported way to re-instrument a LangChainInstrumentor/OTel tracer
+    # provider on a running process. A change via the settings screen is
+    # therefore honored only after the next backend restart — the settings
+    # UI says so explicitly, since this is the one override in this table
+    # that doesn't take effect immediately like its siblings.
+    #
+    # tracing_otlp_endpoint stays env-only (out of scope for the DB-override
+    # work): where traces are shipped is deployment topology, not a runtime
+    # policy an admin should be able to redirect at will.
     tracing_enabled: bool = False
     tracing_otlp_endpoint: str = "http://localhost:6006/v1/traces"
 
@@ -135,6 +147,26 @@ class Settings(BaseSettings):
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ]
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_bool_env_var_uses_field_default(cls, value: Any, info) -> Any:
+        """Treat a blank string as "unset" for bool-typed fields only.
+
+        pydantic-settings reads every env var as a string and hands it to
+        the field's type for parsing; its bool parser rejects "" outright
+        (ValidationError: bool_parsing) rather than treating it like an
+        absent variable. That turns a harmless blank line in a .env file or
+        a K8s ConfigMap that renders an empty string (rather than omitting
+        the key) into a process that won't start at all. Scoped to bool
+        fields specifically - an empty string is a legitimate, meaningful
+        value for a str field (e.g. llm_api_key = "" means "no key"), so
+        this must not touch anything but the bool-parsing failure mode.
+        """
+        field = cls.model_fields[info.field_name]
+        if value == "" and field.annotation is bool:
+            return field.default
+        return value
 
     class Config:
         env_file = ".env"
