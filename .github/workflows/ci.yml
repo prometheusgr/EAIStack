@@ -149,6 +149,9 @@ jobs:
       - name: Install infra test dependencies
         run: pip install pytest pyyaml
 
+      - name: Build umbrella chart dependencies
+        run: helm dependency build infra/helm/charts/eaistack-umbrella
+
       - name: Lint Helm charts
         run: |
           umbrella_globals="infra/helm/charts/eaistack-umbrella/values.yaml"
