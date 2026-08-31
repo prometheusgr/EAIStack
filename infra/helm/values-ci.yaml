@@ -114,8 +114,8 @@ phoenix:
   storage:
     size: 20Gi
     storageClassName: "standard"  # CI placeholder
-  tls:
-    enabled: false  # see infra/helm/charts/phoenix/values.yaml and issue #33
+  # No tls key: the phoenix chart has no tls.enabled flag (see
+  # infra/helm/charts/phoenix/values.yaml - deferred to issue #33).
 
 frontend:
   enabled: true

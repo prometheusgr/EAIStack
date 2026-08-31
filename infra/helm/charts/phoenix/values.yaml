@@ -48,16 +48,18 @@ externalHostname: ""
 # Replica count
 replicas: 1
 
-# TLS is OFF by default for Phoenix, unlike every other chart in this repo
-# (which default tls.enabled: true). Phoenix is an unmodified upstream
-# image (arizephoenix/phoenix) - we don't control its entrypoint the way
-# doc-search's own docker-entrypoint.sh does, and this repo is air-gapped,
-# so #4's implementation had no way to verify whether the real vendored
-# image supports native TLS termination (env var/flag) without guessing at
-# infra that might not match. Tracked in issue #33: verify against the real
-# image, then either wire native TLS support in (matching every other
-# chart) or add a TLS-terminating sidecar. Until #33 lands, traffic to
+# TLS: deferred to issue #33, deliberately with no tls.enabled flag (or
+# certificate.yaml/probe scheme conditional) scaffolded in this chart in
+# the meantime. Phoenix is an unmodified upstream image (arizephoenix/
+# phoenix) - we don't control its entrypoint the way doc-search's own
+# docker-entrypoint.sh does, this repo is air-gapped, and #4's
+# implementation had no way to verify whether the real vendored image
+# supports native TLS termination (env var/flag) without guessing at infra
+# that might not match. A tls.enabled: false flag with no working
+# tls.enabled: true path is worse than no flag at all - it invites an
+# operator to flip it and get silent plaintext instead of a clear "not
+# supported yet." #33 will verify against the real image, then add
+# tls.enabled back correctly, wired to either native TLS support (matching
+# every other chart) or a TLS-terminating sidecar. Until then, traffic to
 # Phoenix inside the cluster is plaintext - a documented, deliberate
 # exception, not an oversight. See docs/OBSERVABILITY.md.
-tls:
-  enabled: false

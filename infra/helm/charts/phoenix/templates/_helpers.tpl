@@ -54,12 +54,3 @@ Selector labels
 app.kubernetes.io/name: {{ include "phoenix.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
-
-{{/*
-Name of the Secret containing the Phoenix TLS certificate (cert-manager-issued).
-Unused while tls.enabled defaults to false (see values.yaml and issue #33),
-defined now so enabling TLS later is a values.yaml flip, not a template change.
-*/}}
-{{- define "phoenix.certificateSecretName" -}}
-eaistack-phoenix-tls
-{{- end }}
