@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text-v1.5.Q4_K_M.gguf"
     embedding_timeout: int = 60
 
+    # LLM observability (Phoenix, issue #4). Off by default — set via
+    # TRACING_ENABLED so unit tests (and any deployment that doesn't opt in)
+    # never construct a real OTel exporter. Env-only, unlike llm_provider's
+    # DB-backed admin override: instrumentation is registered once at
+    # process start (see app.core.tracing.configure_tracing), not resolved
+    # per-request, so there's no clean way to honor a runtime toggle without
+    # re-instrumenting a live process.
+    tracing_enabled: bool = False
+    tracing_otlp_endpoint: str = "http://localhost:6006/v1/traces"
+
     # doc-search MCP server (mcp-servers/doc-search): a standalone Streamable
     # HTTP service exposing search_knowledge_base as an MCP tool, so it can
     # run as its own K8s pod. The backend forwards each caller's own Keycloak

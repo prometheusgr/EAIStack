@@ -188,6 +188,25 @@ doc-search/templates/_helpers.tpl's own doc-search.fullname.
 {{- end }}
 
 {{/*
+phoenix fullname helper (for cross-chart reference). See the
+postgres.fullname comment above for why this must stay in lock-step with
+phoenix/templates/_helpers.tpl's own phoenix.fullname. Only referenced when
+.Values.tracingEnabled is true - see deployment.yaml's TRACING_OTLP_ENDPOINT.
+*/}}
+{{- define "phoenix.fullname" -}}
+{{- if dig "fullnameOverrides" "phoenix" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "phoenix" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := "phoenix" }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 OIDC client ID: defaults to "eaistack-backend" but stays overridable via
 values.yaml's oidcClient.clientId, since keycloak's realm-import ConfigMap
 (keycloak/templates/realm-import-configmap.yaml) reads

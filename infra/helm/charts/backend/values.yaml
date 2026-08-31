@@ -42,6 +42,11 @@ replicas: 1
 tls:
   enabled: true
 
+# LLM observability (issue #4). Off by default, matching
+# docker-compose.yml's TRACING_ENABLED and eaistack-umbrella's
+# phoenix.enabled - set all three together to enable tracing.
+tracingEnabled: false
+
 # Data retention sweep job (CronJob)
 # Runs hourly, purges expired conversations per SECURITY.md retention policy
 retention:

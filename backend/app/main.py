@@ -7,6 +7,7 @@ from app.api import agents, apikeys, auth, embeddings, knowledge_base
 from app.api import settings as settings_api
 from app.core.auth import get_current_user
 from app.core.config import settings
+from app.core.tracing import configure_tracing
 
 app = FastAPI(
     title="EAIStack Backend",
@@ -21,6 +22,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# No-op unless TRACING_ENABLED is set (see app.core.tracing) - registers
+# OpenTelemetry/LangChain instrumentation once, at import time of this
+# module, so every chat agent run is traced to Phoenix if enabled.
+configure_tracing(settings)
 
 # Schema is managed by Alembic migrations
 # Run migrations with: alembic upgrade head

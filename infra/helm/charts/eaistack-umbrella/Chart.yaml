@@ -41,6 +41,11 @@ dependencies:
   repository: "file://../doc-search"
   condition: doc-search.enabled
 
+- name: phoenix
+  version: "1.0.0"
+  repository: "file://../phoenix"
+  condition: phoenix.enabled
+
 - name: frontend
   version: "1.0.0"
   repository: "file://../frontend"

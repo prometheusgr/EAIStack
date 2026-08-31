@@ -50,6 +50,7 @@ CHART_SPECS = {
     "embedding-server": {"uid": 1000, "kind": "Deployment"},
     "backend": {"uid": 1000, "kind": "Deployment", "replicas": 1},
     "doc-search": {"uid": 1000, "kind": "Deployment", "replicas": 1},
+    "phoenix": {"uid": 1000, "kind": "Deployment", "replicas": 1},
     "frontend": {"uid": 1000, "kind": "Deployment", "replicas": 1},
 }
 
@@ -743,7 +744,7 @@ class TestUmbrellaChart:
         assert len(docs) > 0, "Umbrella chart rendered to empty output"
 
     def test_umbrella_includes_all_subcharts(self):
-        """Test: Umbrella chart Chart.yaml declares all eight subcharts as dependencies."""
+        """Test: Umbrella chart Chart.yaml declares all nine subcharts as dependencies."""
         chart_yaml_path = UMBRELLA_CHART / "Chart.yaml"
         if not chart_yaml_path.exists():
             pytest.skip("Umbrella Chart.yaml not yet created")
@@ -754,7 +755,7 @@ class TestUmbrellaChart:
         dependencies = chart_yaml.get("dependencies", [])
         dep_names = [dep.get("name") for dep in dependencies]
 
-        expected_subcharts = ["postgres", "keycloak", "minio", "llama-server", "embedding-server", "backend", "doc-search", "frontend"]
+        expected_subcharts = ["postgres", "keycloak", "minio", "llama-server", "embedding-server", "backend", "doc-search", "phoenix", "frontend"]
         for subchart in expected_subcharts:
             assert subchart in dep_names, f"Umbrella missing dependency: {subchart}"
 

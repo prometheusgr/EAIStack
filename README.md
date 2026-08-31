@@ -26,6 +26,7 @@ Most "build your own ChatGPT" tutorials assume you can call OpenAI's API and sto
 | LLM inference    | llama.cpp (`llama-server`) | Local chat completion, OpenAI-compatible API                                                        |
 | Embeddings       | nomic-embed (768-dim)      | Local embedding generation for retrieval                                                            |
 | Tool integration | MCP (Streamable HTTP)      | `doc-search` server exposes `search_knowledge_base` to the agent as a separately deployable service |
+| Observability    | Arize Phoenix (self-hosted)| Traces every agent run (LLM/tool calls, latency, token counts, prompt/response); off by default     |
 | Deployment       | K3s + Helm                 | Production-grade, minimal-footprint Kubernetes                                                      |
 
 See [docs/TECH_STACK.md](docs/TECH_STACK.md) for the full layer-by-layer breakdown — versions, directory structure, and what's done vs. still open in each technology.
@@ -53,8 +54,9 @@ The vertical slice — **login → chat → agent-with-tool → grounded respons
 - **Phase 2 — Agent orchestration & LLM integration**: `POST /api/agents/chat`, LangGraph agent, real `llama-server` + real embeddings, pgvector-backed `search_knowledge_base`.
 - **Phase 3 — MCP server integration**: `search_knowledge_base` extracted into a standalone `doc-search` MCP server reached over Streamable HTTP, with independent JWT verification against Keycloak (doc-search never trusts a bare `user_id` from the backend).
 - **Phase 4a — Conversation persistence & session isolation**: LangGraph state persists to Postgres via a custom checkpointer; `(user_id, thread_id)` ownership enforced structurally by `ThreadRepository`.
-- **Phase 4b — Data retention & admin configuration**: every persisted store has a documented, enforced retention window (env default + DB override), a K8s CronJob sweep, and an append-only audit log.
+- **Phase 4b — Data retention & admin configuration**: every persisted store known at the time has a documented, enforced retention window (env default + DB override), a K8s CronJob sweep, and an append-only audit log. (LLM traces, added in Phase 4e below, are the one store this doesn't yet cover — see [#32](../../issues/32).)
 - **Phase 4 (guardrails/prompts/agent scaffolding)** and **document storage (MinIO upload/extraction)** — both closed; see [Roadmap](#roadmap--whats-next) for what's still open around them.
+- **Phase 4e — LLM observability (base tracing)**: self-hosted Arize Phoenix traces every chat agent run (LLM calls, tool calls, latency, token counts, full prompt/response content), off by default. See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 - **Phase 5 — TLS, secrets, and K8s deployment**: Helm charts (postgres, minio, keycloak, backend, doc-search, frontend, llama-server, embedding-server, umbrella), cert-manager-issued mTLS between services, `sslmode=verify-full` to Postgres, no plaintext secrets — see [docs/SECURITY.md](docs/SECURITY.md) for the full decision log.
 
 Streaming chat responses are deliberately deferred — tool-calling + streaming has known rough edges in llama.cpp.
@@ -132,6 +134,8 @@ Inferred from the repository's open GitHub issues, roughly in the order they'd u
 
 - **[#12](../../issues/12) — Backup strategy, encryption, and retention reconciliation.** There is currently no backup path in the repo at all. Needs a documented mechanism (pg_dump vs. snapshots vs. replication), encrypted backups, MinIO object backups, restore verification, and reconciliation with the existing data-retention policy so purged data doesn't quietly survive in a backup.
 - **[#16](../../issues/16) — Configurable guardrail thresholds.** Guardrail behavior (input length limits, prompt-injection heuristics) is currently hardcoded with no admin override, unlike every other tunable setting in the system (retention windows, LLM provider). Needs the same env-default + DB-override pattern, surfaced in the Settings UI, and audit-logged.
+- **[#32](../../issues/32) — Configurable trace retention.** LLM traces (Phase 4e, above) capture the exact prompt/response content for every chat turn — the same sensitivity class as `conversation_threads` — but currently accumulate indefinitely with no purge mechanism, unlike every other content-bearing store in the system. Needs the same retention pattern (own independent window, `None`=forever/`0`=immediate), but purging means calling Phoenix's own deletion surface rather than a direct DB `DELETE`, since trace data lives outside the `eaistack` database the existing retention sweep owns. Prioritized to land immediately after Phase 4e.
+- **[#33](../../issues/33) — TLS for the Phoenix Helm chart.** Phoenix (Phase 4e) is the one chart in `infra/helm/charts/` that doesn't terminate TLS itself yet — it's a prebuilt upstream image, not one this repo builds and controls the entrypoint of, so this needed verification against the real image before implementing rather than a guess.
 
 ### Retrieval quality (RAG improvements)
 
@@ -140,7 +144,9 @@ Inferred from the repository's open GitHub issues, roughly in the order they'd u
 ### Exploratory / not yet scoped
 
 - **[#5](../../issues/5) — Long-term/semantic memory.** Distinguishes session memory (already built, via LangGraph checkpoints) from cross-session semantic memory (facts/preferences persisted and retrieved by similarity) and knowledge graphs (structured entity relationships). Recommendation on record: start with semantic memory only, as a `user_memories` pgvector table reusing the existing embedding pipeline, and skip knowledge graphs until there's a concrete multi-hop reasoning need.
-- **[#4](../../issues/4) — LLM observability.** Tracing agent runs (LLM calls, tool calls, latency, token counts), prompt/response inspection, and evaluation hooks. Self-hosted only, per the air-gap constraint; Arize Phoenix is the current leaning.
+- **[#29](../../issues/29) — Trace clustering/search.** Search and cluster over historical LLM traces (Phase 4e, above) — the piece that matters for mining patterns in which tools get called, for what kinds of queries, across many past conversations. Split out of the original #4 so the base tracing slice didn't have to solve this too.
+- **[#30](../../issues/30) — Evaluation hooks.** Score traces (LLM-as-judge, human annotation, custom scorers) to track answer quality over time, not just latency/cost. Needs its own judge-model config design (which model judges, and how that's configured) — a genuinely separate feature from tracing itself.
+- **[#31](../../issues/31) — Cost-per-span tracking.** No cost model exists yet for the default self-hosted llama.cpp inference path, so this stayed out of the base tracing slice rather than shipping an always-zero "cost" column.
 
 ## Documentation map
 

@@ -1,0 +1,63 @@
+# Phoenix chart values
+
+image:
+  repository: arizephoenix/phoenix
+  tag: latest
+  pullPolicy: IfNotPresent
+
+port: 6006       # UI + OTLP HTTP trace ingest (/v1/traces)
+grpcPort: 4317   # OTLP gRPC trace ingest (unused by the backend today, which
+                 # exports over HTTP - published for parity with the port
+                 # pair docker-compose's phoenix service also exposes)
+
+# Storage: Phoenix's own SQLite file on a PVC, not the shared eaistack
+# Postgres - see docker-compose.yml's phoenix service comment and issue #4
+# for why (no multi-database provisioning in this repo's Postgres chart,
+# and Phoenix's trace schema isn't part of Alembic's owned application
+# schema).
+storage:
+  size: 20Gi
+  storageClassName: ""  # Must be set to an encrypted StorageClass at install time (Decision 6)
+  mountPath: /mnt/data
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Readiness/liveness probe timings
+probe:
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# External hostname for Phoenix's SANs (if exposed outside the cluster)
+externalHostname: ""
+
+# Replica count
+replicas: 1
+
+# TLS is OFF by default for Phoenix, unlike every other chart in this repo
+# (which default tls.enabled: true). Phoenix is an unmodified upstream
+# image (arizephoenix/phoenix) - we don't control its entrypoint the way
+# doc-search's own docker-entrypoint.sh does, and this repo is air-gapped,
+# so #4's implementation had no way to verify whether the real vendored
+# image supports native TLS termination (env var/flag) without guessing at
+# infra that might not match. Tracked in issue #33: verify against the real
+# image, then either wire native TLS support in (matching every other
+# chart) or add a TLS-terminating sidecar. Until #33 lands, traffic to
+# Phoenix inside the cluster is plaintext - a documented, deliberate
+# exception, not an oversight. See docs/OBSERVABILITY.md.
+tls:
+  enabled: false

@@ -41,5 +41,13 @@ backend:
 doc-search:
   enabled: true
 
+# Off by default, unlike every other subchart: opting into LLM tracing means
+# standing up an additional persistent-storage-backed service (see
+# infra/helm/charts/phoenix), which a fresh install shouldn't get silently.
+# Matches docker-compose.yml's TRACING_ENABLED defaulting to false. Set to
+# true (and set backend.tracingEnabled, once that value exists) to enable.
+phoenix:
+  enabled: false
+
 frontend:
   enabled: true

@@ -161,6 +161,46 @@ services:
       timeout: 5s
       retries: 5
 
+  # Self-hosted LLM observability (issue #4): Arize Phoenix. Traces every
+  # chat agent run (LLM calls, tool calls, latency, token counts) and lets an
+  # operator inspect the exact prompt/response for any turn. Off by default
+  # (see backend's TRACING_ENABLED below) — enabling it wires the backend's
+  # OpenTelemetry exporter at this service.
+  #
+  # Uses Phoenix's own SQLite store on a dedicated volume, not the shared
+  # `eaistack` Postgres: this repo's Postgres has no multi-database
+  # provisioning mechanism (a single POSTGRES_DB), and Phoenix's trace
+  # schema isn't part of this repo's Alembic-owned application schema, so
+  # keeping it in a separate store keeps that boundary clean rather than
+  # inventing new DB-provisioning machinery for one consumer.
+  #
+  # No admin-configurable retention yet (tracked in issue #32, prioritized
+  # to land immediately after this slice) — traces accumulate indefinitely
+  # in this volume today despite carrying the same sensitive prompt/response
+  # content as conversation_threads. See docs/OBSERVABILITY.md.
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+    ports:
+      # 6006: UI + OTLP HTTP trace ingest (/v1/traces). 4317: OTLP gRPC ingest
+      # (unused by the backend today, which exports over HTTP, but published
+      # for parity with Phoenix's documented default port pair).
+      - "6006:6006"
+      - "4317:4317"
+    volumes:
+      - phoenix_data:/mnt/data
+    healthcheck:
+      # Not curl: confirmed by hand against the real image that it has no
+      # curl/wget binary (arizephoenix/phoenix is a from-scratch Python
+      # image), only python3 - every other service's healthcheck in this
+      # file uses curl, but that pattern doesn't work here.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6006/healthz', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # One-shot job: applies Alembic migrations, then exits. `backend` waits for
   # this to succeed before it starts, so the app schema always matches the
   # code it's running — no manual "did you remember to migrate?" step.
@@ -205,6 +245,11 @@ services:
       EMBEDDING_URL: ${EMBEDDING_URL:-http://embedding-server:8000/v1}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text-v1.5.Q4_K_M.gguf}
       DOC_SEARCH_MCP_URL: http://doc-search:8100/mcp
+      # LLM observability (issue #4). Off by default — set to "true" to send
+      # chat-agent traces to the phoenix service above. See
+      # docs/OBSERVABILITY.md.
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_OTLP_ENDPOINT: ${TRACING_OTLP_ENDPOINT:-http://phoenix:6006/v1/traces}
     ports:
       - "8001:8000"
     depends_on:
@@ -241,3 +286,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  phoenix_data:

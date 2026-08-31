@@ -78,6 +78,19 @@ spec:
         # doc-search always serves TLS (Decision 1), so this is always https://.
         - name: DOC_SEARCH_MCP_URL
           value: "https://{{ include "doc-search.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8100/mcp"
+        # LLM observability (issue #4). Off by default - see values.yaml's
+        # tracingEnabled and the eaistack-umbrella chart's phoenix.enabled,
+        # which must be set together (enabling tracing without also
+        # installing the phoenix subchart leaves this endpoint unreachable).
+        # Plaintext (not https://): the phoenix chart doesn't terminate TLS
+        # yet (tls.enabled: false there, tracked in issue #33), unlike every
+        # other backing service this deployment talks to.
+        - name: TRACING_ENABLED
+          value: {{ .Values.tracingEnabled | default false | quote }}
+        {{- if .Values.tracingEnabled }}
+        - name: TRACING_OTLP_ENDPOINT
+          value: "http://{{ include "phoenix.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:6006/v1/traces"
+        {{- end }}
         # CA bundle for TLS verification (Decision 2)
         - name: CA_BUNDLE_PATH
           value: "/etc/ssl/eaistack/ca.crt"

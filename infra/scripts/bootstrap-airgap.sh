@@ -23,6 +23,7 @@ IMAGES=(
   "quay.io/keycloak/keycloak:22.0.0"
   "minio/minio:latest"
   "ghcr.io/ggml-org/llama.cpp:server-latest"
+  "arizephoenix/phoenix:latest"
   "jetstack/cert-manager-controller:v1.13.0"
   "jetstack/cert-manager-webhook:v1.13.0"
   "jetstack/cert-manager-cainjector:v1.13.0"
