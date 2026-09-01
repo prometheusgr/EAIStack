@@ -29,7 +29,12 @@ async function loginAsAdmin(page: import('@playwright/test').Page) {
 
 async function openSettings(page: import('@playwright/test').Page) {
   await page.locator('button:has-text("Settings")').click()
-  await expect(page.getByText('Guardrails')).toBeVisible({ timeout: 10000 })
+  // Scoped to the section heading, not a plain getByText: the page's
+  // "Common setups" reference panel (see Settings.tsx) contains the word
+  // "guardrails" in its prose, and Playwright's getByText string matching
+  // is case-insensitive, so a bare getByText('Guardrails') resolves to
+  // multiple elements (strict-mode violation) once that panel exists.
+  await expect(page.getByRole('heading', { name: 'Guardrails' })).toBeVisible({ timeout: 10000 })
 }
 
 async function startNewChat(page: import('@playwright/test').Page) {
@@ -51,7 +56,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
     await expect(lengthInput).toBeVisible()
     await lengthInput.fill('20')
     await page.locator('button:has-text("Save")').click()
-    await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
 
     try {
       const chatInput = await startNewChat(page)
@@ -65,7 +70,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
       await openSettings(page)
       await lengthInput.fill('')
       await page.locator('button:has-text("Save")').click()
-      await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
     }
   })
 
@@ -86,7 +91,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
     await expect(page.getByText(/removes protection/i)).toBeVisible()
 
     await page.locator('button:has-text("Save")').click()
-    await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
 
     try {
       const chatInput = await startNewChat(page)
@@ -102,7 +107,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
       await openSettings(page)
       await page.locator('#guardrails-input-enabled').check()
       await page.locator('button:has-text("Save")').click()
-      await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
     }
   })
 

@@ -9,6 +9,7 @@ import { Settings } from './components/Settings'
 import { Button } from './components/ui/button'
 import { MainLayout } from './components/layout/MainLayout'
 import { ToastProvider } from './components/ui/toast'
+import { TooltipProvider } from './components/ui/tooltip'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AppContent() {
@@ -90,7 +91,9 @@ function AppWithProviders() {
     <QueryClientProvider client={queryClientRef.current}>
       <AuthProvider>
         <ToastProvider>
-          <AppContent />
+          <TooltipProvider delayDuration={200}>
+            <AppContent />
+          </TooltipProvider>
         </ToastProvider>
       </AuthProvider>
     </QueryClientProvider>

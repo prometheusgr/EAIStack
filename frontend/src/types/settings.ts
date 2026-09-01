@@ -46,6 +46,19 @@ export interface SystemSettingsResponse {
   // at process startup, not per-request.
   tracing_enabled: boolean
   tracing_enabled_is_db_override: boolean
+  // Rate limiting (issue #25). Shares one on/off switch across both the
+  // chat and auth-token buckets -- see docs/SECURITY.md's "Rate Limiting"
+  // section for why that differs from the guardrails' separate switches.
+  rate_limit_enabled: boolean
+  rate_limit_enabled_is_db_override: boolean
+  rate_limit_chat_capacity: number
+  rate_limit_chat_capacity_is_db_override: boolean
+  rate_limit_chat_refill_per_minute: number
+  rate_limit_chat_refill_per_minute_is_db_override: boolean
+  rate_limit_auth_capacity: number
+  rate_limit_auth_capacity_is_db_override: boolean
+  rate_limit_auth_refill_per_minute: number
+  rate_limit_auth_refill_per_minute_is_db_override: boolean
   available_providers: {
     llm: ProviderOption[]
     embedding: ProviderOption[]
@@ -69,4 +82,9 @@ export interface UpdateSettingsRequest {
   // See SystemSettingsResponse.tracing_enabled: takes effect on the next
   // backend restart, not the next request.
   tracing_enabled?: boolean | null
+  rate_limit_enabled?: boolean | null
+  rate_limit_chat_capacity?: number | null
+  rate_limit_chat_refill_per_minute?: number | null
+  rate_limit_auth_capacity?: number | null
+  rate_limit_auth_refill_per_minute?: number | null
 }

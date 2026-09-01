@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 import type { GuardrailPattern, ProviderOption, UpdateSettingsRequest } from '@/types/settings'
 
 /** A numeric setting as held in form state. Empty string means the admin
@@ -83,6 +84,13 @@ export function Settings() {
   const [guardrailsInputEnabled, setGuardrailsInputEnabled] = useState(true)
   const [guardrailsOutputEnabled, setGuardrailsOutputEnabled] = useState(true)
   const [tracingEnabled, setTracingEnabled] = useState(false)
+  const [rateLimitEnabled, setRateLimitEnabled] = useState(true)
+  const [rateLimitChatCapacity, setRateLimitChatCapacity] = useState<NumericSettingInput>('')
+  const [rateLimitChatRefillPerMinute, setRateLimitChatRefillPerMinute] =
+    useState<NumericSettingInput>('')
+  const [rateLimitAuthCapacity, setRateLimitAuthCapacity] = useState<NumericSettingInput>('')
+  const [rateLimitAuthRefillPerMinute, setRateLimitAuthRefillPerMinute] =
+    useState<NumericSettingInput>('')
   const [newPatternLabel, setNewPatternLabel] = useState('')
   const [newPatternPhrase, setNewPatternPhrase] = useState('')
   // Mirrors get.data.guardrail_patterns locally, patched in place by each
@@ -137,6 +145,11 @@ export function Settings() {
     setGuardrailsOutputEnabled(get.data.guardrails_output_enabled)
     setGuardrailPatterns(get.data.guardrail_patterns)
     setTracingEnabled(get.data.tracing_enabled)
+    setRateLimitEnabled(get.data.rate_limit_enabled)
+    setRateLimitChatCapacity(String(get.data.rate_limit_chat_capacity))
+    setRateLimitChatRefillPerMinute(String(get.data.rate_limit_chat_refill_per_minute))
+    setRateLimitAuthCapacity(String(get.data.rate_limit_auth_capacity))
+    setRateLimitAuthRefillPerMinute(String(get.data.rate_limit_auth_refill_per_minute))
     setClearedFields(new Set())
   }, [get.data])
 
@@ -197,6 +210,19 @@ export function Settings() {
         ? null
         : guardrailsOutputEnabled,
       tracing_enabled: clearedFields.has('tracing_enabled') ? null : tracingEnabled,
+      rate_limit_enabled: clearedFields.has('rate_limit_enabled') ? null : rateLimitEnabled,
+      rate_limit_chat_capacity: clearedFields.has('rate_limit_chat_capacity')
+        ? null
+        : toNumericSettingPayloadValue(rateLimitChatCapacity),
+      rate_limit_chat_refill_per_minute: clearedFields.has('rate_limit_chat_refill_per_minute')
+        ? null
+        : toNumericSettingPayloadValue(rateLimitChatRefillPerMinute),
+      rate_limit_auth_capacity: clearedFields.has('rate_limit_auth_capacity')
+        ? null
+        : toNumericSettingPayloadValue(rateLimitAuthCapacity),
+      rate_limit_auth_refill_per_minute: clearedFields.has('rate_limit_auth_refill_per_minute')
+        ? null
+        : toNumericSettingPayloadValue(rateLimitAuthRefillPerMinute),
     }
   }
 
@@ -353,6 +379,32 @@ export function Settings() {
       </div>
 
       <section
+        className="space-y-2 rounded-lg border border-border bg-muted/50 p-4 text-sm"
+        aria-label="Common setups"
+      >
+        <h3 className="font-semibold">Common setups</h3>
+        <p className="text-muted-foreground">
+          Hover the (i) next to any field below for what it does. A few starting points:
+        </p>
+        <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+          <li>
+            <span className="font-medium text-foreground">Privacy-sensitive</span>: conversation
+            history 24 hours, purge on logout on, deleted documents 7 days.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">General-purpose</span>: conversation
+            history 720 hours (30 days), purge on logout off, deleted documents 30 days —
+            the defaults most fields already start at.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">Exposed to untrusted users</span>: keep
+            both guardrails on, keep rate limiting on, and consider lowering the chat burst
+            capacity below its default of 10.
+          </li>
+        </ul>
+      </section>
+
+      <section
         className="space-y-4 rounded-lg border border-border p-4"
         aria-label="LLM configuration"
       >
@@ -362,9 +414,19 @@ export function Settings() {
         </p>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="llm-provider-select">
-            Provider
-          </label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="llm-provider-select">
+              Provider
+            </label>
+            <InfoTooltip>
+              Which service generates chat responses. &quot;Fake&quot; returns
+              canned responses for testing and requires no running model.
+              &quot;llama-cpp&quot; talks to a local llama-server instance
+              (the default self-hosted path). &quot;OpenAI-compatible&quot;
+              works with any service that implements the OpenAI chat
+              completions API, including a remote-hosted one.
+            </InfoTooltip>
+          </div>
           <Select
             value={llmProvider}
             onValueChange={(value) => {
@@ -441,9 +503,19 @@ export function Settings() {
         </p>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="embedding-provider-select">
-            Provider
-          </label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="embedding-provider-select">
+              Provider
+            </label>
+            <InfoTooltip>
+              Which service converts text into vectors for knowledge-base
+              search. Must produce vectors of a consistent dimension and
+              model across every document already indexed — switching
+              providers on a knowledge base that already has documents will
+              make new searches inconsistent with old embeddings until it is
+              re-indexed.
+            </InfoTooltip>
+          </div>
           <Select
             value={embeddingProvider}
             onValueChange={(value) => {
@@ -521,10 +593,20 @@ export function Settings() {
         </p>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="conversation-retention-hours">
-            Conversation history (hours) (
-            {overrideLabel(get.data.conversation_retention_hours_is_db_override)})
-          </label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="conversation-retention-hours">
+              Conversation history (hours) (
+              {overrideLabel(get.data.conversation_retention_hours_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How long chat threads are kept before being permanently
+              deleted. Leave empty to keep conversations forever. 0 purges
+              immediately (on the next retention sweep, not the instant a
+              conversation happens). Common setups: 24 hours for a
+              privacy-sensitive deployment, 720 hours (30 days) for a
+              general-purpose one.
+            </InfoTooltip>
+          </div>
           <Input
             id="conversation-retention-hours"
             type="number"
@@ -539,10 +621,19 @@ export function Settings() {
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="knowledge-base-purge-days">
-            Deleted documents (days) (
-            {overrideLabel(get.data.knowledge_base_purge_days_is_db_override)})
-          </label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="knowledge-base-purge-days">
+              Deleted documents (days) (
+              {overrideLabel(get.data.knowledge_base_purge_days_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How long a knowledge-base document is kept in soft-deleted
+              form, recoverable, after a user deletes it, before it is
+              permanently purged. Leave empty to keep soft-deleted documents
+              forever (never auto-purged). A common default is 30 days —
+              long enough to recover an accidental deletion.
+            </InfoTooltip>
+          </div>
           <Input
             id="knowledge-base-purge-days"
             type="number"
@@ -557,9 +648,17 @@ export function Settings() {
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="api-key-purge-days">
-            Revoked API keys (days) ({overrideLabel(get.data.api_key_purge_days_is_db_override)})
-          </label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="api-key-purge-days">
+              Revoked API keys (days) ({overrideLabel(get.data.api_key_purge_days_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How long a revoked API key&apos;s record is kept before being
+              permanently purged. Leave empty to keep revoked keys forever —
+              useful if you need a historical record of who had access. A
+              common default is 30 days.
+            </InfoTooltip>
+          </div>
           <Input
             id="api-key-purge-days"
             type="number"
@@ -583,10 +682,19 @@ export function Settings() {
               markFieldEdited('cleanup_on_logout')
             }}
           />
-          <label className="text-sm font-medium" htmlFor="cleanup-on-logout">
-            Purge conversations on logout (
-            {overrideLabel(get.data.cleanup_on_logout_is_db_override)})
-          </label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="cleanup-on-logout">
+              Purge conversations on logout (
+              {overrideLabel(get.data.cleanup_on_logout_is_db_override)})
+            </label>
+            <InfoTooltip>
+              When enabled, a user&apos;s conversation history is deleted
+              immediately when they log out, in addition to (not instead of)
+              the retention window above. Enable for a shared-device or
+              high-privacy deployment; leave off if users expect their chat
+              history to still be there next time they log in.
+            </InfoTooltip>
+          </div>
         </div>
 
         <Button
@@ -626,10 +734,18 @@ export function Settings() {
                 markFieldEdited('guardrails_input_enabled')
               }}
             />
-            <label className="text-sm font-medium" htmlFor="guardrails-input-enabled">
-              Reject unsafe input (
-              {overrideLabel(get.data.guardrails_input_enabled_is_db_override)})
-            </label>
+            <div className="flex items-center gap-1.5">
+              <label className="text-sm font-medium" htmlFor="guardrails-input-enabled">
+                Reject unsafe input (
+                {overrideLabel(get.data.guardrails_input_enabled_is_db_override)})
+              </label>
+              <InfoTooltip>
+                When enabled, a message matching a detection pattern below
+                (e.g. a prompt-injection attempt) is rejected with an error
+                before it reaches the LLM. Recommended on for any deployment
+                exposed to untrusted users.
+              </InfoTooltip>
+            </div>
           </div>
           {get.data.guardrails_input_enabled && !guardrailsInputEnabled && (
             <p className="text-sm text-amber-600">
@@ -650,10 +766,19 @@ export function Settings() {
                 markFieldEdited('guardrails_output_enabled')
               }}
             />
-            <label className="text-sm font-medium" htmlFor="guardrails-output-enabled">
-              Filter unsafe output (
-              {overrideLabel(get.data.guardrails_output_enabled_is_db_override)})
-            </label>
+            <div className="flex items-center gap-1.5">
+              <label className="text-sm font-medium" htmlFor="guardrails-output-enabled">
+                Filter unsafe output (
+                {overrideLabel(get.data.guardrails_output_enabled_is_db_override)})
+              </label>
+              <InfoTooltip>
+                When enabled, the LLM&apos;s response is sanitized before it
+                reaches the user, rather than rejected outright — unlike
+                input rejection, this guardrail trips silently from the
+                user&apos;s point of view. Recommended on alongside input
+                rejection.
+              </InfoTooltip>
+            </div>
           </div>
           {get.data.guardrails_output_enabled && !guardrailsOutputEnabled && (
             <p className="text-sm text-amber-600">
@@ -664,10 +789,18 @@ export function Settings() {
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="max-input-length">
-            Maximum input length (characters) (
-            {overrideLabel(get.data.max_input_length_is_db_override)})
-          </label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="max-input-length">
+              Maximum input length (characters) (
+              {overrideLabel(get.data.max_input_length_is_db_override)})
+            </label>
+            <InfoTooltip>
+              Rejects a chat message longer than this many characters before
+              it reaches the LLM, bounding worst-case prompt size. Capped at
+              8000 regardless of what is entered here. Leave empty to use
+              the env default (typically 8000, same as the cap).
+            </InfoTooltip>
+          </div>
           <Input
             id="max-input-length"
             type="number"
@@ -790,9 +923,18 @@ export function Settings() {
                 markFieldEdited('tracing_enabled')
               }}
             />
-            <label className="text-sm font-medium" htmlFor="tracing-enabled">
-              Enable LLM tracing ({overrideLabel(get.data.tracing_enabled_is_db_override)})
-            </label>
+            <div className="flex items-center gap-1.5">
+              <label className="text-sm font-medium" htmlFor="tracing-enabled">
+                Enable LLM tracing ({overrideLabel(get.data.tracing_enabled_is_db_override)})
+              </label>
+              <InfoTooltip>
+                Records every chat agent run (LLM calls, tool calls, latency,
+                token counts) to the self-hosted Phoenix instance for
+                inspection. Useful for debugging and understanding agent
+                behavior; adds no cost beyond local trace storage since
+                Phoenix runs in this deployment.
+              </InfoTooltip>
+            </div>
           </div>
           <p className="text-sm text-muted-foreground">
             Unlike the other settings on this page, this change takes effect only after the
@@ -800,6 +942,166 @@ export function Settings() {
             request.
           </p>
         </div>
+      </section>
+
+      <section
+        className="space-y-4 rounded-lg border border-border p-4"
+        aria-label="Rate limiting"
+      >
+        <h3 className="text-lg font-semibold">Rate Limiting</h3>
+        <p className="text-sm text-muted-foreground">
+          Bounds request volume per user (chat) or per client IP (login), independent of the
+          guardrails above — this protects against resource exhaustion, not unsafe content. An
+          excess request is rejected with a 429 response until its bucket refills.
+        </p>
+
+        <div className="flex items-center gap-2">
+          <input
+            id="rate-limit-enabled"
+            type="checkbox"
+            checked={rateLimitEnabled}
+            onChange={(e) => {
+              setRateLimitEnabled(e.target.checked)
+              markFieldEdited('rate_limit_enabled')
+            }}
+          />
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rate-limit-enabled">
+              Enable rate limiting ({overrideLabel(get.data.rate_limit_enabled_is_db_override)})
+            </label>
+            <InfoTooltip>
+              One switch covers both the chat and login buckets below.
+              Recommended on for any deployment reachable by more than a
+              handful of trusted users, since chat requests drive the most
+              expensive path in the system (an LLM call, and sometimes an
+              embedding + search call too).
+            </InfoTooltip>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rate-limit-chat-capacity">
+              Chat burst capacity ({overrideLabel(get.data.rate_limit_chat_capacity_is_db_override)})
+            </label>
+            <InfoTooltip>
+              Maximum number of chat requests a single user can send back to
+              back before being throttled, regardless of refill rate. A
+              common default is 10 — enough for a normal back-and-forth
+              conversation without pausing.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rate-limit-chat-capacity"
+            type="number"
+            // min is a soft UX hint only, same caveat as max-input-length's
+            // max={8000} above -- the backend's Field(ge=1) is the real
+            // enforcement; a typed/pasted 0 or negative value still reaches
+            // Save and gets rejected there with a 422.
+            min={1}
+            value={rateLimitChatCapacity}
+            onChange={(e) => {
+              setRateLimitChatCapacity(e.target.value)
+              markFieldEdited('rate_limit_chat_capacity')
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rate-limit-chat-refill">
+              Chat refill rate (requests/minute) (
+              {overrideLabel(get.data.rate_limit_chat_refill_per_minute_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How many additional chat requests a user regains per minute
+              after using up their burst capacity. A common default is 10 —
+              roughly one request every 6 seconds, sustained.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rate-limit-chat-refill"
+            type="number"
+            min={1}
+            value={rateLimitChatRefillPerMinute}
+            onChange={(e) => {
+              setRateLimitChatRefillPerMinute(e.target.value)
+              markFieldEdited('rate_limit_chat_refill_per_minute')
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rate-limit-auth-capacity">
+              Login burst capacity ({overrideLabel(get.data.rate_limit_auth_capacity_is_db_override)})
+            </label>
+            <InfoTooltip>
+              Maximum number of login/token-exchange attempts a single
+              client IP can make back to back before being throttled. Keyed
+              by IP, not by user, since there is no authenticated identity
+              yet at this endpoint. A common default is 10.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rate-limit-auth-capacity"
+            type="number"
+            min={1}
+            value={rateLimitAuthCapacity}
+            onChange={(e) => {
+              setRateLimitAuthCapacity(e.target.value)
+              markFieldEdited('rate_limit_auth_capacity')
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rate-limit-auth-refill">
+              Login refill rate (attempts/minute) (
+              {overrideLabel(get.data.rate_limit_auth_refill_per_minute_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How many additional login attempts a client IP regains per
+              minute after using up its burst capacity. A common default is
+              10. If this deployment sits behind a reverse proxy, also set
+              the env-only RATE_LIMIT_TRUSTED_PROXY_COUNT (not on this page)
+              or every caller behind the proxy will share one bucket.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rate-limit-auth-refill"
+            type="number"
+            min={1}
+            value={rateLimitAuthRefillPerMinute}
+            onChange={(e) => {
+              setRateLimitAuthRefillPerMinute(e.target.value)
+              markFieldEdited('rate_limit_auth_refill_per_minute')
+            }}
+          />
+        </div>
+
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto p-0 text-sm"
+          onClick={() => {
+            setRateLimitChatCapacity(String(get.data?.rate_limit_chat_capacity ?? ''))
+            setRateLimitChatRefillPerMinute(
+              String(get.data?.rate_limit_chat_refill_per_minute ?? '')
+            )
+            setRateLimitAuthCapacity(String(get.data?.rate_limit_auth_capacity ?? ''))
+            setRateLimitAuthRefillPerMinute(
+              String(get.data?.rate_limit_auth_refill_per_minute ?? '')
+            )
+            markFieldCleared('rate_limit_chat_capacity')
+            markFieldCleared('rate_limit_chat_refill_per_minute')
+            markFieldCleared('rate_limit_auth_capacity')
+            markFieldCleared('rate_limit_auth_refill_per_minute')
+          }}
+        >
+          Reset capacity/refill to default
+        </Button>
       </section>
 
       <Button onClick={handleSave} disabled={update.isPending}>

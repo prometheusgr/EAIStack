@@ -250,6 +250,20 @@ services:
       # docs/OBSERVABILITY.md.
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       TRACING_OTLP_ENDPOINT: ${TRACING_OTLP_ENDPOINT:-http://phoenix:6006/v1/traces}
+      # POST /api/auth/token's rate limiter (issue #25) is keyed by client
+      # IP, and every e2e spec file logs in fresh per test. The
+      # docker-compose stack is what both local e2e runs and CI's
+      # e2e-tests job exercise, and every spec file's IP-address view of
+      # this backend is the same Docker network address -- so their login
+      # counts sum into one shared bucket. The production default
+      # (capacity 10, refill 10/min, see app/core/config.py) is sized for
+      # real users behind real distinct IPs, not this. Raised here, not in
+      # the backend's own default, since a real deployment should keep the
+      # tighter budget. This is a stopgap, not a fix -- tracked as issue
+      # #53 for a real solution (e.g. shared storageState logins across
+      # spec files so most specs don't need the token endpoint at all).
+      RATE_LIMIT_AUTH_CAPACITY: ${RATE_LIMIT_AUTH_CAPACITY:-50}
+      RATE_LIMIT_AUTH_REFILL_PER_MINUTE: ${RATE_LIMIT_AUTH_REFILL_PER_MINUTE:-50}
     ports:
       - "8001:8000"
     depends_on:
