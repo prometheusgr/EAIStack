@@ -56,7 +56,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
     await expect(lengthInput).toBeVisible()
     await lengthInput.fill('20')
     await page.locator('button:has-text("Save")').click()
-    await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
 
     try {
       const chatInput = await startNewChat(page)
@@ -70,7 +70,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
       await openSettings(page)
       await lengthInput.fill('')
       await page.locator('button:has-text("Save")').click()
-      await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
     }
   })
 
@@ -91,7 +91,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
     await expect(page.getByText(/removes protection/i)).toBeVisible()
 
     await page.locator('button:has-text("Save")').click()
-    await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
 
     try {
       const chatInput = await startNewChat(page)
@@ -107,7 +107,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
       await openSettings(page)
       await page.locator('#guardrails-input-enabled').check()
       await page.locator('button:has-text("Save")').click()
-      await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
     }
   })
 
