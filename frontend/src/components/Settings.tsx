@@ -798,7 +798,7 @@ export function Settings() {
               Rejects a chat message longer than this many characters before
               it reaches the LLM, bounding worst-case prompt size. Capped at
               8000 regardless of what is entered here. Leave empty to use
-              the env default (typically 4000).
+              the env default (typically 8000, same as the cap).
             </InfoTooltip>
           </div>
           <Input
@@ -994,6 +994,10 @@ export function Settings() {
           <Input
             id="rate-limit-chat-capacity"
             type="number"
+            // min is a soft UX hint only, same caveat as max-input-length's
+            // max={8000} above -- the backend's Field(ge=1) is the real
+            // enforcement; a typed/pasted 0 or negative value still reaches
+            // Save and gets rejected there with a 422.
             min={1}
             value={rateLimitChatCapacity}
             onChange={(e) => {
@@ -1076,6 +1080,28 @@ export function Settings() {
             }}
           />
         </div>
+
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto p-0 text-sm"
+          onClick={() => {
+            setRateLimitChatCapacity(String(get.data?.rate_limit_chat_capacity ?? ''))
+            setRateLimitChatRefillPerMinute(
+              String(get.data?.rate_limit_chat_refill_per_minute ?? '')
+            )
+            setRateLimitAuthCapacity(String(get.data?.rate_limit_auth_capacity ?? ''))
+            setRateLimitAuthRefillPerMinute(
+              String(get.data?.rate_limit_auth_refill_per_minute ?? '')
+            )
+            markFieldCleared('rate_limit_chat_capacity')
+            markFieldCleared('rate_limit_chat_refill_per_minute')
+            markFieldCleared('rate_limit_auth_capacity')
+            markFieldCleared('rate_limit_auth_refill_per_minute')
+          }}
+        >
+          Reset capacity/refill to default
+        </Button>
       </section>
 
       <Button onClick={handleSave} disabled={update.isPending}>

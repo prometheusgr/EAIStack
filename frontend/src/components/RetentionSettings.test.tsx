@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings } from './Settings'
 import { ToastProvider } from './ui/toast'
+import { TooltipProvider } from './ui/tooltip'
 import { AuthProvider } from '../context/AuthContext'
 import { settingsClient } from '../api/settingsClient'
 
@@ -83,7 +84,9 @@ function renderSettings() {
   return render(
     <AuthProvider>
       <ToastProvider>
-        <Settings />
+        <TooltipProvider>
+          <Settings />
+        </TooltipProvider>
       </ToastProvider>
     </AuthProvider>
   )
