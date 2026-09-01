@@ -298,8 +298,10 @@ independently valid.
 changes. Phase 4 added `guardrail.input_rejected`/`guardrail.output_redacted`
 for guardrail *violations*; issue #16 added `guardrail.config_update` and
 `guardrail.pattern_update` for changes to guardrail *configuration* (see
-"Guardrails & Compliance" below). Checkpoint-mutation auditing is not yet in
-scope.
+"Guardrails & Compliance" below). Issue #25 added `rate_limit.config_update`
+for changes to rate-limit configuration — deliberately not one per trip; see
+"Rate Limiting" below for why a trip itself isn't audited. Checkpoint-mutation
+auditing is not yet in scope.
 
 ```python
 # app/db/models.py
@@ -308,7 +310,8 @@ class AuditLog(Base):
     actor_user_id: str   # who made the change (Keycloak subject)
     action: str          # "retention.update" | "guardrail.input_rejected"
                           # | "guardrail.output_redacted" | "guardrail.config_update"
-                          # | "guardrail.pattern_update"
+                          # | "guardrail.pattern_update" | "tracing.config_update"
+                          # | "rate_limit.config_update"
     field_name: str      # e.g. "conversation_retention_hours", "message",
                           # "max_input_length", or a guardrail_patterns.id
     old_value: str | None  # NULL = had no DB override before the change
@@ -441,6 +444,166 @@ represented in the (immutable, indefinitely-retained) `AuditLog` — writing
 raw PII into an audit entry would work against the "right to be forgotten"
 posture described above. That decision needs its own pass, not one made
 under this ticket's guardrail scope.
+
+### Rate Limiting (Resource Exhaustion, Not Content — Issue #25)
+
+**Status**: implemented. Distinct from the guardrails above: guardrails validate
+message *content* (is this input safe to forward, is this output safe to
+return); rate limiting bounds request *volume*. `POST /api/agents/chat` drives
+the most expensive path in the system (an LLM call and, when a tool fires, an
+embedding + pgvector query against doc-search) — a buggy retry loop, a
+compromised token, or a scripted client can otherwise saturate llama-server for
+every other user with no backend-side control to stop it. `POST /api/auth/token`
+(the Keycloak code/refresh-token exchange) is limited too, since it is the one
+endpoint a caller can hit with no JWT at all.
+
+**Mechanism: token bucket**, implemented as pure, deterministic math in
+`app/ratelimit/token_bucket.py` — no clock reads, `now: datetime` is always a
+required parameter (see `docs/TIME_INJECTION.md`). Chosen over a fixed window
+(allows up to 2x the intended rate at window boundaries) and a sliding-window
+log (needs an unbounded-until-pruned per-identity timestamp list): a token
+bucket needs only two numbers per identity (`tokens`, `last_refill_at`),
+naturally expresses "N requests per window with some burst allowance," and is
+trivial to move into a shared store later without changing the algorithm
+itself (see the replica-correctness discussion below).
+
+**Scoped per identity, not a blanket global limit**:
+
+- `POST /api/agents/chat` is keyed by the caller's `user_id` from the
+  validated JWT (never request input) — the same identity source
+  `ThreadRepository` uses for conversation ownership, so a client cannot
+  spoof another user's budget or dodge its own.
+- `POST /api/auth/token` is keyed by client IP — there is no authenticated
+  identity yet at this endpoint, since it *is* the token exchange. See
+  "Client IP resolution behind a proxy" below for how that IP is determined.
+- Cheap, already-auth-gated reads (`GET /api/agents/threads`,
+  `GET /api/agents/threads/{id}`) are not rate-limited at all — a blanket
+  global limit was explicitly rejected; only the expensive/pre-auth paths
+  carry a budget.
+
+**Admin-configurable**, same env-default + nullable-DB-override pattern as
+retention/guardrails/tracing, resolved fresh on every call by
+`app.services.rate_limit_config_service.resolve_rate_limit_config` — no
+backend restart required:
+
+| Setting | Env default | DB override column |
+|---|---|---|
+| Rate limiting on/off (both chat and auth) | on | `SystemSettings.rate_limit_enabled` |
+| Chat bucket capacity (burst size) | 10 | `SystemSettings.rate_limit_chat_capacity` |
+| Chat bucket refill rate | 10/minute | `SystemSettings.rate_limit_chat_refill_per_minute` |
+| Auth bucket capacity (burst size) | 10 | `SystemSettings.rate_limit_auth_capacity` |
+| Auth bucket refill rate | 10/minute | `SystemSettings.rate_limit_auth_refill_per_minute` |
+
+One shared on/off switch covers both limiters, unlike the guardrails' separate
+input/output switches — chat and auth rate limiting share the same trip
+behavior (`429` + `Retry-After`) and mechanism, unlike the guardrails'
+reject-vs-sanitize split that justified two independent switches there.
+Capacity/refill fields are bounded to `>= 1` at **both** boundaries they can be
+set from: the request schema (`UpdateSettingsRequest`, the DB-override write
+path) and the env-level `Settings` class itself (`app/core/config.py`, via the
+same `Field(ge=1)`) — unlike retention's windows, `0` has no meaningful
+interpretation for a bucket (a zero-capacity bucket would never allow
+anything, and a zero refill rate makes the token-bucket math's
+`missing_tokens / refill_per_second` division undefined). A misconfigured env
+var now fails loudly at process startup instead of crashing the first request
+that empties the affected bucket.
+
+Every admin change to these fields is audit-logged via
+`action="rate_limit.config_update"`, following the identical
+before/after-diff pattern as `retention.update`/`guardrail.config_update`/
+`tracing.config_update` — see "Audit & Compliance" above.
+
+**Client IP resolution behind a proxy** (`app.core.client_ip.resolve_client_ip`):
+the auth bucket's identity is the caller's IP, but a bare
+`Request.client.host` is only ever correct when this process receives
+connections directly. Behind any reverse proxy or K8s ingress (this repo's
+own Helm deployment target, Phase 5), that field is the proxy's own address
+for every caller, which would collapse every external user onto one shared
+bucket — a single aggressive client could then lock out every other user's
+login. `settings.rate_limit_trusted_proxy_count` (env-only, default `0`)
+controls this: at `0`, `X-Forwarded-For` is never consulted at all, even if
+present, so an un-proxied deployment can't have its rate-limit identity
+spoofed by a caller-supplied header. Set it to the number of trusted proxy
+hops in front of the backend (`1` for a single ingress) to read the real
+client IP from the correct position in `X-Forwarded-For` instead — walking
+back that many entries from the right, since each trusted hop appends the
+address it received the request from. This is deliberately env-only, not a
+DB-overridable admin setting: it describes fixed deployment topology, the
+same reasoning `tracing_otlp_endpoint` uses for staying env-only, not a
+runtime policy an admin should redirect at will.
+
+**Response shape on trip**: `429`, with a `Retry-After` header (seconds until
+one token is available) and a body shaped like the input guardrail's `400`
+(`{"detail": "rate_limit_exceeded", "message": "<human-readable text>"}`), so
+a caller checking `detail` for a stable reason code gets the same contract
+guardrail rejections already established.
+
+**A rate-limit trip itself is deliberately NOT audit-logged.** This is
+narrower than it looks: `guardrail.input_rejected` is logged because each
+rejection is individually meaningful evidence of one attempted policy
+violation. A rate-limit trip is different in kind — a high-frequency,
+low-information-per-event signal ("this identity sent request N+1 within the
+window") that a single misbehaving or retrying client could turn into
+thousands of rows in `audit_logs`, a table that is append-only and *never
+purged* (see the Data Retention Policy above). Logging every trip there would
+be a poor fit for what that table exists to hold. Only the config-change event
+(an admin changing a limit) is audited, matching every other admin-configurable
+setting in this document; a plain `logger.warning(...)` at the trip site is a
+reasonable place for operational visibility instead.
+
+**Enforcement: in-process token bucket (single-replica assumption), not a
+shared store.** Mechanism state lives in a plain in-process `dict`
+(`app/services/rate_limiter_service.py`), guarded by a lock, not Redis or
+another shared store. This is safe today because every deployment path this
+repo ships runs the backend as exactly one process: `docker-compose.yml`
+runs a single `backend` service, and `infra/helm/charts/backend/values.yaml`
+sets `replicas: 1` (asserted by `infra/tests/test_helm_charts.py`) — there is
+never more than one dict to disagree with itself.
+
+This differs from the retention CronJob decision above (see "Enforcement: K8s
+CronJob, not an in-process scheduler") in its reasoning, not just its
+conclusion. That case had to avoid in-process state *outright*, because an
+in-process scheduler running on every replica would double-execute a
+destructive DELETE sweep regardless of today's replica count — a silent
+correctness hazard baked into the design itself. Rate limiting's failure mode
+under the same "scaled past 1 replica" scenario is different in kind: each
+replica would keep its own independent bucket per identity, so the *effective*
+limit becomes N × the configured value — silent **under**-enforcement, not
+data loss or a duplicated side effect. Degrading to a weaker (but still
+present) protection is an acceptable v1 trade-off; corrupting or destroying
+data is not. That asymmetry is why the two features made opposite choices
+here.
+
+**This trade-off is real and is not implemented away speculatively.** A
+deployment that intentionally scales `infra/helm/charts/backend`'s `replicas`
+past 1 must move this state to a shared store (Redis, or Postgres-backed
+counters) first, or its configured limits silently stop meaning what they
+say. Tracked as [issue #38](../../../issues/38) — not built now, since no
+Redis client exists anywhere in this repo today, and adding one is a real new
+piece of air-gapped infrastructure to vendor, document, and operate; it should
+be justified by an actual multi-replica deployment, not spent speculatively
+against a hypothetical one.
+
+**Bucket eviction bounds memory growth.** `POST /api/auth/token` is
+unauthenticated, so its bucket key (client IP) is attacker-influenced: a
+scripted client varying its source IP would otherwise add one permanent
+dict entry per IP ever seen, for the life of the process. Every check
+opportunistically evicts entries idle long enough to have fully refilled
+regardless of their configured rate (see `_evict_stale_buckets`,
+`_STALE_AFTER_SECONDS` in `app/services/rate_limiter_service.py`) — an idle
+entry that old carries no more information than a fresh, never-seen
+identity would. No separate eviction thread: the scan rides along on the
+request path the module already runs on every check, and (per the
+replica-correctness discussion above) a redundant per-replica sweep would
+not be a correctness hazard the way an in-process scheduler would be for
+the retention CronJob.
+
+**Settings UI**: the backend fully supports these fields via
+`GET`/`PUT /api/settings` (same admin-only endpoints as every other setting
+in this document), but the Settings screen does not yet render controls for
+them — tracked as [issue #37](../../../issues/37), since `Settings.tsx` hand-
+renders each field explicitly rather than deriving its form from the API
+response shape.
 
 ## Secrets Management (K3s Native)
 

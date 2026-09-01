@@ -18,7 +18,7 @@ method. See docs/SECURITY.md's retention policy table.
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, TypeVar, overload
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,7 @@ from app.db.models import (
     SystemSettings,
 )
 from app.repositories.system_settings_repository import SystemSettingsRepository
+from app.services.config_resolution import resolve_field
 from app.services.system_settings_service import NOT_PROVIDED, NotProvided
 
 if TYPE_CHECKING:
@@ -62,44 +63,6 @@ class RetentionConfig:
     api_key_purge_days: int | None
 
 
-_ResolvableField = TypeVar("_ResolvableField", int, bool)
-
-
-# Overloaded rather than a single `env_default: T | None -> T | None` signature:
-# cleanup_on_logout's env default (Settings.session_cleanup_on_logout) is always
-# a real bool, never None, so that call site can return a plain `bool` - the
-# other three retention fields' env defaults are themselves `int | None`
-# ("keep forever" is a legitimate default), so those call sites must stay
-# `int | None`. A single un-overloaded signature can't express both shapes,
-# which is what previously forced resolve_retention_config to paper over the
-# mismatch with a `bool(...)` wrapper at the cleanup_on_logout call site.
-@overload
-def _resolve_field(
-    db_value: _ResolvableField | None, env_default: _ResolvableField
-) -> _ResolvableField:
-    ...
-
-
-@overload
-def _resolve_field(
-    db_value: _ResolvableField | None, env_default: _ResolvableField | None
-) -> _ResolvableField | None:
-    ...
-
-
-def _resolve_field(db_value, env_default):
-    """Resolve one overridable retention field: the DB value if a row set it,
-    else the env default.
-
-    Must stay an `is not None` check, not a truthiness check: 0 hours
-    ("purge immediately") and False ("don't clean up on logout") are both
-    legitimate overrides that a truthiness test would silently discard and
-    replace with the env default - the same trap documented on
-    system_settings_service._resolve_field.
-    """
-    return db_value if db_value is not None else env_default
-
-
 def resolve_retention_config(
     db: Session, db_settings: SystemSettings | None | NotProvided = NOT_PROVIDED
 ) -> RetentionConfig:
@@ -119,21 +82,21 @@ def resolve_retention_config(
         db_settings = SystemSettingsRepository(db).get()
 
     return RetentionConfig(
-        conversation_retention_hours=_resolve_field(
-            db_settings.conversation_retention_hours if db_settings else None,
-            settings.session_ttl_hours,
+        conversation_retention_hours=resolve_field(
+            db_value=db_settings.conversation_retention_hours if db_settings else None,
+            env_default=settings.session_ttl_hours,
         ),
-        cleanup_on_logout=_resolve_field(
-            db_settings.cleanup_on_logout if db_settings else None,
-            settings.session_cleanup_on_logout,
+        cleanup_on_logout=resolve_field(
+            db_value=db_settings.cleanup_on_logout if db_settings else None,
+            env_default=settings.session_cleanup_on_logout,
         ),
-        knowledge_base_purge_days=_resolve_field(
-            db_settings.knowledge_base_purge_days if db_settings else None,
-            settings.knowledge_base_purge_days,
+        knowledge_base_purge_days=resolve_field(
+            db_value=db_settings.knowledge_base_purge_days if db_settings else None,
+            env_default=settings.knowledge_base_purge_days,
         ),
-        api_key_purge_days=_resolve_field(
-            db_settings.api_key_purge_days if db_settings else None,
-            settings.api_key_purge_days,
+        api_key_purge_days=resolve_field(
+            db_value=db_settings.api_key_purge_days if db_settings else None,
+            env_default=settings.api_key_purge_days,
         ),
     )
 

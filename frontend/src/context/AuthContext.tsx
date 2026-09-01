@@ -7,6 +7,7 @@ import {
 } from '../auth/authHelpers'
 import { AuthService } from '@/services/authService'
 import { useIsMounted } from '../hooks/useIsMounted'
+import { parseErrorBody } from '../api/authorizedFetch'
 
 interface AuthContextType {
   token: string | null
@@ -18,6 +19,11 @@ interface AuthContextType {
   user: AuthUser | null
   roles: string[]
   isAdmin: boolean
+  // A human-readable message from the most recent failed /api/auth/token
+  // call (initial code exchange or a background refresh) -- e.g. a rate
+  // limit trip's "Too many requests..." text. null when there is nothing
+  // to show, or the endpoint gave no message (see parseErrorBody).
+  authError: string | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -29,6 +35,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<AuthUser | null>(null)
   const [roles, setRoles] = useState<string[]>([])
   const [keycloakUrl, setKeycloakUrl] = useState<string>('http://localhost:8080/')
+  const [authError, setAuthError] = useState<string | null>(null)
   const isMounted = useIsMounted()
 
   useEffect(() => {
@@ -45,7 +52,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const urlParams = new URLSearchParams(window.location.search)
         const code = urlParams.get('code')
-        const authError = urlParams.get('error')
+        // Keycloak's own ?error= redirect param (e.g. user denied consent)
+        // -- distinct from the authError *state* below, which is this
+        // context's own /api/auth/token failure message.
+        const keycloakErrorParam = urlParams.get('error')
 
         // Handle authorization code from Keycloak redirect
         if (code) {
@@ -98,13 +108,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               if (isMounted()) setIsLoading(false)
               return
             }
+
+            // Non-ok response (e.g. a rate-limit trip, an expired/invalid
+            // code): surface the backend's human-readable message so the
+            // pre-login screen can show *why* login didn't complete,
+            // instead of silently dropping the user back to the login
+            // button with no explanation.
+            const body = await parseErrorBody(tokenResponse)
+            if (isMounted()) setAuthError(body.message ?? null)
           } catch {
             // Error handled below
           }
           window.history.replaceState(null, '', window.location.pathname)
         }
 
-        if (authError) {
+        if (keycloakErrorParam) {
           window.history.replaceState(null, '', window.location.pathname)
         }
 
@@ -179,6 +197,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       })
 
       if (!response.ok) {
+        // A 429 means the refresh token itself is still good -- the caller
+        // is just being throttled. Treating it the same as an invalid/
+        // expired refresh token (any other non-ok status) would force a
+        // perfectly valid session to log out and re-authenticate purely
+        // because of request volume, which defeats the point of having a
+        // refresh token at all. Leave the session and stored tokens
+        // untouched; the caller can retry after Retry-After.
+        const body = await parseErrorBody(response)
+        if (response.status === 429) {
+          if (isMounted()) setAuthError(body.message ?? null)
+          return false
+        }
+
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('token_type')
@@ -287,7 +318,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   return (
     <AuthContext.Provider
-      value={{ token, isAuthenticated, isLoading, login, logout, refreshAccessToken, user, roles, isAdmin }}
+      value={{
+        token,
+        isAuthenticated,
+        isLoading,
+        login,
+        logout,
+        refreshAccessToken,
+        user,
+        roles,
+        isAdmin,
+        authError,
+      }}
     >
       {children}
     </AuthContext.Provider>

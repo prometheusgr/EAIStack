@@ -325,6 +325,19 @@ class SystemSettingsResponse(BaseModel):
     # resolved once at process startup, not per-request.
     tracing_enabled: bool
     tracing_enabled_is_db_override: bool
+    # Rate limiting (issue #25). Token-bucket capacity/refill for chat
+    # (per-user) and auth (per-IP), plus one shared on/off switch - see
+    # app.services.rate_limit_config_service.
+    rate_limit_enabled: bool
+    rate_limit_enabled_is_db_override: bool
+    rate_limit_chat_capacity: int
+    rate_limit_chat_capacity_is_db_override: bool
+    rate_limit_chat_refill_per_minute: int
+    rate_limit_chat_refill_per_minute_is_db_override: bool
+    rate_limit_auth_capacity: int
+    rate_limit_auth_capacity_is_db_override: bool
+    rate_limit_auth_refill_per_minute: int
+    rate_limit_auth_refill_per_minute_is_db_override: bool
     available_providers: dict[str, list[ProviderOption]]
 
 
@@ -360,3 +373,12 @@ class UpdateSettingsRequest(BaseModel):
     # See SystemSettingsResponse.tracing_enabled: takes effect on the next
     # backend restart, not the next request.
     tracing_enabled: Optional[bool] = None
+    # Rate limiting. Unlike retention's windows, 0 has no meaningful
+    # interpretation for a bucket's capacity/refill rate (a zero-capacity
+    # bucket would never allow anything), so these are bounded to >= 1
+    # rather than >= 0.
+    rate_limit_enabled: Optional[bool] = None
+    rate_limit_chat_capacity: Optional[int] = Field(default=None, ge=1)
+    rate_limit_chat_refill_per_minute: Optional[int] = Field(default=None, ge=1)
+    rate_limit_auth_capacity: Optional[int] = Field(default=None, ge=1)
+    rate_limit_auth_refill_per_minute: Optional[int] = Field(default=None, ge=1)

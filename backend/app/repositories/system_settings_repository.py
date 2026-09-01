@@ -42,6 +42,11 @@ class SystemSettingsRepository:
         guardrails_input_enabled: bool | None = None,
         guardrails_output_enabled: bool | None = None,
         tracing_enabled: bool | None = None,
+        rate_limit_enabled: bool | None = None,
+        rate_limit_chat_capacity: int | None = None,
+        rate_limit_chat_refill_per_minute: int | None = None,
+        rate_limit_auth_capacity: int | None = None,
+        rate_limit_auth_refill_per_minute: int | None = None,
     ) -> SystemSettings:
         """Create or update the singleton settings row.
 
@@ -73,6 +78,11 @@ class SystemSettingsRepository:
         settings_row.guardrails_input_enabled = guardrails_input_enabled
         settings_row.guardrails_output_enabled = guardrails_output_enabled
         settings_row.tracing_enabled = tracing_enabled
+        settings_row.rate_limit_enabled = rate_limit_enabled
+        settings_row.rate_limit_chat_capacity = rate_limit_chat_capacity
+        settings_row.rate_limit_chat_refill_per_minute = rate_limit_chat_refill_per_minute
+        settings_row.rate_limit_auth_capacity = rate_limit_auth_capacity
+        settings_row.rate_limit_auth_refill_per_minute = rate_limit_auth_refill_per_minute
         settings_row.updated_by = updated_by
 
         self.db.flush()

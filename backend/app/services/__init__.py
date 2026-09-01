@@ -11,6 +11,8 @@ from app.services.embedding_service import (
     replace_embeddings,
 )
 from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
+from app.services.rate_limit_config_service import RateLimitConfig, resolve_rate_limit_config
+from app.services.rate_limiter_service import check_auth_rate_limit, check_chat_rate_limit
 from app.services.retention_service import (
     RetentionConfig,
     purge_expired_api_keys,
@@ -55,4 +57,8 @@ __all__ = [
     "resolve_llm_config",
     "TracingConfig",
     "resolve_tracing_config",
+    "RateLimitConfig",
+    "resolve_rate_limit_config",
+    "check_chat_rate_limit",
+    "check_auth_rate_limit",
 ]

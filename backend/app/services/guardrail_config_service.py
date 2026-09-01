@@ -21,6 +21,7 @@ from app.db.models import SystemSettings
 from app.guardrails.input_guardrail import BUILT_IN_PATTERN_LABELS
 from app.repositories.guardrail_pattern_repository import GuardrailPatternRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
+from app.services.config_resolution import resolve_field
 from app.services.system_settings_service import NOT_PROVIDED, NotProvided
 
 
@@ -40,25 +41,6 @@ class GuardrailConfig:
     output_enabled: bool
     enabled_pattern_ids: frozenset[str]
     custom_phrases: tuple[str, ...]
-
-
-def _resolve_field(db_value, env_default):
-    """Resolve one overridable guardrail field: the DB value if a row set
-    it, else the env default.
-
-    Must stay an `is not None` check, not a truthiness check: False
-    ("turn this guardrail off") and 0 are both legitimate overrides a
-    truthiness test would silently discard and replace with the env
-    default - see AGENTS.md's Retention Field Semantics section.
-
-    Not shared with retention_service._resolve_field or
-    system_settings_service._resolve_field: each is typed for its own call
-    sites (int | bool here; overloaded int/bool there; str there), and this
-    repo's no-premature-abstraction convention (AGENTS.md) calls for
-    generalizing only once a shared, identically-typed shape actually
-    emerges - not preemptively.
-    """
-    return db_value if db_value is not None else env_default
 
 
 def resolve_guardrail_config(
@@ -99,17 +81,17 @@ def resolve_guardrail_config(
     )
 
     return GuardrailConfig(
-        max_input_length=_resolve_field(
-            db_settings.max_input_length if db_settings else None,
-            settings.guardrail_max_input_length,
+        max_input_length=resolve_field(
+            db_value=db_settings.max_input_length if db_settings else None,
+            env_default=settings.guardrail_max_input_length,
         ),
-        input_enabled=_resolve_field(
-            db_settings.guardrails_input_enabled if db_settings else None,
-            settings.guardrails_input_enabled,
+        input_enabled=resolve_field(
+            db_value=db_settings.guardrails_input_enabled if db_settings else None,
+            env_default=settings.guardrails_input_enabled,
         ),
-        output_enabled=_resolve_field(
-            db_settings.guardrails_output_enabled if db_settings else None,
-            settings.guardrails_output_enabled,
+        output_enabled=resolve_field(
+            db_value=db_settings.guardrails_output_enabled if db_settings else None,
+            env_default=settings.guardrails_output_enabled,
         ),
         enabled_pattern_ids=enabled_pattern_ids,
         custom_phrases=custom_phrases,
