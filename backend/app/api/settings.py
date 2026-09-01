@@ -1,6 +1,7 @@
 """API endpoints for admin-only runtime provider settings."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -37,6 +38,22 @@ from app.services.system_settings_service import (
 )
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+def _error_response(status_code: int, detail: str, message: str) -> JSONResponse:
+    """Build a {detail, message} JSONResponse for this router's error paths.
+
+    Every 4xx here needs both a stable, machine-readable `detail` code and a
+    human-readable `message` -- the Settings screen's toast reads only
+    `message` (never `detail`, see ApiErrorImpl in
+    frontend/src/api/authorizedFetch.ts), so a response missing it reaches
+    the admin as a blank toast. Mirrors
+    app.services.rate_limiter_service.rate_limit_exceeded_response, which
+    documents the same consolidation for the identical reason: two (now,
+    across this router, six) call sites hand-building an identical
+    status-code/detail-key shape with only the message differing.
+    """
+    return JSONResponse(status_code=status_code, content={"detail": detail, "message": message})
 
 
 def _provider_options_by_category() -> dict[str, dict[str, ProviderOptionDict]]:
@@ -162,12 +179,12 @@ async def get_settings(
     return _to_response(db)
 
 
-@router.put("", response_model=SystemSettingsResponse)
+@router.put("", response_model=None)
 async def update_settings(
     payload: UpdateSettingsRequest,
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
-):
+) -> SystemSettingsResponse | JSONResponse:
     """Update the runtime provider overrides.
 
     Any field omitted (or null) clears back to the env-var default,
@@ -177,14 +194,19 @@ async def update_settings(
     options_by_category = _provider_options_by_category()
 
     if payload.llm_provider is not None and payload.llm_provider not in options_by_category["llm"]:
-        raise HTTPException(status_code=400, detail=f"Unknown llm_provider: {payload.llm_provider}")
+        return _error_response(
+            400,
+            f"unknown_llm_provider:{payload.llm_provider}",
+            f"Unknown LLM provider: {payload.llm_provider}",
+        )
     if (
         payload.embedding_provider is not None
         and payload.embedding_provider not in options_by_category["embedding"]
     ):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown embedding_provider: {payload.embedding_provider}",
+        return _error_response(
+            400,
+            f"unknown_embedding_provider:{payload.embedding_provider}",
+            f"Unknown embedding provider: {payload.embedding_provider}",
         )
 
     repo = SystemSettingsRepository(db)
@@ -196,9 +218,10 @@ async def update_settings(
     # still be validated when only its URL is being cleared.
     llm_provider = payload.llm_provider or resolve_llm_config(db, db_settings).provider
     if options_by_category["llm"][llm_provider]["requires_manual_entry"] and payload.llm_url == "":
-        raise HTTPException(
-            status_code=400,
-            detail=f"llm_url is required for provider: {llm_provider}",
+        return _error_response(
+            400,
+            f"llm_url_required:{llm_provider}",
+            f"A URL is required for LLM provider: {llm_provider}",
         )
 
     embedding_provider = (
@@ -208,9 +231,10 @@ async def update_settings(
         options_by_category["embedding"][embedding_provider]["requires_manual_entry"]
         and payload.embedding_url == ""
     ):
-        raise HTTPException(
-            status_code=400,
-            detail=f"embedding_url is required for provider: {embedding_provider}",
+        return _error_response(
+            400,
+            f"embedding_url_required:{embedding_provider}",
+            f"A URL is required for embedding provider: {embedding_provider}",
         )
 
     # Captured before the write: the audit trail must show the actual
@@ -529,13 +553,13 @@ async def create_guardrail_pattern(
     return GuardrailPatternResponse.model_validate(pattern)
 
 
-@router.put("/guardrail-patterns/{pattern_id}", response_model=GuardrailPatternResponse)
+@router.put("/guardrail-patterns/{pattern_id}", response_model=None)
 async def update_guardrail_pattern(
     pattern_id: str,
     payload: UpdateGuardrailPatternRequest,
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
-):
+) -> GuardrailPatternResponse | JSONResponse:
     """Toggle a pattern (built-in or custom) on or off.
 
     Toggle only -- editing a custom pattern's phrase text after creation is
@@ -546,7 +570,7 @@ async def update_guardrail_pattern(
     repo = GuardrailPatternRepository(db)
     existing = repo.get(pattern_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Guardrail pattern not found")
+        return _error_response(404, "guardrail_pattern_not_found", "Guardrail pattern not found")
 
     was_enabled = existing.enabled
     pattern = repo.set_enabled(pattern_id, payload.enabled)
@@ -565,12 +589,12 @@ async def update_guardrail_pattern(
     return GuardrailPatternResponse.model_validate(pattern)
 
 
-@router.delete("/guardrail-patterns/{pattern_id}", status_code=204)
+@router.delete("/guardrail-patterns/{pattern_id}", status_code=204, response_model=None)
 async def delete_guardrail_pattern(
     pattern_id: str,
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
-):
+) -> JSONResponse | None:
     """Delete a custom prompt-injection detection phrase.
 
     404 if pattern_id doesn't exist at all; 400 if it exists but is a
@@ -581,10 +605,12 @@ async def delete_guardrail_pattern(
     repo = GuardrailPatternRepository(db)
     existing = repo.get(pattern_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Guardrail pattern not found")
+        return _error_response(404, "guardrail_pattern_not_found", "Guardrail pattern not found")
     if existing.source != "custom":
-        raise HTTPException(
-            status_code=400, detail="Only a custom guardrail pattern can be deleted"
+        return _error_response(
+            400,
+            "guardrail_pattern_not_custom",
+            "Only a custom guardrail pattern can be deleted",
         )
 
     pattern_text = existing.pattern_text
@@ -599,3 +625,4 @@ async def delete_guardrail_pattern(
         now=utc_now(),
     )
     db.commit()
+    return None

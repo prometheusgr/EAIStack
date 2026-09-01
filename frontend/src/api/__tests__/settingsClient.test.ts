@@ -184,12 +184,21 @@ describe('settingsClient', () => {
       expect(result.llm_provider).toBe('llama-cpp')
     })
 
-    it('throws ApiError with detail on 400 (invalid provider)', async () => {
+    it('throws ApiError with detail and message on 400 (invalid provider)', async () => {
+      // Mirrors the real backend's current response shape
+      // (backend/app/api/settings.py's _error_response): `detail` is a
+      // stable, machine-readable code, `message` is the human-readable text
+      // the Settings screen's toast actually displays -- see
+      // ApiErrorImpl.message in authorizedFetch.ts, which never falls back
+      // to `detail`.
       mockFetch.mockResolvedValueOnce({
         status: 400,
         ok: false,
         statusText: 'Bad Request',
-        json: async () => ({ detail: 'Unknown llm_provider: not-a-real-provider' }),
+        json: async () => ({
+          detail: 'unknown_llm_provider:not-a-real-provider',
+          message: 'Unknown LLM provider: not-a-real-provider',
+        }),
       })
 
       try {
@@ -200,9 +209,10 @@ describe('settingsClient', () => {
         )
         expect.fail('Should have thrown')
       } catch (error: Error | unknown) {
-        const apiError = error as { status: number; detail: string }
+        const apiError = error as { status: number; detail: string; message: string }
         expect(apiError.status).toBe(400)
-        expect(apiError.detail).toBe('Unknown llm_provider: not-a-real-provider')
+        expect(apiError.detail).toBe('unknown_llm_provider:not-a-real-provider')
+        expect(apiError.message).toBe('Unknown LLM provider: not-a-real-provider')
       }
     })
   })
