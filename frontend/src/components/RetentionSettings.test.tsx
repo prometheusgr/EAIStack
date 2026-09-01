@@ -58,6 +58,16 @@ const ENV_DEFAULT_SETTINGS = {
   guardrails_output_enabled_is_db_override: false,
   tracing_enabled: false,
   tracing_enabled_is_db_override: false,
+  rate_limit_enabled: true,
+  rate_limit_enabled_is_db_override: false,
+  rate_limit_chat_capacity: 10,
+  rate_limit_chat_capacity_is_db_override: false,
+  rate_limit_chat_refill_per_minute: 10,
+  rate_limit_chat_refill_per_minute_is_db_override: false,
+  rate_limit_auth_capacity: 10,
+  rate_limit_auth_capacity_is_db_override: false,
+  rate_limit_auth_refill_per_minute: 10,
+  rate_limit_auth_refill_per_minute_is_db_override: false,
   guardrail_patterns: [],
   available_providers: {
     llm: [

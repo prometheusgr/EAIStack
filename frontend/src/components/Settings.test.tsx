@@ -59,6 +59,16 @@ const ENV_DEFAULT_SETTINGS: SystemSettingsResponse = {
   guardrails_output_enabled_is_db_override: false,
   tracing_enabled: false,
   tracing_enabled_is_db_override: false,
+  rate_limit_enabled: true,
+  rate_limit_enabled_is_db_override: false,
+  rate_limit_chat_capacity: 10,
+  rate_limit_chat_capacity_is_db_override: false,
+  rate_limit_chat_refill_per_minute: 10,
+  rate_limit_chat_refill_per_minute_is_db_override: false,
+  rate_limit_auth_capacity: 10,
+  rate_limit_auth_capacity_is_db_override: false,
+  rate_limit_auth_refill_per_minute: 10,
+  rate_limit_auth_refill_per_minute_is_db_override: false,
   guardrail_patterns: [
     {
       id: 'built-in-1',
@@ -132,6 +142,16 @@ describe('Settings', () => {
       enabled: false,
     })
     vi.mocked(settingsClient.deleteGuardrailPattern).mockResolvedValue(undefined)
+  })
+
+  it('shows a common-setups reference panel naming at least two named configurations', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+
+    renderSettings()
+
+    const guide = await screen.findByRole('region', { name: /common setups/i })
+    expect(within(guide).getByText(/privacy-sensitive/i)).toBeInTheDocument()
+    expect(within(guide).getByText(/general-purpose/i)).toBeInTheDocument()
   })
 
   it('loads and displays the current effective LLM and embedding providers', async () => {
@@ -665,5 +685,143 @@ describe('Settings guardrails section', () => {
         'custom-1'
       )
     })
+  })
+})
+
+describe('Settings rate limiting section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.setItem('access_token', ADMIN_TOKEN)
+    vi.mocked(settingsClient.getSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+    vi.mocked(settingsClient.updateSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+  })
+
+  async function waitForRateLimitLoaded() {
+    await waitFor(() => {
+      expect(settingsClient.getSettings).toHaveBeenCalled()
+    })
+    const input = await screen.findByLabelText(/chat burst capacity/i)
+    await waitFor(() => {
+      expect(input).not.toHaveValue(null)
+    })
+    return input
+  }
+
+  it('renders the rate limiting section with fetched values', async () => {
+    renderSettings()
+    await waitForRateLimitLoaded()
+
+    expect(screen.getByLabelText(/enable rate limiting/i)).toBeChecked()
+    expect(screen.getByLabelText(/chat burst capacity/i)).toHaveValue(10)
+    expect(screen.getByLabelText(/chat refill rate/i)).toHaveValue(10)
+    expect(screen.getByLabelText(/login burst capacity/i)).toHaveValue(10)
+    expect(screen.getByLabelText(/login refill rate/i)).toHaveValue(10)
+
+    const section = screen.getByRole('region', { name: /rate limiting/i })
+    expect(section).toHaveTextContent(/env default/i)
+  })
+
+  it('shows "overridden" for rate limit fields with a DB override', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      rate_limit_chat_capacity: 5,
+      rate_limit_chat_capacity_is_db_override: true,
+    })
+
+    renderSettings()
+    await waitForRateLimitLoaded()
+
+    const section = screen.getByRole('region', { name: /rate limiting/i })
+    expect(section).toHaveTextContent(/overridden/i)
+  })
+
+  it('editing the chat refill rate and saving sends the right payload', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    const chatRefill = await waitForRateLimitLoaded()
+    void chatRefill
+
+    const refillInput = screen.getByLabelText(/chat refill rate/i)
+    await user.clear(refillInput)
+    await user.type(refillInput, '20')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({ rate_limit_chat_refill_per_minute: 20 })
+  })
+
+  it('turning off rate limiting and saving sends false in the payload', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForRateLimitLoaded()
+
+    await user.click(screen.getByLabelText(/enable rate limiting/i))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({ rate_limit_enabled: false })
+  })
+})
+
+describe('Settings field help tooltips', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.setItem('access_token', ADMIN_TOKEN)
+    vi.mocked(settingsClient.getSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+  })
+
+  it('shows help text for the LLM provider field on hover', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    const providerLabel = (await screen.findByText('Provider', {
+      selector: 'label[for="llm-provider-select"]',
+    })) as HTMLElement
+    const trigger = within(providerLabel.parentElement as HTMLElement).getByRole('button', {
+      name: 'Show help',
+    })
+    await user.hover(trigger)
+
+    expect(
+      await screen.findByText(/which service generates chat responses/i)
+    ).toBeInTheDocument()
+  })
+
+  it('shows help text for the conversation retention field on hover', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    const retentionLabel = (await screen.findByText(/conversation history \(hours\)/i, {
+      selector: 'label[for="conversation-retention-hours"]',
+    })) as HTMLElement
+    const trigger = within(retentionLabel.parentElement as HTMLElement).getByRole('button', {
+      name: 'Show help',
+    })
+    await user.hover(trigger)
+
+    expect(await screen.findByText(/leave empty to keep conversations forever/i)).toBeInTheDocument()
+  })
+
+  it('shows help text for the rate limit chat capacity field on hover', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    const capacityLabel = (await screen.findByText(/chat burst capacity/i, {
+      selector: 'label[for="rate-limit-chat-capacity"]',
+    })) as HTMLElement
+    const trigger = within(capacityLabel.parentElement as HTMLElement).getByRole('button', {
+      name: 'Show help',
+    })
+    await user.hover(trigger)
+
+    expect(await screen.findByText(/maximum number of chat requests/i)).toBeInTheDocument()
   })
 })

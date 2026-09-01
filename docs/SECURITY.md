@@ -600,10 +600,41 @@ the retention CronJob.
 
 **Settings UI**: the backend fully supports these fields via
 `GET`/`PUT /api/settings` (same admin-only endpoints as every other setting
-in this document), but the Settings screen does not yet render controls for
-them — tracked as [issue #37](../../../issues/37), since `Settings.tsx` hand-
-renders each field explicitly rather than deriving its form from the API
-response shape.
+in this document); the Settings screen renders controls for all five under a
+"Rate Limiting" section (issue #37, closed alongside the admin-facing help
+tooltips added for every settings field — see the "Settings Screen Help
+Text" section below).
+
+## Settings Screen Help Text
+
+**Status**: implemented. The Settings screen (`frontend/src/components/Settings.tsx`)
+covers 20+ admin-configurable fields across six sections (LLM/embedding
+provider, data retention, guardrails, observability, rate limiting), several
+with non-obvious semantics (e.g. `0` vs. empty for a retention window, a
+capacity/refill-rate pair for a token bucket). Two changes make the screen
+self-explanatory without leaving the page:
+
+- **Per-field hover help**: every field has a small (i) icon
+  (`frontend/src/components/ui/info-tooltip.tsx`, wrapping
+  `@radix-ui/react-tooltip`) next to its label, revealed on hover or keyboard
+  focus. Each tooltip's trigger shares one generic accessible name ("Show
+  help") rather than naming the field it belongs to — naming it per-field
+  (e.g. "Max input length help") would duplicate a substring of the
+  adjacent `<label>` text and make that label ambiguous to screen readers
+  and to `getByLabelText`-style queries; the trigger is rendered as a
+  sibling of the `<label>`, not nested inside it, for the same reason (a
+  nested interactive element inside a `<label>` is treated as "labelled by"
+  that wrapping label's full text by assistive tech and testing-library
+  alike).
+- **"Common setups" reference panel**: a short section at the top of the
+  page (`aria-label="Common setups"`) names 2-3 starting configurations
+  (privacy-sensitive, general-purpose, exposed-to-untrusted-users) with
+  their typical field values, so an admin has a starting point before
+  reading every individual tooltip.
+
+Both are presentation-only: no new API surface, no new persisted field, no
+change to validation. Covered by `frontend/src/components/Settings.test.tsx`
+and `frontend/src/components/ui/info-tooltip.test.tsx`.
 
 ## Secrets Management (K3s Native)
 
