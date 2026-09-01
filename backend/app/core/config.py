@@ -2,7 +2,7 @@
 
 from typing import Any, List
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -145,11 +145,36 @@ class Settings(BaseSettings):
     # user_id from the validated JWT; auth (POST /api/auth/token) has no
     # authenticated identity yet, so it's keyed by client IP instead — see
     # app.services.rate_limiter_service.
+    #
+    # Bounded to >= 1 here, not just on UpdateSettingsRequest (the admin API
+    # schema): that bound only guards the DB-override write path. Without an
+    # equal floor here, a misconfigured env var (e.g. a typo'd
+    # RATE_LIMIT_CHAT_REFILL_PER_MINUTE=0) would reach
+    # app.ratelimit.token_bucket.check_and_consume's
+    # `missing_tokens / refill_per_second` division and crash every request
+    # that empties the bucket with an unhandled ZeroDivisionError instead of
+    # failing loudly at process startup, where a misconfiguration belongs.
     rate_limit_enabled: bool = True
-    rate_limit_chat_capacity: int = 10
-    rate_limit_chat_refill_per_minute: int = 10
-    rate_limit_auth_capacity: int = 10
-    rate_limit_auth_refill_per_minute: int = 10
+    rate_limit_chat_capacity: int = Field(default=10, ge=1)
+    rate_limit_chat_refill_per_minute: int = Field(default=10, ge=1)
+    rate_limit_auth_capacity: int = Field(default=10, ge=1)
+    rate_limit_auth_refill_per_minute: int = Field(default=10, ge=1)
+
+    # How many trusted reverse-proxy hops sit between the real client and
+    # this process, for resolving the IP that keys POST /api/auth/token's
+    # rate-limit bucket (see app.core.client_ip.resolve_client_ip). 0 (the
+    # default) means "don't trust X-Forwarded-For at all" - use the raw
+    # transport peer IP, which is correct for local dev/docker-compose
+    # (no proxy in front of the backend) and safe for any deployment that
+    # hasn't explicitly confirmed its proxy topology, since a wrongly
+    # trusted header would let any caller spoof their own rate-limit
+    # identity. Set to 1 for a single reverse proxy/ingress in front of the
+    # backend (this repo's own Helm chart deployment target, Phase 5) - see
+    # docs/SECURITY.md's Rate Limiting section. Env-only: unlike the
+    # capacity/refill fields above, this describes fixed deployment
+    # topology, not a runtime policy an admin should redirect at will (the
+    # same reasoning tracing_otlp_endpoint uses for staying env-only).
+    rate_limit_trusted_proxy_count: int = Field(default=0, ge=0)
 
     # Knowledge-base file upload limits (see app.api.knowledge_base's
     # upload endpoint, issue #13). Enforced at the request boundary before

@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.config import settings
 from app.db.models import SystemSettings
 
 # Bucket state is reset automatically before/after every test by the
@@ -89,3 +90,67 @@ def test_token_endpoint_429_response_includes_retry_after_header(client, db_sess
     assert response.status_code == 429
     assert "Retry-After" in response.headers
     assert int(response.headers["Retry-After"]) > 0
+
+
+@pytest.mark.unit
+def test_token_endpoint_ignores_x_forwarded_for_by_default(client, db_session, monkeypatch):
+    """With rate_limit_trusted_proxy_count at its default of 0, a
+    caller-supplied X-Forwarded-For header must never influence which
+    bucket a request is keyed on - trusting it unconditionally would let
+    any client spoof its own rate-limit identity and dodge the limit
+    entirely, since this endpoint has no authenticated identity to key on
+    instead. Two requests claiming different X-Forwarded-For values but
+    from the same test-client transport peer must still share one bucket.
+    """
+    monkeypatch.setattr(settings, "rate_limit_trusted_proxy_count", 0)
+    _set_auth_capacity(db_session, capacity=1)
+
+    with _mock_keycloak_success():
+        first = client.post(
+            "/api/auth/token",
+            json={"code": "auth_code", "redirect_uri": "http://localhost:3000/"},
+            headers={"X-Forwarded-For": "203.0.113.7"},
+        )
+        second = client.post(
+            "/api/auth/token",
+            json={"code": "auth_code", "redirect_uri": "http://localhost:3000/"},
+            headers={"X-Forwarded-For": "198.51.100.1"},  # different claimed IP
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 429  # same bucket despite the differing header
+
+
+@pytest.mark.unit
+def test_token_endpoint_honors_x_forwarded_for_when_trusted_proxy_configured(
+    client, db_session, monkeypatch
+):
+    """With rate_limit_trusted_proxy_count=1 (one reverse proxy/ingress in
+    front of the backend - this repo's own Helm deployment target), two
+    distinct X-Forwarded-For IPs get two independent buckets, even though
+    both requests arrive from the same test-client transport peer (as they
+    would from the same real ingress pod IP in production).
+    """
+    monkeypatch.setattr(settings, "rate_limit_trusted_proxy_count", 1)
+    _set_auth_capacity(db_session, capacity=1)
+
+    with _mock_keycloak_success():
+        first_client_exhausted = client.post(
+            "/api/auth/token",
+            json={"code": "auth_code", "redirect_uri": "http://localhost:3000/"},
+            headers={"X-Forwarded-For": "203.0.113.7"},
+        )
+        first_client_second_request = client.post(
+            "/api/auth/token",
+            json={"code": "auth_code", "redirect_uri": "http://localhost:3000/"},
+            headers={"X-Forwarded-For": "203.0.113.7"},
+        )
+        second_client_still_fresh = client.post(
+            "/api/auth/token",
+            json={"code": "auth_code", "redirect_uri": "http://localhost:3000/"},
+            headers={"X-Forwarded-For": "198.51.100.1"},
+        )
+
+    assert first_client_exhausted.status_code == 200
+    assert first_client_second_request.status_code == 429
+    assert second_client_still_fresh.status_code == 200

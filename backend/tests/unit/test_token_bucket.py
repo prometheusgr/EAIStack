@@ -86,3 +86,33 @@ def test_elapsed_time_since_last_refill_still_consumes_one_token_when_allowed(no
 
     assert result.allowed is True
     assert result.state.tokens == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("refill_per_second", [0.0, -1.0])
+def test_check_and_consume_rejects_non_positive_refill_rate(now_fixed, refill_per_second):
+    """A refill rate of zero or less can never produce a valid
+    retry_after_seconds (division by zero, or a negative wait). This is a
+    contract violation by the caller (config resolution should never reach
+    here with such a value - see app.core.config's Field(ge=1) bound on the
+    env-sourced settings), not a state this pure module should silently
+    accept and either crash on or return nonsense from.
+    """
+    empty_state = TokenBucketState(tokens=0, last_refill_at=now_fixed)
+
+    with pytest.raises(ValueError, match="refill_per_second"):
+        check_and_consume(
+            empty_state, capacity=10, refill_per_second=refill_per_second, now=now_fixed
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("capacity", [0, -1])
+def test_check_and_consume_rejects_non_positive_capacity(now_fixed, capacity):
+    """A zero or negative capacity bucket would deny every request forever
+    with no way to recover - the same kind of caller contract violation as
+    a non-positive refill rate, and equally worth failing loudly on rather
+    than silently locking every identity out.
+    """
+    with pytest.raises(ValueError, match="capacity"):
+        check_and_consume(None, capacity=capacity, refill_per_second=1.0, now=now_fixed)

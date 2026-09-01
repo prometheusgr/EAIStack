@@ -79,7 +79,22 @@ def check_and_consume(
 
     A denied request (fewer than 1 token available after refill) does not
     consume anything further; only an allowed request subtracts one token.
+
+    Raises ValueError for a non-positive capacity or refill_per_second: both
+    are caller contract violations (a zero/negative capacity bucket denies
+    every request forever with no way to recover; a zero/negative refill
+    rate makes the retry_after_seconds division undefined or negative).
+    Config resolution is expected to never produce such a value in practice
+    (see app.core.config's Field(ge=1) bound on the env-sourced settings and
+    UpdateSettingsRequest's identical bound on the DB-override path) -- this
+    is a defense-in-depth assertion at the boundary of this module's own
+    contract, not a scenario normal operation should ever reach.
     """
+    if capacity < 1:
+        raise ValueError(f"capacity must be >= 1, got {capacity}")
+    if refill_per_second <= 0:
+        raise ValueError(f"refill_per_second must be > 0, got {refill_per_second}")
+
     if state is None:
         tokens_before_consume = float(capacity)
         elapsed_seconds = 0.0

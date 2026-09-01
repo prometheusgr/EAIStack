@@ -23,12 +23,17 @@ export class ApiErrorImpl extends Error implements ApiError {
   }
 }
 
-interface ParsedErrorBody {
+export interface ParsedErrorBody {
   detail: string
   message?: string
 }
 
-async function parseErrorBody(response: Response): Promise<ParsedErrorBody> {
+// Exported for app/context/AuthContext.tsx's pre-login /api/auth/token calls,
+// which cannot go through authorizedFetch below (it requires a bearer token,
+// but no token exists yet before login/refresh succeeds) but hit the same
+// backend error-body shape (see backend/app/services/rate_limiter_service's
+// rate_limit_exceeded_response and the guardrail rejection it mirrors).
+export async function parseErrorBody(response: Response): Promise<ParsedErrorBody> {
   try {
     const data = await response.json()
     if (data.detail) {

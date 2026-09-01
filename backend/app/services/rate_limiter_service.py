@@ -23,11 +23,25 @@ A module-level lock guards the dict's read-modify-write: even a single
 uvicorn worker interleaves concurrent requests on its event loop, so two
 requests from the same identity arriving close together could otherwise
 race on the same bucket entry.
+
+Stale entries are evicted opportunistically on every write (see
+_evict_stale_buckets), bounding memory growth from identities that are
+seen once and never again -- e.g. a scripted client varying its source IP
+against the unauthenticated POST /api/auth/token. An O(n) dict scan on
+every check is cheap relative to the SystemSettings SELECT each check
+already does, so there's no need to throttle how often it runs. No
+separate eviction thread/scheduler: the same double-execution-across-
+replicas trap the retention CronJob's docstring warns an in-process
+scheduler would hit does not apply here (a periodic sweep would just run
+redundantly on each replica, not corrupt anything), but a dedicated thread
+is still unnecessary complexity this module doesn't need when eviction can
+ride along on the request path it already has.
 """
 
 import threading
 from datetime import datetime
 
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.ratelimit.token_bucket import TokenBucketState, check_and_consume
@@ -35,6 +49,13 @@ from app.services.rate_limit_config_service import RateLimitConfig, resolve_rate
 
 _buckets: dict[tuple[str, str], TokenBucketState] = {}
 _buckets_lock = threading.Lock()
+
+# An entry idle at least this long is indistinguishable from "never seen"
+# regardless of its configured capacity/refill rate: even the slowest
+# realistic refill rate (1 token/minute) fully refills a reasonably sized
+# bucket well within an hour, so its stored token count carries no more
+# information than a fresh state=None would.
+_STALE_AFTER_SECONDS = 3600
 
 
 class RateLimitCheckResult:
@@ -52,6 +73,27 @@ class RateLimitCheckResult:
         self.retry_after_seconds = retry_after_seconds
 
 
+def rate_limit_exceeded_response(result: RateLimitCheckResult, *, message: str) -> JSONResponse:
+    """Build the 429 response for a denied rate-limit check.
+
+    Shared by app.api.agents.chat and app.api.auth.exchange_token, which
+    were previously hand-building an identical status code/Retry-After
+    header/detail-key shape with only the human-readable message differing
+    -- consolidated here so the two endpoints' error contracts can't drift
+    apart if that shape ever changes (e.g. a new field added to the body).
+
+    message: endpoint-specific human-readable text, the one part of the
+    response that legitimately differs per caller -- mirrors how the input
+    guardrail's 400 response carries both a stable `detail` reason code and
+    a per-check `message` (see app.services.chat_guardrail_service).
+    """
+    return JSONResponse(
+        status_code=429,
+        headers={"Retry-After": str(result.retry_after_seconds)},
+        content={"detail": "rate_limit_exceeded", "message": message},
+    )
+
+
 def reset_rate_limit_state() -> None:
     """Clear all in-process bucket state.
 
@@ -62,6 +104,31 @@ def reset_rate_limit_state() -> None:
     """
     with _buckets_lock:
         _buckets.clear()
+
+
+def bucket_count() -> int:
+    """Number of identities currently tracked in the in-process store.
+
+    Read-only introspection -- used by this module's own eviction tests,
+    and a reasonable hook for a future operational metric/health check.
+    """
+    with _buckets_lock:
+        return len(_buckets)
+
+
+def _evict_stale_buckets(now: datetime) -> None:
+    """Drop entries idle long enough to carry no useful state.
+
+    Must be called with _buckets_lock already held -- this is a private
+    helper of _check_and_consume_bucket, not a standalone entry point.
+    """
+    stale_keys = [
+        key
+        for key, state in _buckets.items()
+        if (now - state.last_refill_at).total_seconds() >= _STALE_AFTER_SECONDS
+    ]
+    for key in stale_keys:
+        del _buckets[key]
 
 
 def _check_and_consume_bucket(
@@ -77,6 +144,7 @@ def _check_and_consume_bucket(
     refill_per_second = refill_per_minute / 60.0
 
     with _buckets_lock:
+        _evict_stale_buckets(now)
         current_state = _buckets.get(key)
         result = check_and_consume(
             current_state,

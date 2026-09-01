@@ -24,9 +24,11 @@ from app.db.models import utc_now
 from app.guardrails.input_guardrail import GuardrailVerdict
 from app.prompts.chat_prompts import CHAT_AGENT_SYSTEM_PROMPT
 from app.repositories import ThreadRepository
+from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services import check_input_guardrail, filter_agent_response
 from app.services.guardrail_config_service import resolve_guardrail_config
-from app.services.rate_limiter_service import check_chat_rate_limit
+from app.services.rate_limit_config_service import resolve_rate_limit_config
+from app.services.rate_limiter_service import check_chat_rate_limit, rate_limit_exceeded_response
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -60,13 +62,15 @@ async def chat(
     redaction, respectively) live in app.services.chat_guardrail_service,
     alongside the rationale for each guardrail's trip behavior.
 
-    Guardrail config (thresholds, on/off switches, enabled patterns) is
-    resolved once here and passed to both check_input_guardrail and
-    filter_agent_response, rather than letting each resolve its own --
-    config cannot legitimately change partway through one request, so
-    resolving it twice was pure redundant DB work (a SystemSettings SELECT
-    plus a GuardrailPattern seed-check and list, twice over) on this
-    endpoint's hot path.
+    The SystemSettings singleton row is fetched once here and passed to
+    every resolver that needs it (rate-limit config, then guardrail
+    config), rather than letting each resolve its own -- config cannot
+    legitimately change partway through one request, so resolving it
+    multiple times was pure redundant DB work (a SystemSettings SELECT,
+    once per resolver, plus a GuardrailPattern seed-check and list for the
+    guardrail resolver) on this endpoint's hot path. Mirrors
+    app.api.settings._to_response's identical fetch-once-share-many
+    pattern.
 
     The rate limit check (issue #25) runs before the guardrail check --
     it's the cheaper, more fundamental gate (protects resource consumption
@@ -80,18 +84,19 @@ async def chat(
     rate-limiting section): it's a high-frequency operational signal, not
     an individually compliance-relevant event.
     """
-    rate_limit_result = check_chat_rate_limit(db, user_id=user["user_id"], now=utc_now())
+    db_settings = SystemSettingsRepository(db).get()
+
+    rate_limit_config = resolve_rate_limit_config(db, db_settings)
+    rate_limit_result = check_chat_rate_limit(
+        db, user_id=user["user_id"], now=utc_now(), config=rate_limit_config
+    )
     if not rate_limit_result.allowed:
-        return JSONResponse(
-            status_code=429,
-            headers={"Retry-After": str(rate_limit_result.retry_after_seconds)},
-            content={
-                "detail": "rate_limit_exceeded",
-                "message": "Too many requests. Please wait before sending another message.",
-            },
+        return rate_limit_exceeded_response(
+            rate_limit_result,
+            message="Too many requests. Please wait before sending another message.",
         )
 
-    guardrail_config = resolve_guardrail_config(db)
+    guardrail_config = resolve_guardrail_config(db, db_settings)
 
     guardrail_result = check_input_guardrail(
         db,

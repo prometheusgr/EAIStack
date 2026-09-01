@@ -390,6 +390,7 @@ async def test_keycloak_token_exchange_verifies_against_ca_bundle(ca_bundle_path
 
     class _FakeRequest:
         client = _FakeClientAddress()
+        headers: dict = {}
 
     with patch.object(auth_api.httpx, "AsyncClient") as mock_client:
         mock_client.return_value.__aenter__.side_effect = RuntimeError("stop after construction")
@@ -404,6 +405,12 @@ async def test_keycloak_token_exchange_verifies_against_ca_bundle(ca_bundle_path
                 db_session,
             )
 
+    # Fails clearly here, rather than via a misleading AttributeError on
+    # call_args below, if a future change ever makes the rate-limit check
+    # trip before reaching httpx.AsyncClient - see this test's docstring.
+    assert (
+        mock_client.called
+    ), "rate limiting must not have short-circuited before the Keycloak call"
     assert mock_client.call_args.kwargs["verify"] == CA_BUNDLE
 
 

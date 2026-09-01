@@ -12,7 +12,7 @@ import { ToastProvider } from './components/ui/toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AppContent() {
-  const { isAuthenticated, isLoading, login, isAdmin } = useAuth()
+  const { isAuthenticated, isLoading, login, isAdmin, authError } = useAuth()
   const [currentView, setCurrentView] = useState<
     'chat' | 'apikeys' | 'embeddings' | 'embeddings-search' | 'settings'
   >('chat')
@@ -33,6 +33,14 @@ function AppContent() {
       <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-background p-4">
         <h1 className="text-4xl font-bold">EAIStack</h1>
         <p className="text-lg text-muted-foreground">Enterprise AI Stack - Please log in</p>
+        {authError && (
+          <div
+            data-testid="auth-error-banner"
+            className="bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm max-w-md text-center"
+          >
+            {authError}
+          </div>
+        )}
         <Button
           data-testid="login-button"
           onClick={login}

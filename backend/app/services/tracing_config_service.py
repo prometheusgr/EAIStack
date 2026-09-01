@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.models import SystemSettings
 from app.repositories.system_settings_repository import SystemSettingsRepository
+from app.services.config_resolution import resolve_field
 from app.services.system_settings_service import NOT_PROVIDED, NotProvided
 
 
@@ -28,23 +29,6 @@ class TracingConfig:
     """Effective tracing policy, DB override merged over the env default."""
 
     enabled: bool
-
-
-def _resolve_field(db_value: bool | None, env_default: bool) -> bool:
-    """Resolve the tracing_enabled field: the DB value if a row set it,
-    else the env default.
-
-    Must stay an `is not None` check, not a truthiness check: an explicit
-    DB `False` ("tracing is off") must not be treated as unset and silently
-    replaced with the env default - see AGENTS.md's Retention Field
-    Semantics section.
-
-    Not shared with guardrail_config_service._resolve_field or the other
-    sibling resolvers, per this repo's no-premature-abstraction convention
-    (AGENTS.md) - each service keeps its own even though the bodies are
-    identical, since generalizing now would only save one line per service.
-    """
-    return db_value if db_value is not None else env_default
 
 
 def resolve_tracing_config(
@@ -61,8 +45,8 @@ def resolve_tracing_config(
         db_settings = SystemSettingsRepository(db).get()
 
     return TracingConfig(
-        enabled=_resolve_field(
-            db_settings.tracing_enabled if db_settings else None,
-            settings.tracing_enabled,
+        enabled=resolve_field(
+            db_value=db_settings.tracing_enabled if db_settings else None,
+            env_default=settings.tracing_enabled,
         )
     )

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.models import SystemSettings
 from app.repositories.system_settings_repository import SystemSettingsRepository
+from app.services.config_resolution import resolve_field
 from app.services.system_settings_service import NOT_PROVIDED, NotProvided
 
 
@@ -44,23 +45,6 @@ class RateLimitConfig:
     auth_refill_per_minute: int
 
 
-def _resolve_field(db_value, env_default):
-    """Resolve one overridable rate-limit field: the DB value if a row set
-    it, else the env default.
-
-    Must stay an `is not None` check, not a truthiness check: an explicit
-    DB `False` for `enabled` must not be treated as unset and silently
-    replaced with the env default - see AGENTS.md's Retention Field
-    Semantics section.
-
-    Not shared with guardrail_config_service._resolve_field or the other
-    sibling resolvers, per this repo's no-premature-abstraction convention
-    (AGENTS.md) - each service keeps its own even though the bodies are
-    identical.
-    """
-    return db_value if db_value is not None else env_default
-
-
 def resolve_rate_limit_config(
     db: Session, db_settings: SystemSettings | None | NotProvided = NOT_PROVIDED
 ) -> RateLimitConfig:
@@ -76,24 +60,24 @@ def resolve_rate_limit_config(
         db_settings = SystemSettingsRepository(db).get()
 
     return RateLimitConfig(
-        enabled=_resolve_field(
-            db_settings.rate_limit_enabled if db_settings else None,
-            settings.rate_limit_enabled,
+        enabled=resolve_field(
+            db_value=db_settings.rate_limit_enabled if db_settings else None,
+            env_default=settings.rate_limit_enabled,
         ),
-        chat_capacity=_resolve_field(
-            db_settings.rate_limit_chat_capacity if db_settings else None,
-            settings.rate_limit_chat_capacity,
+        chat_capacity=resolve_field(
+            db_value=db_settings.rate_limit_chat_capacity if db_settings else None,
+            env_default=settings.rate_limit_chat_capacity,
         ),
-        chat_refill_per_minute=_resolve_field(
-            db_settings.rate_limit_chat_refill_per_minute if db_settings else None,
-            settings.rate_limit_chat_refill_per_minute,
+        chat_refill_per_minute=resolve_field(
+            db_value=db_settings.rate_limit_chat_refill_per_minute if db_settings else None,
+            env_default=settings.rate_limit_chat_refill_per_minute,
         ),
-        auth_capacity=_resolve_field(
-            db_settings.rate_limit_auth_capacity if db_settings else None,
-            settings.rate_limit_auth_capacity,
+        auth_capacity=resolve_field(
+            db_value=db_settings.rate_limit_auth_capacity if db_settings else None,
+            env_default=settings.rate_limit_auth_capacity,
         ),
-        auth_refill_per_minute=_resolve_field(
-            db_settings.rate_limit_auth_refill_per_minute if db_settings else None,
-            settings.rate_limit_auth_refill_per_minute,
+        auth_refill_per_minute=resolve_field(
+            db_value=db_settings.rate_limit_auth_refill_per_minute if db_settings else None,
+            env_default=settings.rate_limit_auth_refill_per_minute,
         ),
     )

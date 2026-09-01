@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.models import SystemSettings
 from app.repositories.system_settings_repository import SystemSettingsRepository
+from app.services.config_resolution import resolve_field
 
 
 class NotProvided(Enum):
@@ -73,28 +74,6 @@ class EmbeddingConfig:
     timeout: int
 
 
-def _resolve_field(db_value: str | None, env_default: str) -> str:
-    """Resolve one overridable field: the DB value if a row set it (even to
-    an empty string, which is a deliberate override — e.g. the 'fake'
-    provider's URL template is ""), else the env default.
-
-    Must stay an `is not None` check, not a truthiness check: `"" or env`
-    would silently discard an empty-string override, which would make this
-    resolver disagree with `_to_response`'s `is_db_override` computation in
-    app.api.settings (also an `is not None` check).
-
-    app.services.retention_service defines its own `_resolve_field` rather
-    than reusing this one (though it does import this module's NOT_PROVIDED
-    sentinel): that resolver is `int | bool`-typed and overloaded to keep
-    its env-default parameter's optionality precise per call site, which a
-    shared `str`-typed function couldn't express without widening this one's
-    signature too. If a third resolver with a different type ever shows up,
-    that's the point to generalize both into one generic function — not
-    before, per this repo's no-premature-abstraction convention (AGENTS.md).
-    """
-    return db_value if db_value is not None else env_default
-
-
 def resolve_llm_config(
     db: Session, db_settings: SystemSettings | None | NotProvided = NOT_PROVIDED
 ) -> LLMConfig:
@@ -118,11 +97,17 @@ def resolve_llm_config(
         db_settings = SystemSettingsRepository(db).get()
 
     return LLMConfig(
-        provider=_resolve_field(
-            db_settings.llm_provider if db_settings else None, settings.llm_provider
+        provider=resolve_field(
+            db_value=db_settings.llm_provider if db_settings else None,
+            env_default=settings.llm_provider,
         ),
-        url=_resolve_field(db_settings.llm_url if db_settings else None, settings.llm_url),
-        model=_resolve_field(db_settings.llm_model if db_settings else None, settings.llm_model),
+        url=resolve_field(
+            db_value=db_settings.llm_url if db_settings else None, env_default=settings.llm_url
+        ),
+        model=resolve_field(
+            db_value=db_settings.llm_model if db_settings else None,
+            env_default=settings.llm_model,
+        ),
         api_key=settings.llm_api_key,
         timeout=settings.llm_timeout,
     )
@@ -146,14 +131,17 @@ def resolve_embedding_config(
         db_settings = SystemSettingsRepository(db).get()
 
     return EmbeddingConfig(
-        provider=_resolve_field(
-            db_settings.embedding_provider if db_settings else None, settings.embedding_provider
+        provider=resolve_field(
+            db_value=db_settings.embedding_provider if db_settings else None,
+            env_default=settings.embedding_provider,
         ),
-        url=_resolve_field(
-            db_settings.embedding_url if db_settings else None, settings.embedding_url
+        url=resolve_field(
+            db_value=db_settings.embedding_url if db_settings else None,
+            env_default=settings.embedding_url,
         ),
-        model=_resolve_field(
-            db_settings.embedding_model if db_settings else None, settings.embedding_model
+        model=resolve_field(
+            db_value=db_settings.embedding_model if db_settings else None,
+            env_default=settings.embedding_model,
         ),
         timeout=settings.embedding_timeout,
     )

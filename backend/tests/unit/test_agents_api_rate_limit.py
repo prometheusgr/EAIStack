@@ -11,6 +11,7 @@ from app.core.auth import get_current_user
 from app.db.models import SystemSettings
 from app.main import app
 from app.repositories import AuditLogRepository
+from app.repositories.system_settings_repository import SystemSettingsRepository
 
 # Bucket state is reset automatically before/after every test by the
 # autouse _reset_rate_limit_state fixture in tests/conftest.py.
@@ -106,3 +107,41 @@ def test_chat_endpoint_does_not_audit_log_a_rate_limit_trip(client, db_session):
 
     entries = [e for e in AuditLogRepository(db_session).list_recent() if "rate_limit" in e.action]
     assert entries == []
+
+
+@pytest.mark.unit
+def test_chat_endpoint_shares_one_system_settings_fetch_between_rate_limit_and_guardrail(
+    client, db_session, monkeypatch
+):
+    """Rate-limit config and guardrail config both read the same singleton
+    SystemSettings row - chat() must fetch it once and share it between
+    both resolvers, the same way app.api.settings._to_response does for
+    every resolver, rather than each resolver issuing its own SELECT.
+
+    A successful chat request also triggers one further, independent
+    SystemSettings SELECT inside create_chat_agent -> get_llm_client's own
+    provider-config resolution (app.services.system_settings_service) -
+    a separate, pre-existing resolution path this test does not touch.
+    So the assertion is call_count == 2 (one shared fetch for rate-limit +
+    guardrail, one for the LLM client), not 1 - proving chat() itself
+    stopped doubling its own fetch without over-asserting on a call site
+    outside this endpoint's responsibility.
+    """
+    _login_as("user-a")
+
+    call_count = 0
+    original_get = SystemSettingsRepository.get
+
+    def counting_get(self):
+        nonlocal call_count
+        call_count += 1
+        return original_get(self)
+
+    monkeypatch.setattr(SystemSettingsRepository, "get", counting_get)
+
+    response = client.post("/api/agents/chat", json={"message": "hello"})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert call_count == 2

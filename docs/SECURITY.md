@@ -474,7 +474,8 @@ itself (see the replica-correctness discussion below).
   `ThreadRepository` uses for conversation ownership, so a client cannot
   spoof another user's budget or dodge its own.
 - `POST /api/auth/token` is keyed by client IP — there is no authenticated
-  identity yet at this endpoint, since it *is* the token exchange.
+  identity yet at this endpoint, since it *is* the token exchange. See
+  "Client IP resolution behind a proxy" below for how that IP is determined.
 - Cheap, already-auth-gated reads (`GET /api/agents/threads`,
   `GET /api/agents/threads/{id}`) are not rate-limited at all — a blanket
   global limit was explicitly rejected; only the expensive/pre-auth paths
@@ -497,15 +498,39 @@ One shared on/off switch covers both limiters, unlike the guardrails' separate
 input/output switches — chat and auth rate limiting share the same trip
 behavior (`429` + `Retry-After`) and mechanism, unlike the guardrails'
 reject-vs-sanitize split that justified two independent switches there.
-Capacity/refill fields are bounded to `>= 1` at the request schema boundary
-(`UpdateSettingsRequest`): unlike retention's windows, `0` has no meaningful
+Capacity/refill fields are bounded to `>= 1` at **both** boundaries they can be
+set from: the request schema (`UpdateSettingsRequest`, the DB-override write
+path) and the env-level `Settings` class itself (`app/core/config.py`, via the
+same `Field(ge=1)`) — unlike retention's windows, `0` has no meaningful
 interpretation for a bucket (a zero-capacity bucket would never allow
-anything).
+anything, and a zero refill rate makes the token-bucket math's
+`missing_tokens / refill_per_second` division undefined). A misconfigured env
+var now fails loudly at process startup instead of crashing the first request
+that empties the affected bucket.
 
 Every admin change to these fields is audit-logged via
 `action="rate_limit.config_update"`, following the identical
 before/after-diff pattern as `retention.update`/`guardrail.config_update`/
 `tracing.config_update` — see "Audit & Compliance" above.
+
+**Client IP resolution behind a proxy** (`app.core.client_ip.resolve_client_ip`):
+the auth bucket's identity is the caller's IP, but a bare
+`Request.client.host` is only ever correct when this process receives
+connections directly. Behind any reverse proxy or K8s ingress (this repo's
+own Helm deployment target, Phase 5), that field is the proxy's own address
+for every caller, which would collapse every external user onto one shared
+bucket — a single aggressive client could then lock out every other user's
+login. `settings.rate_limit_trusted_proxy_count` (env-only, default `0`)
+controls this: at `0`, `X-Forwarded-For` is never consulted at all, even if
+present, so an un-proxied deployment can't have its rate-limit identity
+spoofed by a caller-supplied header. Set it to the number of trusted proxy
+hops in front of the backend (`1` for a single ingress) to read the real
+client IP from the correct position in `X-Forwarded-For` instead — walking
+back that many entries from the right, since each trusted hop appends the
+address it received the request from. This is deliberately env-only, not a
+DB-overridable admin setting: it describes fixed deployment topology, the
+same reasoning `tracing_otlp_endpoint` uses for staying env-only, not a
+runtime policy an admin should redirect at will.
 
 **Response shape on trip**: `429`, with a `Retry-After` header (seconds until
 one token is available) and a body shaped like the input guardrail's `400`
@@ -558,6 +583,20 @@ Redis client exists anywhere in this repo today, and adding one is a real new
 piece of air-gapped infrastructure to vendor, document, and operate; it should
 be justified by an actual multi-replica deployment, not spent speculatively
 against a hypothetical one.
+
+**Bucket eviction bounds memory growth.** `POST /api/auth/token` is
+unauthenticated, so its bucket key (client IP) is attacker-influenced: a
+scripted client varying its source IP would otherwise add one permanent
+dict entry per IP ever seen, for the life of the process. Every check
+opportunistically evicts entries idle long enough to have fully refilled
+regardless of their configured rate (see `_evict_stale_buckets`,
+`_STALE_AFTER_SECONDS` in `app/services/rate_limiter_service.py`) — an idle
+entry that old carries no more information than a fresh, never-seen
+identity would. No separate eviction thread: the scan rides along on the
+request path the module already runs on every check, and (per the
+replica-correctness discussion above) a redundant per-replica sweep would
+not be a correctness hazard the way an in-process scheduler would be for
+the retention CronJob.
 
 **Settings UI**: the backend fully supports these fields via
 `GET`/`PUT /api/settings` (same admin-only endpoints as every other setting
