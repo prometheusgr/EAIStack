@@ -1,6 +1,7 @@
 """API endpoints for admin-only runtime provider settings."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -177,14 +178,22 @@ async def update_settings(
     options_by_category = _provider_options_by_category()
 
     if payload.llm_provider is not None and payload.llm_provider not in options_by_category["llm"]:
-        raise HTTPException(status_code=400, detail=f"Unknown llm_provider: {payload.llm_provider}")
+        detail = f"unknown_llm_provider:{payload.llm_provider}"
+        return JSONResponse(
+            status_code=400,
+            content={"detail": detail, "message": f"Unknown LLM provider: {payload.llm_provider}"},
+        )
     if (
         payload.embedding_provider is not None
         and payload.embedding_provider not in options_by_category["embedding"]
     ):
-        raise HTTPException(
+        detail = f"unknown_embedding_provider:{payload.embedding_provider}"
+        return JSONResponse(
             status_code=400,
-            detail=f"Unknown embedding_provider: {payload.embedding_provider}",
+            content={
+                "detail": detail,
+                "message": f"Unknown embedding provider: {payload.embedding_provider}",
+            },
         )
 
     repo = SystemSettingsRepository(db)
@@ -196,9 +205,12 @@ async def update_settings(
     # still be validated when only its URL is being cleared.
     llm_provider = payload.llm_provider or resolve_llm_config(db, db_settings).provider
     if options_by_category["llm"][llm_provider]["requires_manual_entry"] and payload.llm_url == "":
-        raise HTTPException(
+        return JSONResponse(
             status_code=400,
-            detail=f"llm_url is required for provider: {llm_provider}",
+            content={
+                "detail": f"llm_url_required:{llm_provider}",
+                "message": f"A URL is required for LLM provider: {llm_provider}",
+            },
         )
 
     embedding_provider = (
@@ -208,9 +220,12 @@ async def update_settings(
         options_by_category["embedding"][embedding_provider]["requires_manual_entry"]
         and payload.embedding_url == ""
     ):
-        raise HTTPException(
+        return JSONResponse(
             status_code=400,
-            detail=f"embedding_url is required for provider: {embedding_provider}",
+            content={
+                "detail": f"embedding_url_required:{embedding_provider}",
+                "message": f"A URL is required for embedding provider: {embedding_provider}",
+            },
         )
 
     # Captured before the write: the audit trail must show the actual

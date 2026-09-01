@@ -135,7 +135,13 @@ def test_put_settings_response_never_includes_api_key(client):
 
 @pytest.mark.unit
 def test_put_settings_rejects_unknown_llm_provider(client):
-    """An unrecognized llm_provider value should 400, not silently persist."""
+    """An unrecognized llm_provider value should 400, not silently persist.
+
+    Also asserts on `message`: the Settings screen's toast reads only
+    ApiErrorImpl.message (never the machine-readable `detail`), so a
+    response missing `message` reaches the admin as a blank toast — the
+    same contract agents.py's guardrail/rate-limit 400s already follow.
+    """
     app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
 
     response = client.put("/api/settings", json={"llm_provider": "not-a-real-provider"})
@@ -143,6 +149,7 @@ def test_put_settings_rejects_unknown_llm_provider(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 400
+    assert response.json()["message"]
 
 
 @pytest.mark.unit
@@ -155,6 +162,7 @@ def test_put_settings_rejects_unknown_embedding_provider(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 400
+    assert response.json()["message"]
 
 
 @pytest.mark.unit
@@ -233,6 +241,7 @@ def test_put_settings_rejects_empty_url_for_openai_compatible_provider(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 400
+    assert response.json()["message"]
 
 
 @pytest.mark.unit
