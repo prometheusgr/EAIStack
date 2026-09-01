@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 
 // Validates two additions to the Settings screen: (1) issue #37's UI for the
 // 5 rate-limit fields the backend already supported via GET/PUT /api/settings
@@ -11,21 +11,24 @@ import { test, expect, type Page } from '@playwright/test'
 // backend and that the help text is actually reachable, not just present in
 // the DOM in a way a screen reader or keyboard user couldn't discover.
 //
-// Logs in once for the whole file (test.describe.serial + a single shared
-// page), not once per test -- POST /api/auth/token is itself rate-limited
-// (issue #25, default capacity 10/refill 10 per minute, keyed by client IP),
-// and every e2e spec file in this suite calls it once per test via its own
-// loginAsAdmin helper. Four fresh logins in this file stacked on top of
-// guardrail-admin-config.spec.ts's four (same IP, same CI runner) was
-// enough to trip that bucket in practice ("Too many requests" on the login
-// screen), a real interaction between the two features this PR touches.
+// Every test restores the setting(s) it changed in a `finally`-style cleanup,
+// per AGENTS.md's e2e "start from a clean, known state" convention -- the
+// seeded testuser's SystemSettings row is shared, real Postgres state across
+// every spec in this suite.
 //
-// The one test that changes a setting restores it in a `finally`-style
-// cleanup, per AGENTS.md's e2e "start from a clean, known state" convention
-// -- the seeded testuser's SystemSettings row is shared, real Postgres state
-// across every spec in this suite.
+// Each test logs in fresh, matching every other spec file's own
+// loginAsAdmin convention in this suite. Note for future maintainers: this
+// file's 4 fresh logins, stacked on top of another spec file's own per-test
+// logins in the same CI run/worker, can trip POST /api/auth/token's own
+// rate limiter (issue #25, default capacity 10/refill 10 per minute, keyed
+// by client IP) -- a real, pre-existing risk across this whole e2e suite
+// (every spec file logs in per-test), not unique to this file. Mitigated
+// for now via docker-compose.yml's RATE_LIMIT_AUTH_CAPACITY override;
+// tracked as issue #53 for a proper fix (e.g. a shared storageState login
+// fixture across spec files, so most specs don't need to hit the token
+// endpoint at all).
 
-async function loginAsAdmin(page: Page) {
+async function loginAsAdmin(page: import('@playwright/test').Page) {
   await page.goto('/')
   await page.locator('button:has-text("Login")').click()
   await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
@@ -35,7 +38,7 @@ async function loginAsAdmin(page: Page) {
   await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
 }
 
-async function openSettings(page: Page) {
+async function openSettings(page: import('@playwright/test').Page) {
   await page.locator('button:has-text("Settings")').click()
   // Scoped to the section heading, not a plain getByText: the "Common
   // setups" panel's prose contains "rate limiting" (lowercase), and
@@ -46,19 +49,11 @@ async function openSettings(page: Page) {
   })
 }
 
-test.describe.serial('Settings screen: rate limit UI and help tooltips (issue #37)', () => {
-  let page: Page
-
-  test.beforeAll(async ({ browser }) => {
-    page = await browser.newPage()
+test.describe('Settings screen: rate limit UI and help tooltips (issue #37)', () => {
+  test('the Rate Limiting section renders all five fields with their current values', async ({
+    page,
+  }) => {
     await loginAsAdmin(page)
-  })
-
-  test.afterAll(async () => {
-    await page.close()
-  })
-
-  test('the Rate Limiting section renders all five fields with their current values', async () => {
     await openSettings(page)
 
     await expect(page.getByLabel(/enable rate limiting/i)).toBeVisible()
@@ -73,7 +68,8 @@ test.describe.serial('Settings screen: rate limit UI and help tooltips (issue #3
     await expect(page.getByLabel(/chat burst capacity/i)).not.toHaveValue('')
   })
 
-  test('changing the chat burst capacity persists across a reload', async () => {
+  test('changing the chat burst capacity persists across a reload', async ({ page }) => {
+    await loginAsAdmin(page)
     await openSettings(page)
 
     const capacityInput = page.getByLabel(/chat burst capacity/i)
@@ -82,7 +78,7 @@ test.describe.serial('Settings screen: rate limit UI and help tooltips (issue #3
     try {
       await capacityInput.fill('7')
       await page.locator('button:has-text("Save")').click()
-      await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
 
       await page.reload()
       // Re-authenticating from localStorage on reload isn't instant -- wait
@@ -96,11 +92,14 @@ test.describe.serial('Settings screen: rate limit UI and help tooltips (issue #3
       await openSettings(page)
       await page.getByLabel(/chat burst capacity/i).fill(originalValue)
       await page.locator('button:has-text("Save")').click()
-      await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText('Settings saved').last()).toBeVisible({ timeout: 5000 })
     }
   })
 
-  test('a field help tooltip is reachable by keyboard and reveals explanatory text', async () => {
+  test('a field help tooltip is reachable by keyboard and reveals explanatory text', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
     await openSettings(page)
 
     // Every tooltip trigger shares the accessible name "Show help" (see
@@ -131,7 +130,10 @@ test.describe.serial('Settings screen: rate limit UI and help tooltips (issue #3
     })
   })
 
-  test('the "Common setups" reference panel is visible on the Settings screen', async () => {
+  test('the "Common setups" reference panel is visible on the Settings screen', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
     await openSettings(page)
 
     await expect(page.getByText('Common setups')).toBeVisible()
