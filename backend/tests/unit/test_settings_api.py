@@ -149,7 +149,7 @@ def test_put_settings_rejects_unknown_llm_provider(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 400
-    assert response.json()["message"]
+    assert "not-a-real-provider" in response.json()["message"]
 
 
 @pytest.mark.unit
@@ -162,7 +162,7 @@ def test_put_settings_rejects_unknown_embedding_provider(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 400
-    assert response.json()["message"]
+    assert "not-a-real-provider" in response.json()["message"]
 
 
 @pytest.mark.unit
@@ -241,7 +241,25 @@ def test_put_settings_rejects_empty_url_for_openai_compatible_provider(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 400
-    assert response.json()["message"]
+    assert "openai-compatible" in response.json()["message"]
+
+
+@pytest.mark.unit
+def test_put_settings_rejects_empty_url_for_openai_compatible_embedding_provider(client):
+    """Same rejection as the LLM-provider case above, for the embedding side
+    -- this branch had no dedicated test before.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put(
+        "/api/settings",
+        json={"embedding_provider": "llama-cpp", "embedding_url": ""},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert "llama-cpp" in response.json()["message"]
 
 
 @pytest.mark.unit
@@ -824,6 +842,10 @@ def test_toggle_guardrail_pattern_happy_path(client, db_session):
 
 @pytest.mark.unit
 def test_toggle_guardrail_pattern_unknown_id_returns_404(client):
+    """Also asserts on `message`: the Settings screen's toast reads only
+    ApiErrorImpl.message, so a response missing it reaches the admin as a
+    blank toast (see test_put_settings_rejects_unknown_llm_provider).
+    """
     app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
 
     response = client.put(
@@ -833,6 +855,7 @@ def test_toggle_guardrail_pattern_unknown_id_returns_404(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 404
+    assert response.json()["message"]
 
 
 @pytest.mark.unit
@@ -889,6 +912,7 @@ def test_delete_guardrail_pattern_unknown_id_returns_404(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 404
+    assert response.json()["message"]
 
 
 @pytest.mark.unit
@@ -903,6 +927,7 @@ def test_delete_guardrail_pattern_refuses_a_built_in_pattern(client, db_session)
     app.dependency_overrides.clear()
 
     assert response.status_code == 400
+    assert response.json()["message"]
     assert GuardrailPatternRepository(db_session).get(built_in_id) is not None
 
 
