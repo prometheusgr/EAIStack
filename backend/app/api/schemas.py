@@ -209,6 +209,26 @@ class ProviderOption(BaseModel):
     requires_manual_entry: bool
 
 
+class TestConnectionRequest(BaseModel):
+    """Body for POST /api/settings/test-connection."""
+
+    url: str
+
+
+class TestConnectionResponse(BaseModel):
+    """Result of probing a provider URL's OpenAI-compatible /models endpoint.
+
+    Always returned with a 200 status, success or failure alike -- see
+    app.services.provider_probe_service.ProviderProbeResult and the
+    test_connection endpoint's docstring for why this is a diagnostic
+    result, not a request error.
+    """
+
+    ok: bool
+    models: list[str]
+    error: Optional[str] = None
+
+
 class AuditLogEntry(BaseModel):
     """One entry in the audit trail."""
 

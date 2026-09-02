@@ -1,5 +1,7 @@
 """Unit tests for the admin-only /api/settings endpoints - TDD discipline."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from app.core.auth import get_current_user
@@ -8,6 +10,7 @@ from app.main import app
 from app.repositories import AuditLogRepository, GuardrailPatternRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services import available_provider_options
+from app.services.provider_probe_service import ProviderProbeResult
 
 ADMIN_USER = {
     "user_id": "admin-user-1",
@@ -119,6 +122,72 @@ def test_put_settings_persists_and_subsequent_get_reflects_it(client):
     assert data["llm_model"] == "llama-3"
     # Embedding fields were not part of this PUT, so they stay on env defaults.
     assert data["embedding_provider_is_db_override"] is False
+
+
+# --- POST /api/settings/test-connection --------------------------------------
+
+
+@pytest.mark.unit
+def test_test_connection_without_admin_role_returns_403(client):
+    app.dependency_overrides[get_current_user] = _override_user(NON_ADMIN_USER)
+
+    response = client.post("/api/settings/test-connection", json={"url": "http://x:8000/v1"})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.unit
+def test_test_connection_returns_probe_result_on_success(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    with patch(
+        "app.api.settings.probe_provider",
+        new=AsyncMock(
+            return_value=ProviderProbeResult(
+                ok=True, models=["llama-3-8b", "nomic-embed"], error=None
+            )
+        ),
+    ):
+        response = client.post(
+            "/api/settings/test-connection", json={"url": "http://llama-server:8000/v1"}
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["models"] == ["llama-3-8b", "nomic-embed"]
+    assert data["error"] is None
+
+
+@pytest.mark.unit
+def test_test_connection_returns_200_with_ok_false_on_probe_failure(client):
+    """A failed probe is a diagnostic result, not a request error -- the
+    frontend should never have to special-case HTTP status vs. body to
+    render the same "connection failed" state.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    with patch(
+        "app.api.settings.probe_provider",
+        new=AsyncMock(
+            return_value=ProviderProbeResult(
+                ok=False, models=[], error="Could not reach http://x:8000/v1: connection refused"
+            )
+        ),
+    ):
+        response = client.post("/api/settings/test-connection", json={"url": "http://x:8000/v1"})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is False
+    assert data["models"] == []
+    assert "connection refused" in data["error"]
 
 
 @pytest.mark.unit

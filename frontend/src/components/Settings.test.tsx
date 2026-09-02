@@ -12,6 +12,7 @@ vi.mock('../api/settingsClient', () => ({
   settingsClient: {
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    testConnection: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -373,6 +374,125 @@ describe('Settings', () => {
 
     expect(screen.getByLabelText('Custom URL')).toHaveValue('http://custom-llama-host:9000/v1')
     expect(screen.getByLabelText('Custom Model')).toHaveValue('custom-model-name')
+  })
+
+  it('clicking "Test connection" calls the probe with the current URL and shows the model count on success', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      llm_provider: 'llama-cpp',
+      llm_url: 'http://llama-server:8000/v1',
+      llm_model: '',
+      llm_provider_is_db_override: true,
+      llm_url_is_db_override: true,
+    })
+    vi.mocked(settingsClient.testConnection).mockResolvedValue({
+      ok: true,
+      models: ['llama-3-8b', 'llama-3-70b'],
+      error: null,
+    })
+
+    const user = userEvent.setup()
+    renderSettings()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Custom URL')).toBeInTheDocument()
+    })
+
+    const testButton = screen.getByRole('button', { name: /test connection/i })
+    await user.click(testButton)
+
+    await waitFor(() => {
+      expect(settingsClient.testConnection).toHaveBeenCalledWith(
+        'http://llama-server:8000/v1',
+        expect.any(String),
+        expect.any(Function)
+      )
+    })
+
+    expect(await screen.findByText(/2 models found/i)).toBeInTheDocument()
+  })
+
+  it('populates a model picker from the probed models after a successful test', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      llm_provider: 'llama-cpp',
+      llm_url: 'http://llama-server:8000/v1',
+      llm_model: '',
+      llm_provider_is_db_override: true,
+      llm_url_is_db_override: true,
+    })
+    vi.mocked(settingsClient.testConnection).mockResolvedValue({
+      ok: true,
+      models: ['llama-3-8b', 'llama-3-70b'],
+      error: null,
+    })
+
+    const user = userEvent.setup()
+    renderSettings()
+
+    const testButton = await screen.findByRole('button', { name: /test connection/i })
+    await user.click(testButton)
+
+    const modelSelect = await screen.findByLabelText(/llm model/i)
+    await user.click(modelSelect)
+    expect(await screen.findByRole('option', { name: 'llama-3-8b' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'llama-3-70b' })).toBeInTheDocument()
+  })
+
+  it('shows the returned error and does not block Save when the probe fails', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      llm_provider: 'llama-cpp',
+      llm_url: 'http://unreachable-host:8000/v1',
+      llm_provider_is_db_override: true,
+      llm_url_is_db_override: true,
+    })
+    vi.mocked(settingsClient.testConnection).mockResolvedValue({
+      ok: false,
+      models: [],
+      error: 'Could not reach http://unreachable-host:8000/v1: connection refused',
+    })
+    vi.mocked(settingsClient.updateSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+
+    const user = userEvent.setup()
+    renderSettings()
+
+    const testButton = await screen.findByRole('button', { name: /test connection/i })
+    await user.click(testButton)
+
+    expect(await screen.findByText(/connection refused/i)).toBeInTheDocument()
+
+    const saveButton = screen.getByRole('button', { name: /^save$/i })
+    expect(saveButton).not.toBeDisabled()
+  })
+
+  it('clears a prior test result when the URL is edited', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      llm_provider: 'llama-cpp',
+      llm_url: 'http://llama-server:8000/v1',
+      llm_provider_is_db_override: true,
+      llm_url_is_db_override: true,
+    })
+    vi.mocked(settingsClient.testConnection).mockResolvedValue({
+      ok: true,
+      models: ['llama-3-8b'],
+      error: null,
+    })
+
+    const user = userEvent.setup()
+    renderSettings()
+
+    const testButton = await screen.findByRole('button', { name: /test connection/i })
+    await user.click(testButton)
+    expect(await screen.findByText(/1 model found/i)).toBeInTheDocument()
+
+    const urlInput = screen.getByLabelText('Custom URL')
+    await user.type(urlInput, '2')
+
+    await waitFor(() => {
+      expect(screen.queryByText(/1 model found/i)).not.toBeInTheDocument()
+    })
   })
 })
 

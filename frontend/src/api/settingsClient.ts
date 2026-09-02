@@ -2,6 +2,7 @@ import { authorizedFetch, type AuthRefresh } from './authorizedFetch'
 import type {
   GuardrailPattern,
   SystemSettingsResponse,
+  TestConnectionResult,
   UpdateSettingsRequest,
 } from '@/types/settings'
 
@@ -12,6 +13,11 @@ export interface SettingsClient {
     token: string,
     onRefresh: AuthRefresh
   ): Promise<SystemSettingsResponse>
+  testConnection(
+    url: string,
+    token: string,
+    onRefresh: AuthRefresh
+  ): Promise<TestConnectionResult>
   createGuardrailPattern(
     token: string,
     onRefresh: AuthRefresh,
@@ -47,6 +53,22 @@ const settingsClient: SettingsClient = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+    })
+
+    return response.json()
+  },
+
+  async testConnection(
+    url: string,
+    token: string,
+    onRefresh: AuthRefresh
+  ): Promise<TestConnectionResult> {
+    const response = await authorizedFetch('/api/settings/test-connection', token, onRefresh, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url }),
     })
 
     return response.json()

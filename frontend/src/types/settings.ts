@@ -5,6 +5,12 @@ export interface ProviderOption {
   requires_manual_entry: boolean
 }
 
+export interface TestConnectionResult {
+  ok: boolean
+  models: string[]
+  error: string | null
+}
+
 export interface GuardrailPattern {
   id: string
   source: 'built_in' | 'custom'
