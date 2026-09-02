@@ -19,6 +19,20 @@ export interface GuardrailPattern {
   enabled: boolean
 }
 
+export interface AuditLogEntry {
+  id: string
+  actor_user_id: string
+  action: string
+  field_name: string
+  old_value: string | null
+  new_value: string | null
+  created_at: string
+}
+
+export interface AuditLogResponse {
+  entries: AuditLogEntry[]
+}
+
 export interface SystemSettingsResponse {
   llm_provider: string
   llm_url: string
@@ -65,6 +79,11 @@ export interface SystemSettingsResponse {
   rate_limit_auth_capacity_is_db_override: boolean
   rate_limit_auth_refill_per_minute: number
   rate_limit_auth_refill_per_minute_is_db_override: boolean
+  // Admin audit log viewer (issue #45). Transparent-by-default (true):
+  // hides the in-product Audit Log nav entry/view for forks that route
+  // audit consumption through an external SIEM instead.
+  audit_log_ui_enabled: boolean
+  audit_log_ui_enabled_is_db_override: boolean
   available_providers: {
     llm: ProviderOption[]
     embedding: ProviderOption[]
@@ -93,4 +112,7 @@ export interface UpdateSettingsRequest {
   rate_limit_chat_refill_per_minute?: number | null
   rate_limit_auth_capacity?: number | null
   rate_limit_auth_refill_per_minute?: number | null
+  // See SystemSettingsResponse.audit_log_ui_enabled: takes effect on the
+  // next request, no restart required.
+  audit_log_ui_enabled?: boolean | null
 }

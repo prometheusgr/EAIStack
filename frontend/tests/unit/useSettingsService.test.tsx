@@ -9,6 +9,7 @@ vi.mock('../../src/api/settingsClient', () => ({
   settingsClient: {
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    getAuditLog: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -81,6 +82,8 @@ const SETTINGS_RESPONSE = {
   rate_limit_auth_capacity_is_db_override: false,
   rate_limit_auth_refill_per_minute: 10,
   rate_limit_auth_refill_per_minute_is_db_override: false,
+  audit_log_ui_enabled: true,
+  audit_log_ui_enabled_is_db_override: false,
   guardrail_patterns: [],
   available_providers: { llm: [], embedding: [] },
 }
@@ -122,6 +125,37 @@ describe('useSettingsService', () => {
       expect(result.current.get.error).not.toBeNull()
       expect(result.current.get.error?.message).toBe('Admin access required')
     })
+  })
+
+  it('getAuditLog.execute() loads audit entries and reflects success state', async () => {
+    const auditLogResponse = {
+      entries: [
+        {
+          id: 'entry-1',
+          actor_user_id: 'admin-1',
+          action: 'retention.update',
+          field_name: 'conversation_retention_hours',
+          old_value: '72',
+          new_value: '24',
+          created_at: '2026-09-02T00:00:00Z',
+        },
+      ],
+    }
+    vi.mocked(settingsClient.getAuditLog).mockResolvedValue(auditLogResponse)
+
+    const { result } = renderHook(() => useSettingsServiceHarness(), { wrapper })
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.getAuditLog.execute()
+    })
+
+    await waitFor(() => {
+      expect(result.current.getAuditLog.data).toEqual(auditLogResponse)
+      expect(result.current.getAuditLog.error).toBeNull()
+      expect(result.current.getAuditLog.isLoading).toBe(false)
+    })
+    expect(settingsClient.getAuditLog).toHaveBeenCalledWith(MOCK_TOKEN, expect.any(Function))
   })
 
   it('update.mutateAsync() calls settingsClient.updateSettings with the payload', async () => {

@@ -311,7 +311,7 @@ class AuditLog(Base):
     action: str          # "retention.update" | "guardrail.input_rejected"
                           # | "guardrail.output_redacted" | "guardrail.config_update"
                           # | "guardrail.pattern_update" | "tracing.config_update"
-                          # | "rate_limit.config_update"
+                          # | "rate_limit.config_update" | "audit_log_ui.config_update"
     field_name: str      # e.g. "conversation_retention_hours", "message",
                           # "max_input_length", or a guardrail_patterns.id
     old_value: str | None  # NULL = had no DB override before the change
@@ -321,7 +321,16 @@ class AuditLog(Base):
 
 Append-only by design: no application code updates or deletes a row, and the
 repository exposes no method that could. Read it via `GET /api/settings/audit`
-(admin-only). Retention is independent of session cleanup — see the retention
+(admin-only), or via the in-product "Audit Log" screen (issue #45,
+`frontend/src/components/AuditLog.tsx`) reachable from the main nav next to
+Settings — no direct database access required. The screen's visibility is
+itself admin-configurable via `audit_log_ui_enabled` (env-default `True`,
+transparent by default, resolved per-request — see
+`backend/app/services/audit_log_ui_config_service.py`), for forks that route
+audit consumption through an external SIEM instead and want the in-app view
+hidden; changing this flag is itself audit-logged
+(`audit_log_ui.config_update`). See `docs/AUDIT_EVENTS.md` for the full event
+table. Retention is independent of session cleanup — see the retention
 policy table above.
 
 ## Compliance Considerations

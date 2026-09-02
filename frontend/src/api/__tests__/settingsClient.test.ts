@@ -301,6 +301,55 @@ describe('settingsClient', () => {
     })
   })
 
+  describe('getAuditLog', () => {
+    it('GETs /api/settings/audit and returns the parsed entries', async () => {
+      const responseBody = {
+        entries: [
+          {
+            id: 'entry-1',
+            actor_user_id: 'admin-1',
+            action: 'retention.update',
+            field_name: 'conversation_retention_hours',
+            old_value: '72',
+            new_value: '24',
+            created_at: '2026-09-02T00:00:00Z',
+          },
+        ],
+      }
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: async () => responseBody,
+      })
+
+      const result = await settingsClient.getAuditLog(mockToken, mockRefresh)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/settings/audit'),
+        expect.objectContaining({ method: 'GET' })
+      )
+      expect(result).toEqual(responseBody)
+    })
+
+    it('throws ApiError with detail on 403 (non-admin)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 403,
+        ok: false,
+        statusText: 'Forbidden',
+        json: async () => ({ detail: 'Admin access required' }),
+      })
+
+      try {
+        await settingsClient.getAuditLog(mockToken, mockRefresh)
+        expect.fail('Should have thrown')
+      } catch (error: Error | unknown) {
+        const apiError = error as { status: number; detail: string }
+        expect(apiError.status).toBe(403)
+        expect(apiError.detail).toBe('Admin access required')
+      }
+    })
+  })
+
   describe('deleteGuardrailPattern', () => {
     it('DELETEs /api/settings/guardrail-patterns/{id}', async () => {
       mockFetch.mockResolvedValueOnce({
