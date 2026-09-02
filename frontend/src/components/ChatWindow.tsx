@@ -221,15 +221,13 @@ export function ChatWindow() {
           </Button>
         </div>
       </CardContent>
-      {selectedSourceId && (
-        <SourceDocumentModal
-          knowledgeBaseId={selectedSourceId}
-          open={selectedSourceId !== null}
-          onOpenChange={(open) => {
-            if (!open) setSelectedSourceId(null);
-          }}
-        />
-      )}
+      <SourceDocumentModal
+        knowledgeBaseId={selectedSourceId ?? ""}
+        open={selectedSourceId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedSourceId(null);
+        }}
+      />
     </Card>
   );
 }

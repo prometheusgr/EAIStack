@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useIsMounted } from "../hooks/useIsMounted";
 import { knowledgeBaseClient, type KnowledgeBase } from "../api/knowledgeBaseClient";
@@ -30,13 +30,28 @@ export function SourceDocumentModal({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // refreshAccessToken is a new function identity on every AuthProvider
+  // render (see useApiCall's apiFnRef for the same issue/fix), so it can't
+  // be a useEffect dependency without re-firing this fetch on every
+  // unrelated parent re-render -- e.g. every keystroke typed in the chat
+  // input while this modal happens to be open. Read the latest closure
+  // through a ref instead, updated every render body (not in an effect, so
+  // it's current before the fetch effect below ever runs).
+  const refreshAccessTokenRef = useRef(refreshAccessToken);
+  refreshAccessTokenRef.current = refreshAccessToken;
+
   useEffect(() => {
-    if (!open) {
+    if (!open || !token) {
+      // A missing token here is expected transiently during a token
+      // refresh cycle (see AuthContext) -- wait for a real token rather
+      // than surfacing a misleading "couldn't load" error for a document
+      // that is actually fine.
       return;
     }
+    const activeToken = token;
 
-    // Guards against both an unmount and a stale response from a previous
-    // knowledgeBaseId/open cycle landing after a newer request has started.
+    // Guards against a stale response from a previous knowledgeBaseId cycle
+    // landing after a newer request has started.
     let isCurrent = true;
     setDocument(null);
     setError(null);
@@ -44,10 +59,11 @@ export function SourceDocumentModal({
 
     async function load() {
       try {
-        if (!token) {
-          throw new Error("No auth token available");
-        }
-        const result = await knowledgeBaseClient.get(knowledgeBaseId, token, refreshAccessToken);
+        const result = await knowledgeBaseClient.get(
+          knowledgeBaseId,
+          activeToken,
+          refreshAccessTokenRef.current
+        );
         if (isCurrent && isMounted()) {
           setDocument(result);
         }
@@ -67,7 +83,10 @@ export function SourceDocumentModal({
     return () => {
       isCurrent = false;
     };
-  }, [open, knowledgeBaseId, token, refreshAccessToken, isMounted]);
+    // isMounted is intentionally omitted: like useApiCall's own effect, it
+    // returns a fresh closure every render and is read fresh inside load()
+    // when each async branch actually resumes, not at effect-schedule time.
+  }, [open, knowledgeBaseId, token]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
