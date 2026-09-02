@@ -17,7 +17,12 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
-import type { GuardrailPattern, ProviderOption, UpdateSettingsRequest } from '@/types/settings'
+import type {
+  GuardrailPattern,
+  ProviderOption,
+  TestConnectionResult,
+  UpdateSettingsRequest,
+} from '@/types/settings'
 
 /** A numeric setting as held in form state. Empty string means the admin
  * cleared the field, which saves as null (fall back to the env default) --
@@ -63,6 +68,7 @@ export function Settings() {
   const {
     get,
     update,
+    testConnection,
     createGuardrailPattern,
     setGuardrailPatternEnabled,
     deleteGuardrailPattern,
@@ -76,6 +82,13 @@ export function Settings() {
   const [embeddingProvider, setEmbeddingProvider] = useState('')
   const [embeddingUrl, setEmbeddingUrl] = useState('')
   const [embeddingModel, setEmbeddingModel] = useState('')
+  // Result of the last "Test connection" click for each URL field, reset to
+  // null whenever that URL is edited so a stale "Connected" badge never
+  // survives a change to the field it was testing.
+  const [llmTestResult, setLlmTestResult] = useState<TestConnectionResult | null>(null)
+  const [embeddingTestResult, setEmbeddingTestResult] = useState<TestConnectionResult | null>(
+    null
+  )
   const [conversationRetentionHours, setConversationRetentionHours] = useState<RetentionInput>('')
   const [cleanupOnLogout, setCleanupOnLogout] = useState(true)
   const [knowledgeBasePurgeDays, setKnowledgeBasePurgeDays] = useState<RetentionInput>('')
@@ -166,6 +179,25 @@ export function Settings() {
       // (available_providers carries no per-provider model), so it must not
       // carry over — otherwise a stale model could be silently saved.
       setModel('')
+    }
+  }
+
+  async function handleTestConnection(
+    url: string,
+    setResult: (result: TestConnectionResult | null) => void
+  ) {
+    // A failed probe's reason is shown inline next to the button (see
+    // llmTestResult/embeddingTestResult rendering below), not as a toast --
+    // it's a diagnostic result the admin is likely to read right there
+    // while still editing the field, not a transient event. A toast is
+    // still used for a genuine request failure (network/auth error talking
+    // to our own backend), which the inline result has no way to represent.
+    try {
+      const result = await testConnection.mutateAsync(url)
+      if (isMounted()) setResult(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to test connection'
+      addToast(message, 'error')
     }
   }
 
@@ -454,27 +486,70 @@ export function Settings() {
             <label className="text-sm font-medium" htmlFor="llm-url">
               Custom URL
             </label>
-            <Input
-              id="llm-url"
-              value={llmUrl}
-              onChange={(e) => {
-                setLlmUrl(e.target.value)
-                markFieldEdited('llm_url')
-              }}
-              placeholder="http://localhost:8000/v1"
-            />
+            <div className="flex items-center gap-2">
+              <Input
+                id="llm-url"
+                value={llmUrl}
+                onChange={(e) => {
+                  setLlmUrl(e.target.value)
+                  markFieldEdited('llm_url')
+                  setLlmTestResult(null)
+                }}
+                placeholder="http://localhost:8000/v1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                disabled={llmUrl === '' || testConnection.isPending}
+                onClick={() => handleTestConnection(llmUrl, setLlmTestResult)}
+              >
+                {testConnection.isPending ? 'Testing...' : 'Test connection'}
+              </Button>
+            </div>
+            {llmTestResult?.ok && (
+              <p className="text-sm text-green-700">
+                Connected — {llmTestResult.models.length}{' '}
+                {llmTestResult.models.length === 1 ? 'model' : 'models'} found
+              </p>
+            )}
+            {llmTestResult && !llmTestResult.ok && (
+              <p className="text-sm text-red-700">{llmTestResult.error}</p>
+            )}
+
             <label className="text-sm font-medium" htmlFor="llm-model">
               Custom Model
             </label>
-            <Input
-              id="llm-model"
-              value={llmModel}
-              onChange={(e) => {
-                setLlmModel(e.target.value)
-                markFieldEdited('llm_model')
-              }}
-              placeholder="model name"
-            />
+            {llmTestResult?.ok && llmTestResult.models.length > 0 ? (
+              <Select
+                value={llmModel}
+                onValueChange={(value) => {
+                  setLlmModel(value)
+                  markFieldEdited('llm_model')
+                }}
+              >
+                <SelectTrigger id="llm-model" aria-label="LLM model">
+                  <SelectValue placeholder="Select a model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {llmTestResult.models.map((model) => (
+                    <SelectItem key={model} value={model}>
+                      {model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id="llm-model"
+                value={llmModel}
+                onChange={(e) => {
+                  setLlmModel(e.target.value)
+                  markFieldEdited('llm_model')
+                }}
+                placeholder="model name"
+              />
+            )}
             <Button
               type="button"
               variant="link"
@@ -484,6 +559,7 @@ export function Settings() {
                 setLlmModel('')
                 markFieldCleared('llm_url')
                 markFieldCleared('llm_model')
+                setLlmTestResult(null)
               }}
             >
               Reset to default
@@ -543,27 +619,70 @@ export function Settings() {
             <label className="text-sm font-medium" htmlFor="embedding-url">
               Custom URL
             </label>
-            <Input
-              id="embedding-url"
-              value={embeddingUrl}
-              onChange={(e) => {
-                setEmbeddingUrl(e.target.value)
-                markFieldEdited('embedding_url')
-              }}
-              placeholder="http://localhost:8002/v1"
-            />
+            <div className="flex items-center gap-2">
+              <Input
+                id="embedding-url"
+                value={embeddingUrl}
+                onChange={(e) => {
+                  setEmbeddingUrl(e.target.value)
+                  markFieldEdited('embedding_url')
+                  setEmbeddingTestResult(null)
+                }}
+                placeholder="http://localhost:8002/v1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                disabled={embeddingUrl === '' || testConnection.isPending}
+                onClick={() => handleTestConnection(embeddingUrl, setEmbeddingTestResult)}
+              >
+                {testConnection.isPending ? 'Testing...' : 'Test connection'}
+              </Button>
+            </div>
+            {embeddingTestResult?.ok && (
+              <p className="text-sm text-green-700">
+                Connected — {embeddingTestResult.models.length}{' '}
+                {embeddingTestResult.models.length === 1 ? 'model' : 'models'} found
+              </p>
+            )}
+            {embeddingTestResult && !embeddingTestResult.ok && (
+              <p className="text-sm text-red-700">{embeddingTestResult.error}</p>
+            )}
+
             <label className="text-sm font-medium" htmlFor="embedding-model">
               Custom Model
             </label>
-            <Input
-              id="embedding-model"
-              value={embeddingModel}
-              onChange={(e) => {
-                setEmbeddingModel(e.target.value)
-                markFieldEdited('embedding_model')
-              }}
-              placeholder="model name"
-            />
+            {embeddingTestResult?.ok && embeddingTestResult.models.length > 0 ? (
+              <Select
+                value={embeddingModel}
+                onValueChange={(value) => {
+                  setEmbeddingModel(value)
+                  markFieldEdited('embedding_model')
+                }}
+              >
+                <SelectTrigger id="embedding-model" aria-label="Embedding model">
+                  <SelectValue placeholder="Select a model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {embeddingTestResult.models.map((model) => (
+                    <SelectItem key={model} value={model}>
+                      {model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id="embedding-model"
+                value={embeddingModel}
+                onChange={(e) => {
+                  setEmbeddingModel(e.target.value)
+                  markFieldEdited('embedding_model')
+                }}
+                placeholder="model name"
+              />
+            )}
             <Button
               type="button"
               variant="link"
@@ -573,6 +692,7 @@ export function Settings() {
                 setEmbeddingModel('')
                 markFieldCleared('embedding_url')
                 markFieldCleared('embedding_model')
+                setEmbeddingTestResult(null)
               }}
             >
               Reset to default

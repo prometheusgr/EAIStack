@@ -3,6 +3,7 @@ import type { AuthRefresh } from '@/api/authorizedFetch'
 import type {
   GuardrailPattern,
   SystemSettingsResponse,
+  TestConnectionResult,
   UpdateSettingsRequest,
 } from '@/types/settings'
 
@@ -20,6 +21,11 @@ export class SettingsService {
   async updateSettings(payload: UpdateSettingsRequest): Promise<SystemSettingsResponse> {
     if (!this.token) throw new Error('No auth token available')
     return settingsClient.updateSettings(payload, this.token, this.onRefresh)
+  }
+
+  async testConnection(url: string): Promise<TestConnectionResult> {
+    if (!this.token) throw new Error('No auth token available')
+    return settingsClient.testConnection(url, this.token, this.onRefresh)
   }
 
   async createGuardrailPattern(label: string, patternText: string): Promise<GuardrailPattern> {

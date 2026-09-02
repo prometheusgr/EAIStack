@@ -11,10 +11,13 @@ from app.api.schemas import (
     GuardrailPatternResponse,
     ProviderOption,
     SystemSettingsResponse,
+    TestConnectionRequest,
+    TestConnectionResponse,
     UpdateGuardrailPatternRequest,
     UpdateSettingsRequest,
 )
 from app.core.auth import require_admin
+from app.core.config import settings as env_settings
 from app.db.database import get_db
 from app.db.models import SystemSettings, utc_now
 from app.repositories import (
@@ -31,6 +34,7 @@ from app.services import (
     resolve_retention_config,
     resolve_tracing_config,
 )
+from app.services.provider_probe_service import probe_provider
 from app.services.system_settings_service import (
     NOT_PROVIDED,
     NotProvided,
@@ -309,6 +313,38 @@ async def get_audit_log(
     """
     entries = AuditLogRepository(db).list_recent()
     return AuditLogResponse(entries=[AuditLogEntry.model_validate(entry) for entry in entries])
+
+
+@router.post("/test-connection", response_model=TestConnectionResponse)
+async def test_connection(
+    payload: TestConnectionRequest,
+    user: dict = Depends(require_admin),
+):
+    """Probe a candidate LLM/embedding provider URL for reachability and
+    served models, for the Settings screen's "Test connection" action.
+
+    Shared by both the LLM and embedding tabs: both llama-cpp and
+    openai-compatible providers implement the same OpenAI-compatible
+    /models endpoint, so one probe serves either. Writes nothing -- this
+    never touches SystemSettings or the audit log, it only reports on a
+    URL the admin is still deciding whether to save.
+
+    Always 200, success or failure alike: a failed probe (unreachable host,
+    timeout, non-2xx, unrecognized body) is a diagnostic result the admin
+    needs to see, not a request error, so the frontend never has to
+    special-case HTTP status vs. response body to render the same
+    "connection failed" state.
+
+    api_key always comes from this deployment's env-configured
+    llm_api_key, mirroring get_settings' rule that api_key is never
+    persisted to the DB or accepted from the frontend -- a probe can only
+    authenticate as the currently configured provider, not a hypothetical
+    different hosted endpoint with different credentials.
+    """
+    result = await probe_provider(
+        url=payload.url, api_key=env_settings.llm_api_key, timeout=env_settings.llm_timeout
+    )
+    return TestConnectionResponse(ok=result.ok, models=result.models, error=result.error)
 
 
 def _retention_override_values(db_settings: SystemSettings | None) -> dict[str, str | None]:

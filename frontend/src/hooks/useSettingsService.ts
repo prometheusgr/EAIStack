@@ -1,6 +1,11 @@
 import { useAuth } from '@/context/AuthContext'
 import { SettingsService } from '@/services/settingsService'
-import type { GuardrailPattern, SystemSettingsResponse, UpdateSettingsRequest } from '@/types/settings'
+import type {
+  GuardrailPattern,
+  SystemSettingsResponse,
+  TestConnectionResult,
+  UpdateSettingsRequest,
+} from '@/types/settings'
 import { useApiCall } from './useApiCall'
 import { useApiMutation } from './useApiMutation'
 
@@ -34,6 +39,12 @@ export function useSettingsService() {
     }
   )
 
+  const testConnection = useApiMutation<string, TestConnectionResult>(async (url) => {
+    if (!token) throw new Error('No auth token available')
+    const service = new SettingsService(token, refreshAccessToken)
+    return service.testConnection(url)
+  })
+
   const createGuardrailPattern = useApiMutation<CreateGuardrailPatternArgs, GuardrailPattern>(
     async ({ label, patternText }) => {
       if (!token) throw new Error('No auth token available')
@@ -60,6 +71,7 @@ export function useSettingsService() {
   return {
     get,
     update,
+    testConnection,
     createGuardrailPattern,
     setGuardrailPatternEnabled,
     deleteGuardrailPattern,
