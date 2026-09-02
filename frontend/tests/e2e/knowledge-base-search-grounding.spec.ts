@@ -94,6 +94,13 @@ test.describe('Knowledge base search grounding', () => {
     // never emits a tool call at all, so ChatResponse.sources is always []
     // under CI's default profile regardless of app correctness.
     await expect(page.getByText('Sources:')).toBeVisible()
-    await expect(page.getByText(title)).toBeVisible()
+    await expect(page.getByRole('button', { name: title })).toBeVisible()
+
+    // The source citation is a hotlink, not just inert text: clicking it
+    // opens the actual cited document so the user can validate the answer
+    // against its real content, rather than trusting the LLM's prose alone.
+    await page.getByRole('button', { name: title }).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(page.getByText(secretCode).last()).toBeVisible()
   })
 })

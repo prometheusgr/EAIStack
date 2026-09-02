@@ -6,6 +6,7 @@ import { ChatMessage } from "../types/chat";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ApiErrorImpl } from "../api/authorizedFetch";
+import { SourceDocumentModal } from "./SourceDocumentModal";
 
 const GENERIC_ERROR_MESSAGE = "Something went wrong and your message failed to send. Please try again.";
 
@@ -28,6 +29,7 @@ export function ChatWindow() {
   const [threadId, setThreadId] = useState<string>("");
   const [hasLoadedInitialThread, setHasLoadedInitialThread] = useState(false);
   const [sendErrorMessage, setSendErrorMessage] = useState<string | null>(null);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const isMounted = useIsMounted();
   // Tracks which thread is currently active, independent of React's render
   // cycle. handleSend's catch block closes over `threadId` state at the
@@ -170,7 +172,13 @@ export function ChatWindow() {
                     {msg.sources.map((source, sourceIdx) => (
                       <span key={source.knowledgeBaseId}>
                         {sourceIdx > 0 && ", "}
-                        {source.title}
+                        <button
+                          type="button"
+                          className="underline hover:text-foreground"
+                          onClick={() => setSelectedSourceId(source.knowledgeBaseId)}
+                        >
+                          {source.title}
+                        </button>
                       </span>
                     ))}
                   </div>
@@ -213,6 +221,15 @@ export function ChatWindow() {
           </Button>
         </div>
       </CardContent>
+      {selectedSourceId && (
+        <SourceDocumentModal
+          knowledgeBaseId={selectedSourceId}
+          open={selectedSourceId !== null}
+          onOpenChange={(open) => {
+            if (!open) setSelectedSourceId(null);
+          }}
+        />
+      )}
     </Card>
   );
 }
