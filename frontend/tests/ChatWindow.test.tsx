@@ -4,6 +4,7 @@ import { ChatWindow } from "../src/components/ChatWindow";
 import * as agentsClient from "../src/api/agentsClient";
 import { threadsClient } from "../src/api/threadsClient";
 import { ApiErrorImpl } from "../src/api/authorizedFetch";
+import { knowledgeBaseClient } from "../src/api/knowledgeBaseClient";
 import type { ChatResponse } from "../src/types/chat";
 
 vi.mock("../src/context/AuthContext", () => ({
@@ -23,6 +24,12 @@ vi.mock("../src/api/threadsClient", () => ({
   threadsClient: {
     listThreads: vi.fn(),
     getThreadHistory: vi.fn(),
+  },
+}));
+
+vi.mock("../src/api/knowledgeBaseClient", () => ({
+  knowledgeBaseClient: {
+    get: vi.fn(),
   },
 }));
 
@@ -447,6 +454,48 @@ describe("ChatWindow", () => {
       expect(screen.getByText("You get 25 days of paid vacation per year.")).toBeInTheDocument();
     });
     expect(screen.getByText("Vacation Policy")).toBeInTheDocument();
+  });
+
+  it("should open the source document when a source link is clicked, so the user can validate the cited content", async () => {
+    const mockResponse = {
+      response: "You get 25 days of paid vacation per year.",
+      threadId: "test-thread-sources-link",
+      sources: [
+        { knowledgeBaseId: "kb-1", title: "Vacation Policy", headingPath: null },
+      ],
+    };
+    vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
+    vi.mocked(knowledgeBaseClient.get).mockResolvedValue({
+      id: "kb-1",
+      user_id: "user-1",
+      title: "Vacation Policy",
+      content: "Employees receive 25 days of paid vacation per year.",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+
+    render(<ChatWindow />);
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: "How many vacation days do I get?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Vacation Policy" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Vacation Policy" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Employees receive 25 days of paid vacation per year.")
+      ).toBeInTheDocument();
+    });
+    expect(knowledgeBaseClient.get).toHaveBeenCalledWith(
+      "kb-1",
+      "fake-token-123",
+      expect.any(Function)
+    );
   });
 
   it("should not show a sources section when the answer wasn't grounded in any document", async () => {
