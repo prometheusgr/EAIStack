@@ -1,22 +1,27 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ChatWindow } from './components/ChatWindow'
 import { APIKeys } from './components/APIKeys'
+import { AuditLog } from './components/AuditLog'
 import { EmbeddingsList } from '@/components/embeddings/EmbeddingsList'
 import { EmbeddingsSearch } from '@/components/embeddings/EmbeddingsSearch'
 import { Settings } from './components/Settings'
 import { Button } from './components/ui/button'
-import { MainLayout } from './components/layout/MainLayout'
+import { MainLayout, type MainLayoutView } from './components/layout/MainLayout'
 import { ToastProvider } from './components/ui/toast'
 import { TooltipProvider } from './components/ui/tooltip'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { useSettingsService } from '@/hooks/useSettingsService'
 
 function AppContent() {
   const { isAuthenticated, isLoading, login, isAdmin, authError } = useAuth()
-  const [currentView, setCurrentView] = useState<
-    'chat' | 'apikeys' | 'embeddings' | 'embeddings-search' | 'settings'
-  >('chat')
+  const [currentView, setCurrentView] = useState<MainLayoutView>('chat')
+  const { get: getSettings } = useSettingsService()
+
+  useEffect(() => {
+    if (isAdmin) getSettings.execute()
+  }, [isAdmin])
 
   if (isLoading) {
     return (
@@ -54,7 +59,11 @@ function AppContent() {
   }
 
   return (
-    <MainLayout currentView={currentView} onViewChange={setCurrentView}>
+    <MainLayout
+      currentView={currentView}
+      onViewChange={setCurrentView}
+      auditLogUiEnabled={getSettings.data?.audit_log_ui_enabled ?? true}
+    >
       {currentView === 'chat' && (
         <>
           <h2 className="text-2xl font-semibold mb-4">Phase 2: Agent Chat</h2>
@@ -77,6 +86,7 @@ function AppContent() {
         </>
       )}
       {currentView === 'settings' && isAdmin && <Settings />}
+      {currentView === 'audit' && isAdmin && <AuditLog />}
     </MainLayout>
   )
 }

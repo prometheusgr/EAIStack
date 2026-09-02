@@ -27,6 +27,7 @@ from app.repositories import (
 )
 from app.services import (
     available_provider_options,
+    resolve_audit_log_ui_config,
     resolve_embedding_config,
     resolve_guardrail_config,
     resolve_llm_config,
@@ -90,6 +91,7 @@ def _to_response(
     guardrail_patterns = GuardrailPatternRepository(db).list_all()
     tracing_config = resolve_tracing_config(db, db_settings)
     rate_limit_config = resolve_rate_limit_config(db, db_settings)
+    audit_log_ui_config = resolve_audit_log_ui_config(db, db_settings)
 
     return SystemSettingsResponse(
         llm_provider=llm_config.provider,
@@ -162,6 +164,10 @@ def _to_response(
         rate_limit_auth_refill_per_minute=rate_limit_config.auth_refill_per_minute,
         rate_limit_auth_refill_per_minute_is_db_override=bool(
             db_settings and db_settings.rate_limit_auth_refill_per_minute is not None
+        ),
+        audit_log_ui_enabled=audit_log_ui_config.enabled,
+        audit_log_ui_enabled_is_db_override=bool(
+            db_settings and db_settings.audit_log_ui_enabled is not None
         ),
         available_providers={
             category: [ProviderOption(**option) for option in options]
@@ -247,6 +253,7 @@ async def update_settings(
     previous_guardrail = _guardrail_override_values(db_settings)
     previous_tracing = _tracing_override_values(db_settings)
     previous_rate_limit = _rate_limit_override_values(db_settings)
+    previous_audit_log_ui = _audit_log_ui_override_values(db_settings)
 
     updated_settings = repo.upsert(
         llm_provider=payload.llm_provider,
@@ -268,6 +275,7 @@ async def update_settings(
         rate_limit_chat_refill_per_minute=payload.rate_limit_chat_refill_per_minute,
         rate_limit_auth_capacity=payload.rate_limit_auth_capacity,
         rate_limit_auth_refill_per_minute=payload.rate_limit_auth_refill_per_minute,
+        audit_log_ui_enabled=payload.audit_log_ui_enabled,
         updated_by=user["user_id"],
     )
 
@@ -294,6 +302,12 @@ async def update_settings(
         actor_user_id=user["user_id"],
         previous=previous_rate_limit,
         current=_rate_limit_override_values(updated_settings),
+    )
+    _record_audit_log_ui_changes(
+        db,
+        actor_user_id=user["user_id"],
+        previous=previous_audit_log_ui,
+        current=_audit_log_ui_override_values(updated_settings),
     )
 
     db.commit()
@@ -552,6 +566,53 @@ def _record_rate_limit_changes(
         repo.record(
             actor_user_id=actor_user_id,
             action="rate_limit.config_update",
+            field_name=field,
+            old_value=previous[field],
+            new_value=new_value,
+            now=changed_at,
+        )
+
+
+def _audit_log_ui_override_values(db_settings: SystemSettings | None) -> dict[str, str | None]:
+    """Snapshot the audit_log_ui_enabled column's raw override value as a
+    string.
+
+    Mirrors _tracing_override_values exactly, for the same reason: the
+    audit trail must record what the admin set (including "cleared back to
+    the env default", as None), not what the value happened to resolve to.
+    """
+    fields = ("audit_log_ui_enabled",)
+    if db_settings is None:
+        return {field: None for field in fields}
+
+    return {
+        field: None if getattr(db_settings, field) is None else str(getattr(db_settings, field))
+        for field in fields
+    }
+
+
+def _record_audit_log_ui_changes(
+    db: Session,
+    *,
+    actor_user_id: str,
+    previous: dict[str, str | None],
+    current: dict[str, str | None],
+) -> None:
+    """Append an "audit_log_ui.config_update" audit entry if
+    audit_log_ui_enabled's override actually changed.
+
+    Mirrors _record_tracing_changes' shape exactly (only changed fields
+    recorded, one shared timestamp per request).
+    """
+    repo = AuditLogRepository(db)
+    changed_at = utc_now()
+
+    for field, new_value in current.items():
+        if previous[field] == new_value:
+            continue
+        repo.record(
+            actor_user_id=actor_user_id,
+            action="audit_log_ui.config_update",
             field_name=field,
             old_value=previous[field],
             new_value=new_value,

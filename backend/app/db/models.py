@@ -368,6 +368,10 @@ class SystemSettings(Base):
     rate_limit_chat_refill_per_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rate_limit_auth_capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rate_limit_auth_refill_per_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Admin audit log viewer (issue #45). Resolved per-call, same as
+    # guardrail/rate-limit config - an admin's change takes effect on the
+    # very next request, no restart.
+    audit_log_ui_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )

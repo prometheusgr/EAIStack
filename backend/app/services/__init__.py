@@ -1,5 +1,9 @@
 """Backend service layer for business logic."""
 
+from app.services.audit_log_ui_config_service import (
+    AuditLogUiConfig,
+    resolve_audit_log_ui_config,
+)
 from app.services.chat_guardrail_service import check_input_guardrail, filter_agent_response
 from app.services.embedding_service import (
     EmbeddingResult,
@@ -32,6 +36,8 @@ from app.services.system_settings_service import (
 from app.services.tracing_config_service import TracingConfig, resolve_tracing_config
 
 __all__ = [
+    "AuditLogUiConfig",
+    "resolve_audit_log_ui_config",
     "check_input_guardrail",
     "filter_agent_response",
     "generate_embedding",

@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     tracing_enabled: bool = False
     tracing_otlp_endpoint: str = "http://localhost:6006/v1/traces"
 
+    # Admin audit log viewer (issue #45). Transparent-by-default: on unless
+    # a fork has a specific reason (e.g. routing audit consumption through
+    # an external SIEM instead) to hide the in-product viewer. DB-backed
+    # (see app.services.audit_log_ui_config_service) and, unlike
+    # tracing_enabled, resolved per-request rather than once at startup —
+    # hiding/showing a nav button has no "requires restart" constraint.
+    audit_log_ui_enabled: bool = True
+
     # doc-search MCP server (mcp-servers/doc-search): a standalone Streamable
     # HTTP service exposing search_knowledge_base as an MCP tool, so it can
     # run as its own K8s pod. The backend forwards each caller's own Keycloak

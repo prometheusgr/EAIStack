@@ -2,15 +2,32 @@ import { ReactNode } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { Button } from '../ui/button'
 
+export type MainLayoutView =
+  | 'chat'
+  | 'apikeys'
+  | 'embeddings'
+  | 'embeddings-search'
+  | 'settings'
+  | 'audit'
+
 interface MainLayoutProps {
   children: ReactNode
-  currentView: 'chat' | 'apikeys' | 'embeddings' | 'embeddings-search' | 'settings'
-  onViewChange: (
-    view: 'chat' | 'apikeys' | 'embeddings' | 'embeddings-search' | 'settings'
-  ) => void
+  currentView: MainLayoutView
+  onViewChange: (view: MainLayoutView) => void
+  /** Admin-configurable (see docs/SECURITY.md's Audit Log section):
+   * defaults to true (transparent by default) if the settings response
+   * hasn't loaded yet, since the nav should not flash the tab and then
+   * hide it a moment later for the common case where it stays enabled.
+   */
+  auditLogUiEnabled?: boolean
 }
 
-export function MainLayout({ children, currentView, onViewChange }: MainLayoutProps) {
+export function MainLayout({
+  children,
+  currentView,
+  onViewChange,
+  auditLogUiEnabled = true,
+}: MainLayoutProps) {
   const { logout, user, isAdmin } = useAuth()
 
   return (
@@ -74,6 +91,16 @@ export function MainLayout({ children, currentView, onViewChange }: MainLayoutPr
               data-active={currentView === 'settings'}
             >
               Settings
+            </Button>
+          )}
+          {isAdmin && auditLogUiEnabled && (
+            <Button
+              variant={currentView === 'audit' ? 'default' : 'ghost'}
+              onClick={() => onViewChange('audit')}
+              className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary text-xs md:text-sm"
+              data-active={currentView === 'audit'}
+            >
+              Audit Log
             </Button>
           )}
         </div>

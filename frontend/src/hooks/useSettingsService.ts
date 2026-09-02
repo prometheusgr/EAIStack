@@ -1,6 +1,7 @@
 import { useAuth } from '@/context/AuthContext'
 import { SettingsService } from '@/services/settingsService'
 import type {
+  AuditLogResponse,
   GuardrailPattern,
   SystemSettingsResponse,
   TestConnectionResult,
@@ -39,6 +40,15 @@ export function useSettingsService() {
     }
   )
 
+  const getAuditLog = useApiCall<AuditLogResponse>(
+    async () => {
+      if (!token) throw new Error('No auth token available')
+      const service = new SettingsService(token, refreshAccessToken)
+      return service.getAuditLog()
+    },
+    { immediate: false }
+  )
+
   const testConnection = useApiMutation<string, TestConnectionResult>(async (url) => {
     if (!token) throw new Error('No auth token available')
     const service = new SettingsService(token, refreshAccessToken)
@@ -71,6 +81,7 @@ export function useSettingsService() {
   return {
     get,
     update,
+    getAuditLog,
     testConnection,
     createGuardrailPattern,
     setGuardrailPatternEnabled,

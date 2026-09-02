@@ -358,6 +358,11 @@ class SystemSettingsResponse(BaseModel):
     rate_limit_auth_capacity_is_db_override: bool
     rate_limit_auth_refill_per_minute: int
     rate_limit_auth_refill_per_minute_is_db_override: bool
+    # Admin audit log viewer (issue #45). Transparent-by-default (True):
+    # hides the in-product Audit Log nav entry/view for forks that route
+    # audit consumption through an external SIEM instead.
+    audit_log_ui_enabled: bool
+    audit_log_ui_enabled_is_db_override: bool
     available_providers: dict[str, list[ProviderOption]]
 
 
@@ -402,3 +407,6 @@ class UpdateSettingsRequest(BaseModel):
     rate_limit_chat_refill_per_minute: Optional[int] = Field(default=None, ge=1)
     rate_limit_auth_capacity: Optional[int] = Field(default=None, ge=1)
     rate_limit_auth_refill_per_minute: Optional[int] = Field(default=None, ge=1)
+    # See SystemSettingsResponse.audit_log_ui_enabled: takes effect on the
+    # next request, no restart required.
+    audit_log_ui_enabled: Optional[bool] = None
