@@ -8,6 +8,7 @@ vi.mock('@/api/settingsClient', () => ({
   settingsClient: {
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    getAuditLog: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -57,6 +58,8 @@ describe('SettingsService', () => {
     rate_limit_auth_capacity_is_db_override: false,
     rate_limit_auth_refill_per_minute: 10,
     rate_limit_auth_refill_per_minute_is_db_override: false,
+    audit_log_ui_enabled: true,
+    audit_log_ui_enabled_is_db_override: false,
     guardrail_patterns: [],
     available_providers: { llm: [], embedding: [] },
   }
@@ -105,6 +108,39 @@ describe('SettingsService', () => {
         'No auth token available'
       )
       expect(settingsClient.updateSettings).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getAuditLog', () => {
+    const auditLogResponse = {
+      entries: [
+        {
+          id: 'entry-1',
+          actor_user_id: 'admin-1',
+          action: 'retention.update',
+          field_name: 'conversation_retention_hours',
+          old_value: '72',
+          new_value: '24',
+          created_at: '2026-09-02T00:00:00Z',
+        },
+      ],
+    }
+
+    it('delegates to settingsClient.getAuditLog with the constructor token', async () => {
+      vi.mocked(settingsClient.getAuditLog).mockResolvedValueOnce(auditLogResponse)
+
+      const service = new SettingsService(mockToken, mockRefresh)
+      const result = await service.getAuditLog()
+
+      expect(settingsClient.getAuditLog).toHaveBeenCalledWith(mockToken, mockRefresh)
+      expect(result).toEqual(auditLogResponse)
+    })
+
+    it('throws if no token is available', async () => {
+      const service = new SettingsService('', mockRefresh)
+
+      await expect(service.getAuditLog()).rejects.toThrow('No auth token available')
+      expect(settingsClient.getAuditLog).not.toHaveBeenCalled()
     })
   })
 

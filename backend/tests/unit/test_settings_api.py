@@ -722,8 +722,94 @@ def test_put_settings_tracing_audit_entry_records_actual_transition(client, db_s
     # Newest first: the second PUT (True -> False) then the first (None -> True).
     assert entries[0].old_value == "True"
     assert entries[0].new_value == "False"
+
+
+# --- Audit log UI visibility config (issue #45) --------------------------------
+
+
+@pytest.mark.unit
+def test_get_settings_includes_audit_log_ui_field_with_env_default(client):
+    """With no SystemSettings row, GET reflects the env-level
+    audit_log_ui_enabled default (True) and reports it as not DB-overridden.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["audit_log_ui_enabled"] == settings.audit_log_ui_enabled
+    assert data["audit_log_ui_enabled_is_db_override"] is False
+
+
+@pytest.mark.unit
+def test_put_settings_updates_audit_log_ui_field_and_get_reflects_override(client):
+    """PUT should persist an audit_log_ui_enabled override, and a following
+    GET should reflect it with is_db_override flipped to True -- the same
+    round trip every other overridable field goes through. Unlike
+    tracing_enabled, this takes effect on the very next request, no restart.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    put_response = client.put("/api/settings", json={"audit_log_ui_enabled": False})
+    assert put_response.status_code == 200
+
+    get_response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    data = get_response.json()
+    assert data["audit_log_ui_enabled"] is False
+    assert data["audit_log_ui_enabled_is_db_override"] is True
+
+
+@pytest.mark.unit
+def test_put_settings_records_audit_log_ui_config_update_audit_entries_only_for_changed_fields(
+    client, db_session
+):
+    """Mirrors the tracing audit test: re-saving settings without touching
+    audit_log_ui_enabled must not fabricate audit entries, and a changed
+    field is recorded under the "audit_log_ui.config_update" action.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"audit_log_ui_enabled": False})
+    client.put("/api/settings", json={"audit_log_ui_enabled": False})  # unchanged re-save
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "audit_log_ui.config_update"
+    ]
+    assert len(entries) == 1
+    assert entries[0].field_name == "audit_log_ui_enabled"
+    assert entries[0].old_value is None
+    assert entries[0].new_value == "False"
+
+
+@pytest.mark.unit
+def test_put_settings_audit_log_ui_audit_entry_records_actual_transition(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"audit_log_ui_enabled": False})
+    client.put("/api/settings", json={"audit_log_ui_enabled": True})
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "audit_log_ui.config_update" and e.field_name == "audit_log_ui_enabled"
+    ]
+    # Newest first: the second PUT (False -> True) then the first (None -> False).
+    assert entries[0].old_value == "False"
+    assert entries[0].new_value == "True"
     assert entries[1].old_value is None
-    assert entries[1].new_value == "True"
+    assert entries[1].new_value == "False"
 
 
 # --- Rate limiting (issue #25) -------------------------------------------------

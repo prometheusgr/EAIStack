@@ -38,14 +38,23 @@ One row per changed field, per change (`backend/app/db/models.py`, `AuditLog`):
 | Action | Trigger | Where |
 |---|---|---|
 | `retention.update` | An admin changes a retention field (`conversation_retention_hours`, `cleanup_on_logout`, `knowledge_base_purge_days`, `api_key_purge_days`) via the Settings UI | `backend/app/api/settings.py`, `_record_retention_changes()` |
+| `guardrail.config_update` | An admin changes a guardrail scalar field (`max_input_length`, `guardrails_input_enabled`, `guardrails_output_enabled`) via the Settings UI | `backend/app/api/settings.py`, `_record_guardrail_changes()` |
+| `guardrail.pattern_update` | An admin adds, toggles, or deletes a guardrail pattern (built-in or custom) | `backend/app/api/settings.py`, `create_guardrail_pattern()` / `update_guardrail_pattern()` / `delete_guardrail_pattern()` |
+| `guardrail.input_rejected` | The input guardrail rejects a chat message at request time (a runtime event, not an admin config change) | `backend/app/services/chat_guardrail_service.py` |
+| `guardrail.output_redacted` | The output guardrail sanitizes an agent response before it's returned (a runtime event, not an admin config change) | `backend/app/services/chat_guardrail_service.py` |
+| `tracing.config_update` | An admin changes `tracing_enabled` via the Settings UI (takes effect on the next backend restart, not immediately — see `docs/OBSERVABILITY.md`) | `backend/app/api/settings.py`, `_record_tracing_changes()` |
+| `rate_limit.config_update` | An admin changes a rate-limit field (`rate_limit_enabled`, chat/auth capacity and refill rate) via the Settings UI | `backend/app/api/settings.py`, `_record_rate_limit_changes()` |
+| `audit_log_ui.config_update` | An admin changes `audit_log_ui_enabled` (whether the in-product Audit Log view is shown) via the Settings UI | `backend/app/api/settings.py`, `_record_audit_log_ui_changes()` |
 
-Only fields whose value actually changed produce an entry — re-saving the settings form without touching retention writes zero rows. All entries from one request share a single `now` timestamp so a multi-field change is legible as one event.
+Only fields whose value actually changed produce an entry — re-saving the settings form without touching a given field writes zero rows for it. All entries from one request share a single `now` timestamp so a multi-field change is legible as one event.
 
 **Not yet instrumented:** API key creation/revocation, LLM/embedding provider switches, and login/logout events are not currently written to the audit trail. If a future phase needs those, add them following the pattern below rather than extending `AuditLog`'s scope implicitly.
 
 ## Reading the trail
 
 `GET /api/settings/audit` (`backend/app/api/settings.py`), admin-only via `require_admin`, returns entries newest-first via `AuditLogRepository.list_recent(limit=100)`. There is no filtering by field or actor yet — add query parameters to the endpoint if that becomes necessary, not a new repository method.
+
+**In-product viewer (issue #45):** the same endpoint now also backs an in-app "Audit Log" screen (`frontend/src/components/AuditLog.tsx`), reachable from the main nav alongside Settings — an admin no longer needs direct database access to read the trail. Its visibility is admin-configurable via `audit_log_ui_enabled` (env-default `True` — transparent by default, resolved per-request the same way as the guardrail/rate-limit switches — see `backend/app/services/audit_log_ui_config_service.py`), for forks that route audit consumption through an external SIEM instead and want the in-app view hidden. Changing this flag is itself audit-logged as `audit_log_ui.config_update`, same as every other admin-configurable switch.
 
 ## Pattern: adding a new audited action
 
