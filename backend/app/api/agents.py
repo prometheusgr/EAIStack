@@ -155,6 +155,7 @@ async def chat(
             )
             for source in sources
         ],
+        was_modified=filtered.was_modified,
     )
 
 

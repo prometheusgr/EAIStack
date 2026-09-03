@@ -92,6 +92,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Verified end-to-end against the real stack (`docker-compose up --profile llm`): `frontend/tests/e2e/audit-log.spec.ts` logs in as the seeded admin, confirms the nav entry is visible, makes a real guardrail-config change, and confirms the resulting `guardrail.config_update` entry appears on the Audit Log screen — no fake-provider exclusion needed, since this flow never touches the LLM.
 - While in `docs/AUDIT_EVENTS.md`'s "Events recorded today" table: fixed a pre-existing staleness gap found during this work (the table only listed `retention.update`, though `guardrail.config_update`/`guardrail.pattern_update`/`guardrail.input_rejected`/`guardrail.output_redacted`/`tracing.config_update`/`rate_limit.config_update` had all shipped since) — now lists all seven actions including this issue's new one.
 
+**Output Guardrail Redaction Indicator Complete ✓**: User-Visible Signal (issue #46)
+- A safety-relevant blind spot closed: when the output guardrail redacts part of an agent response (a system-prompt leak or credential-shaped string), the user previously saw an ordinary-looking reply with no way to tell "the model didn't know this" from "the system removed something the model said." `ChatResponse.was_modified` (new field, additive) now carries `OutputGuardrailResult.was_modified` — a value `filter_output`/`filter_agent_response` already computed but `POST /api/agents/chat` previously discarded — through to the frontend.
+- `ChatWindow.tsx` renders a small, factual note ("Part of this response was filtered by a content safety rule.") on the specific message that was altered, mirroring the existing "Sources: ..." inline-note pattern rather than a global banner. The redacted content itself is never exposed — only the fact that a redaction happened. On by default with no config to disable it, unlike the admin dashboard/audit-log UI: a guardrail's action should never be silently indistinguishable from the model simply not knowing something.
+
 ## Common Development Commands
 
 ### Backend (Python)

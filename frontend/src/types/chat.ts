@@ -8,6 +8,7 @@ export interface ChatMessage {
   role: "user" | "agent";
   text: string;
   sources?: SourceReference[];
+  wasModified?: boolean;
 }
 
 export interface ChatRequest {
@@ -19,6 +20,7 @@ export interface ChatResponse {
   response: string;
   threadId: string;
   sources: SourceReference[];
+  wasModified: boolean;
 }
 
 export interface ThreadSummary {

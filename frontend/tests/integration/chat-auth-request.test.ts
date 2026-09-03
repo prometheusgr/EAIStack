@@ -296,6 +296,7 @@ describe('Chat Message Authentication - Integration Test', () => {
             response: 'Agent response',
             thread_id: 'thread-123',
             sources: [],
+            was_modified: false,
           }),
         } as Response)
       })
@@ -309,6 +310,29 @@ describe('Chat Message Authentication - Integration Test', () => {
 
       expect(mockRefresh).toHaveBeenCalled()
       expect(result.response).toBe('Agent response')
+    })
+
+    it('maps was_modified from the backend response onto wasModified', async () => {
+      const { sendChatMessage } = await import('@/api/agentsClient')
+
+      global.fetch = vi.fn(() =>
+        Promise.resolve({
+          status: 200,
+          ok: true,
+          json: async () => ({
+            response: 'Here is an API key: [redacted]',
+            thread_id: 'thread-123',
+            sources: [],
+            was_modified: true,
+          }),
+        } as Response)
+      )
+
+      const mockRefresh = vi.fn(() => Promise.resolve(false))
+
+      const result = await sendChatMessage('test', undefined, 'token', mockRefresh)
+
+      expect(result.wasModified).toBe(true)
     })
 
     it('should include backend error detail on the thrown error', async () => {

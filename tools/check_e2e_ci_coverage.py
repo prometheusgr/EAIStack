@@ -96,7 +96,7 @@ def check_e2e_ci_coverage(e2e_dir: Path, ci_workflow_path: Path) -> list[str]:
             )
             continue
 
-        if not any(ci_grep_invert_pattern in title for title in titles):
+        if not any(re.search(ci_grep_invert_pattern, title) for title in titles):
             violations.append(
                 f"{spec_path}: marked '{_MARKER}', but none of its test titles "
                 f"({titles!r}) contain CI's current --grep-invert pattern "

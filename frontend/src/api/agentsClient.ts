@@ -33,6 +33,7 @@ export async function sendChatMessage(
     response: string;
     thread_id: string;
     sources: { knowledge_base_id: string; title: string; heading_path: string | null }[];
+    was_modified: boolean;
   };
 
   return {
@@ -43,5 +44,6 @@ export async function sendChatMessage(
       title: source.title,
       headingPath: source.heading_path,
     })),
+    wasModified: data.was_modified,
   };
 }

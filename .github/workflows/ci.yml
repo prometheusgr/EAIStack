@@ -240,9 +240,17 @@ jobs:
       # the full LLM-in-the-loop grounding story, which needs the real
       # model to mean anything - run it manually with --profile llm before
       # merging a change that touches retrieval or the chat agent.
+      #
+      # output-guardrail-redaction-indicator.spec.ts is excluded for the
+      # identical reason: it asserts a real model actually disclosed its
+      # system prompt and got redacted (issue #46) - the fake provider
+      # always returns one fixed, unredactable string, so this spec can
+      # never pass here regardless of code correctness. Run it manually
+      # with --profile llm before merging a change that touches the output
+      # guardrail or ChatResponse.was_modified.
       - name: Run e2e tests
         working-directory: ./frontend
-        run: npx playwright test tests/e2e/ --grep-invert "grounded in a document"
+        run: npx playwright test tests/e2e/ --grep-invert "grounded in a document|content-safety indicator"
 
       - name: Upload Playwright report
         if: failure()

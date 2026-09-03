@@ -54,6 +54,13 @@ class ChatResponse(BaseModel):
     response: str
     thread_id: str
     sources: list[SourceReference] = Field(default_factory=list)
+    # Issue #46: whether the output guardrail altered this response before
+    # it was returned (see app.services.chat_guardrail_service.
+    # filter_agent_response). The redacted content itself is never exposed
+    # here or anywhere else -- only the fact that a redaction happened, so
+    # the user sees a factual signal rather than an indistinguishable
+    # "the model didn't know this."
+    was_modified: bool = False
 
 
 class ThreadSummary(BaseModel):

@@ -454,6 +454,27 @@ raw PII into an audit entry would work against the "right to be forgotten"
 posture described above. That decision needs its own pass, not one made
 under this ticket's guardrail scope.
 
+**User-visible redaction signal (issue #46).** Before this, a redaction was
+invisible in-band: the user saw an ordinary-looking reply with no way to
+tell "the model didn't know this" from "the system removed something the
+model said." `ChatResponse.was_modified` (populated from
+`OutputGuardrailResult.was_modified`, which `filter_output`/
+`filter_agent_response` already computed but the endpoint previously
+discarded) now carries that fact to the frontend, and `ChatWindow.tsx`
+renders a small, factual note — "Part of this response was filtered by a
+content safety rule." — on the specific message that was altered, never a
+global banner. The redacted content itself is never exposed in the
+process: only the fact that a redaction happened. This indicator is on by
+default with no config to disable it (unlike the admin dashboard/audit-log
+UI, which some forks may reasonably want to hide) — a guardrail's action
+should never be silently indistinguishable from the model simply not
+knowing something. Thread-history replay does not (yet) reconstruct this
+flag for past turns — `_render_messages` in `app.api.agents` rebuilds
+messages from LangChain checkpoint state, which only ever holds the
+already-redacted final text, not a per-message `was_modified` bit — so the
+indicator is scoped to the live turn only, the same limitation issue #19's
+source-citations feature has for the identical reason.
+
 ### Rate Limiting (Resource Exhaustion, Not Content — Issue #25)
 
 **Status**: implemented. Distinct from the guardrails above: guardrails validate

@@ -140,6 +140,7 @@ def test_chat_endpoint_records_audit_entry_on_output_redaction(client, db_sessio
 
     assert response.status_code == 200
     assert "[redacted]" in response.json()["response"]
+    assert response.json()["was_modified"] is True
 
     entries = AuditLogRepository(db_session).list_recent()
     assert len(entries) == 1
@@ -159,12 +160,13 @@ def test_chat_endpoint_does_not_record_audit_entry_for_unmodified_output(
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
     _login_as("user-a")
 
-    client.post("/api/agents/chat", json={"message": "What is our vacation policy?"})
+    response = client.post("/api/agents/chat", json={"message": "What is our vacation policy?"})
 
     app.dependency_overrides.clear()
 
     entries = AuditLogRepository(db_session).list_recent()
     assert len(entries) == 0
+    assert response.json()["was_modified"] is False
 
 
 @pytest.mark.unit
@@ -218,3 +220,4 @@ def test_chat_endpoint_allowed_message_still_reaches_agent(client):
 
     assert response.status_code == 200
     assert "response" in response.json()
+    assert response.json()["was_modified"] is False

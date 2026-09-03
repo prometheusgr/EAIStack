@@ -258,10 +258,11 @@ def test_chat_endpoint_response_shape(client):
     data = response.json()
 
     # Validate schema
-    assert set(data.keys()) == {"response", "thread_id", "sources"}
+    assert set(data.keys()) == {"response", "thread_id", "sources", "was_modified"}
     assert isinstance(data["response"], str)
     assert isinstance(data["thread_id"], str)
     assert data["sources"] == []
+    assert data["was_modified"] is False
 
 
 @pytest.mark.unit
