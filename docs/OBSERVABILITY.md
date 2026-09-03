@@ -87,6 +87,15 @@ field's default rather than crashing `Settings()` construction (a bug this
 fix closed, since pydantic-settings' bool parser otherwise rejects `""`
 outright).
 
+**Seeing the DB-desired/process-actual gap.** Because the two can diverge
+(the restart requirement above), the admin dashboard (issue #48, see
+`docs/SECURITY.md`'s "Admin Dashboard" section) surfaces both values side
+by side: `resolve_tracing_config(db).enabled` (DB-desired) and
+`app.core.tracing.is_tracing_configured()` (process-actual — a thin public
+accessor over the module's existing `_configured` guard, added for this
+purpose). Previously there was no way to observe the process-actual state
+at all outside reading application logs.
+
 ## Reviewing a trace
 
 The walkthrough below is the actual click-path (URLs and page structure)

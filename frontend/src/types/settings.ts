@@ -33,6 +33,28 @@ export interface AuditLogResponse {
   entries: AuditLogEntry[]
 }
 
+export interface RateLimitStatus {
+  enabled: boolean
+  active_bucket_count: number
+}
+
+export interface GuardrailStatus {
+  input_rejected_counts_by_pattern: Record<string, number>
+  output_redacted_count: number
+}
+
+export interface TracingStatus {
+  db_desired_enabled: boolean
+  process_actually_configured: boolean
+  phoenix_ui_url: string
+}
+
+export interface DashboardResponse {
+  rate_limit: RateLimitStatus
+  guardrails: GuardrailStatus
+  tracing: TracingStatus
+}
+
 export interface SystemSettingsResponse {
   llm_provider: string
   llm_url: string

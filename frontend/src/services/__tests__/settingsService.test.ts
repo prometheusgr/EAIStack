@@ -9,6 +9,7 @@ vi.mock('@/api/settingsClient', () => ({
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
     getAuditLog: vi.fn(),
+    getDashboard: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -141,6 +142,38 @@ describe('SettingsService', () => {
 
       await expect(service.getAuditLog()).rejects.toThrow('No auth token available')
       expect(settingsClient.getAuditLog).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getDashboard', () => {
+    const dashboardResponse = {
+      rate_limit: { enabled: true, active_bucket_count: 2 },
+      guardrails: {
+        input_rejected_counts_by_pattern: { sql_injection: 1 },
+        output_redacted_count: 0,
+      },
+      tracing: {
+        db_desired_enabled: false,
+        process_actually_configured: false,
+        phoenix_ui_url: 'http://localhost:6006',
+      },
+    }
+
+    it('delegates to settingsClient.getDashboard with the constructor token', async () => {
+      vi.mocked(settingsClient.getDashboard).mockResolvedValueOnce(dashboardResponse)
+
+      const service = new SettingsService(mockToken, mockRefresh)
+      const result = await service.getDashboard()
+
+      expect(settingsClient.getDashboard).toHaveBeenCalledWith(mockToken, mockRefresh)
+      expect(result).toEqual(dashboardResponse)
+    })
+
+    it('throws if no token is available', async () => {
+      const service = new SettingsService('', mockRefresh)
+
+      await expect(service.getDashboard()).rejects.toThrow('No auth token available')
+      expect(settingsClient.getDashboard).not.toHaveBeenCalled()
     })
   })
 

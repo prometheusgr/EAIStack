@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.core.config import settings
-from app.core.tracing import configure_tracing
+from app.core.tracing import configure_tracing, is_tracing_configured
 
 
 @pytest.fixture(autouse=True)
@@ -82,3 +82,35 @@ def test_configure_tracing_second_call_is_a_noop():
 
     mock_register.assert_called_once()
     mock_instrumentor_cls.return_value.instrument.assert_called_once()
+
+
+@pytest.mark.unit
+def test_is_tracing_configured_false_before_configure_tracing_runs():
+    """Reflects that this process has not actually instrumented tracing
+    yet, independent of whether an admin's DB override says it should be
+    enabled - see resolve_tracing_config, the DB-desired counterpart this
+    process-actual accessor is meant to be compared against.
+    """
+    assert is_tracing_configured() is False
+
+
+@pytest.mark.unit
+def test_is_tracing_configured_true_after_successful_configure_tracing():
+    with (
+        patch("phoenix.otel.register", return_value=MagicMock()),
+        patch("openinference.instrumentation.langchain.LangChainInstrumentor"),
+    ):
+        configure_tracing(settings, enabled=True)
+
+    assert is_tracing_configured() is True
+
+
+@pytest.mark.unit
+def test_is_tracing_configured_stays_false_when_configure_tracing_is_a_noop():
+    """enabled=False leaves the process un-instrumented - the common
+    default case, and the scenario issue #48's dashboard exists to surface
+    when it diverges from an admin's DB-desired tracing_enabled=True.
+    """
+    configure_tracing(settings, enabled=False)
+
+    assert is_tracing_configured() is False

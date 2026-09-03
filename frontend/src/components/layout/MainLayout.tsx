@@ -9,6 +9,7 @@ export type MainLayoutView =
   | 'embeddings-search'
   | 'settings'
   | 'audit'
+  | 'dashboard'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -83,6 +84,16 @@ export function MainLayout({
           >
             Search
           </Button>
+          {isAdmin && (
+            <Button
+              variant={currentView === 'dashboard' ? 'default' : 'ghost'}
+              onClick={() => onViewChange('dashboard')}
+              className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary text-xs md:text-sm"
+              data-active={currentView === 'dashboard'}
+            >
+              Dashboard
+            </Button>
+          )}
           {isAdmin && (
             <Button
               variant={currentView === 'settings' ? 'default' : 'ghost'}
