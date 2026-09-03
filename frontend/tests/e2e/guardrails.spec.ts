@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { loginAndStartNewChat as login } from './helpers'
 
 // Validates the input/output guardrails (backend/app/guardrails/) through
 // the real chat UI, over a real authenticated request -- not a mocked
@@ -9,29 +10,6 @@ import { test, expect } from '@playwright/test'
 // out of scope for both guardrails as of Phase 4 -- see those modules'
 // docstrings -- so this file documents that as current, expected behavior
 // rather than treating it as a gap to silently pass over.
-
-async function login(page: import('@playwright/test').Page) {
-  await page.goto('/')
-  await page.locator('button:has-text("Login")').click()
-  await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
-  await page.locator('input[name="username"]').fill('testuser')
-  await page.locator('input[name="password"]').fill('testpassword')
-  await page.locator('input[type="submit"]').click()
-  await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
-  const chatInput = page.locator('input[placeholder="Type your message..."]')
-  await expect(chatInput).toBeVisible({ timeout: 10000 })
-
-  // The seeded testuser's conversation history persists across e2e runs
-  // (same Postgres), and ChatWindow auto-loads the most recent thread on
-  // mount. Starting a fresh thread every time keeps each test's message
-  // count small and predictable -- otherwise accumulated history from
-  // prior runs grows the page tall enough that the page footer can
-  // intercept clicks on the Send button, and old messages can collide
-  // with getByText assertions meant to match only this run's turn.
-  await page.locator('button:has-text("New chat")').click()
-
-  return chatInput
-}
 
 test.describe('Input guardrail', () => {
   test('a prompt-injection message is rejected and never sent to the agent', async ({ page }) => {

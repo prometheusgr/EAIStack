@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { login } from './helpers'
 
 // requires-profile-llm
 //
@@ -30,20 +31,18 @@ import { test, expect } from '@playwright/test'
 // boundary or the fake provider); nothing before this drove a real chat
 // question through the real embedding + chunking + ranking pipeline.
 
-async function login(page: import('@playwright/test').Page) {
-  await page.goto('/')
-  await page.locator('button:has-text("Login")').click()
-  await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
-  await page.locator('input[name="username"]').fill('testuser')
-  await page.locator('input[name="password"]').fill('testpassword')
-  await page.locator('input[type="submit"]').click()
-  await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
-}
-
 test.describe('Knowledge base search grounding', () => {
   test('chat answers are grounded in a document only present in the knowledge base', async ({
     page,
   }) => {
+    // This test's own assertions below wait up to 60s for a real,
+    // CPU-only-inference LLM response -- longer than Playwright's global
+    // 30s per-test default (playwright.config.ts), so without raising it
+    // here the test can only pass when the model happens to respond
+    // unusually fast. Same fix shape as
+    // output-guardrail-redaction-indicator.spec.ts's test.setTimeout.
+    test.setTimeout(90000)
+
     await login(page)
 
     // A fact distinctive enough that the LLM cannot already know it and
