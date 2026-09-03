@@ -242,15 +242,18 @@ jobs:
       # merging a change that touches retrieval or the chat agent.
       #
       # output-guardrail-redaction-indicator.spec.ts is excluded for the
-      # identical reason: it asserts a real model actually disclosed its
-      # system prompt and got redacted (issue #46) - the fake provider
-      # always returns one fixed, unredactable string, so this spec can
-      # never pass here regardless of code correctness. Run it manually
-      # with --profile llm before merging a change that touches the output
-      # guardrail or ChatResponse.was_modified.
+      # identical reason: both of its tests assert a real model actually
+      # disclosed its system prompt and got redacted (issue #46) - the fake
+      # provider always returns one fixed, unredactable string, so neither
+      # test can ever pass here regardless of code correctness. Run them
+      # manually with --profile llm before merging a change that touches
+      # the output guardrail, ChatResponse.was_modified, or thread-history
+      # replay. Every test() title in this file must appear in the pattern
+      # below - tools/check_e2e_ci_coverage.py enforces this and fails the
+      # build if a title is added here without a matching update below.
       - name: Run e2e tests
         working-directory: ./frontend
-        run: npx playwright test tests/e2e/ --grep-invert "grounded in a document|content-safety indicator"
+        run: npx playwright test tests/e2e/ --grep-invert "grounded in a document|content-safety indicator|reopening the thread"
 
       - name: Upload Playwright report
         if: failure()
