@@ -645,6 +645,58 @@ Both are presentation-only: no new API surface, no new persisted field, no
 change to validation. Covered by `frontend/src/components/Settings.test.tsx`
 and `frontend/src/components/ui/info-tooltip.test.tsx`.
 
+## Admin Dashboard
+
+**Status**: implemented (issue #48). An admin-only "Dashboard" screen
+(`frontend/src/components/Dashboard.tsx`, `GET /api/settings/dashboard`)
+gives an admin one place to see what the system is currently doing, instead
+of several scattered or database-only signals. Every tile is backed by a
+real data path — no mocked or placeholder tiles:
+
+- **Rate limiting**: `active_bucket_count` (a live snapshot from
+  `app.services.rate_limiter_service.bucket_count()`, the total number of
+  identity/route pairs currently tracked in-process — see this document's
+  Rate Limiting section) and the resolved on/off state. There is
+  deliberately no "recent 429 count" figure: rate-limit trips are not
+  audit-logged (see Rate Limiting above for why), so no real data source
+  exists for that number — showing one would mean fabricating it.
+- **Guardrails**: `guardrail.input_rejected` trip counts over a rolling
+  24-hour window (`app.services.dashboard_service.RECENT_WINDOW`), grouped
+  by the pattern/reason that tripped, plus a bare `guardrail.output_redacted`
+  count. Aggregated via a dedicated repository method,
+  `AuditLogRepository.count_by_action_and_value_since` — not by fetching
+  `list_recent()`'s top 100 rows and filtering client-side, which could
+  silently undercount once other audit-event types (settings changes, etc.)
+  are mixed into the most recent rows. Output redactions have no per-pattern
+  breakdown: `filter_agent_response` never records which pattern matched,
+  only that a redaction happened, since the redacted content itself must
+  never be audit-logged (see Audit & Compliance above).
+- **Tracing**: both the DB-desired state (`resolve_tracing_config`) and
+  whether tracing is *actually* instrumented in this running process
+  (`app.core.tracing.is_tracing_configured`, a new accessor for the
+  module's existing `_configured` guard) are shown side by side, since they
+  can genuinely diverge — an admin's change via the Settings screen only
+  takes effect after the next backend restart (see this document's
+  Observability cross-reference and `docs/OBSERVABILITY.md`). The tile
+  flags the divergence explicitly rather than letting an admin assume a
+  settings change took effect immediately, the way every other config field
+  does. Also links out to the Phoenix UI via `tracing_ui_url` (env-only,
+  default `http://localhost:6006`) — deliberately a separate config value
+  from `tracing_otlp_endpoint`, since the backend reaches Phoenix at a
+  docker-compose-internal hostname (`http://phoenix:6006/...`) that is not
+  resolvable from an admin's browser outside that network.
+- **Recent activity**: reuses the issue #45 audit log client
+  (`useSettingsService().getAuditLog`) rather than re-serving the same rows
+  under a new shape, showing the 5 most recent entries with a "View full
+  audit log" link through to the full Audit Log screen.
+
+Admin-gated the same way Settings and the Audit Log screen are
+(`require_admin` / realm-role RBAC on the backend, `isAdmin` at the mount
+point on the frontend). No disable toggle, unlike the Audit Log screen's
+`audit_log_ui_enabled`: this is inherently an admin-only operational tool,
+so hiding it from admins would only recreate the visibility gap the
+dashboard exists to close.
+
 ## Secrets Management (K3s Native)
 
 K3s secrets are encrypted at rest in etcd. To manually create a secret:

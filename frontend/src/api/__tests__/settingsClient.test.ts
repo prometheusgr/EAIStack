@@ -350,6 +350,54 @@ describe('settingsClient', () => {
     })
   })
 
+  describe('getDashboard', () => {
+    it('GETs /api/settings/dashboard and returns the parsed status', async () => {
+      const responseBody = {
+        rate_limit: { enabled: true, active_bucket_count: 3 },
+        guardrails: {
+          input_rejected_counts_by_pattern: { sql_injection: 2 },
+          output_redacted_count: 1,
+        },
+        tracing: {
+          db_desired_enabled: false,
+          process_actually_configured: false,
+          phoenix_ui_url: 'http://localhost:6006',
+        },
+      }
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: async () => responseBody,
+      })
+
+      const result = await settingsClient.getDashboard(mockToken, mockRefresh)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/settings/dashboard'),
+        expect.objectContaining({ method: 'GET' })
+      )
+      expect(result).toEqual(responseBody)
+    })
+
+    it('throws ApiError with detail on 403 (non-admin)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 403,
+        ok: false,
+        statusText: 'Forbidden',
+        json: async () => ({ detail: 'Admin access required' }),
+      })
+
+      try {
+        await settingsClient.getDashboard(mockToken, mockRefresh)
+        expect.fail('Should have thrown')
+      } catch (error: Error | unknown) {
+        const apiError = error as { status: number; detail: string }
+        expect(apiError.status).toBe(403)
+        expect(apiError.detail).toBe('Admin access required')
+      }
+    })
+  })
+
   describe('deleteGuardrailPattern', () => {
     it('DELETEs /api/settings/guardrail-patterns/{id}', async () => {
       mockFetch.mockResolvedValueOnce({

@@ -5,6 +5,13 @@ from app.services.audit_log_ui_config_service import (
     resolve_audit_log_ui_config,
 )
 from app.services.chat_guardrail_service import check_input_guardrail, filter_agent_response
+from app.services.dashboard_service import (
+    DashboardStatus,
+    GuardrailStatus,
+    RateLimitStatus,
+    TracingStatus,
+    resolve_dashboard_status,
+)
 from app.services.embedding_service import (
     EmbeddingResult,
     embed_document,
@@ -67,4 +74,9 @@ __all__ = [
     "resolve_rate_limit_config",
     "check_chat_rate_limit",
     "check_auth_rate_limit",
+    "DashboardStatus",
+    "GuardrailStatus",
+    "RateLimitStatus",
+    "TracingStatus",
+    "resolve_dashboard_status",
 ]

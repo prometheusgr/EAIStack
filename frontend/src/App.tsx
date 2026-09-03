@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { ChatWindow } from './components/ChatWindow'
 import { APIKeys } from './components/APIKeys'
 import { AuditLog } from './components/AuditLog'
+import { Dashboard } from './components/Dashboard'
 import { EmbeddingsList } from '@/components/embeddings/EmbeddingsList'
 import { EmbeddingsSearch } from '@/components/embeddings/EmbeddingsSearch'
 import { Settings } from './components/Settings'
@@ -87,6 +88,9 @@ function AppContent() {
       )}
       {currentView === 'settings' && isAdmin && <Settings />}
       {currentView === 'audit' && isAdmin && <AuditLog />}
+      {currentView === 'dashboard' && isAdmin && (
+        <Dashboard onViewAuditLog={() => setCurrentView('audit')} />
+      )}
     </MainLayout>
   )
 }

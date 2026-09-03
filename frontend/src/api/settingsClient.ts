@@ -1,6 +1,7 @@
 import { authorizedFetch, type AuthRefresh } from './authorizedFetch'
 import type {
   AuditLogResponse,
+  DashboardResponse,
   GuardrailPattern,
   SystemSettingsResponse,
   TestConnectionResult,
@@ -15,6 +16,7 @@ export interface SettingsClient {
     onRefresh: AuthRefresh
   ): Promise<SystemSettingsResponse>
   getAuditLog(token: string, onRefresh: AuthRefresh): Promise<AuditLogResponse>
+  getDashboard(token: string, onRefresh: AuthRefresh): Promise<DashboardResponse>
   testConnection(
     url: string,
     token: string,
@@ -62,6 +64,14 @@ const settingsClient: SettingsClient = {
 
   async getAuditLog(token: string, onRefresh: AuthRefresh): Promise<AuditLogResponse> {
     const response = await authorizedFetch('/api/settings/audit', token, onRefresh, {
+      method: 'GET',
+    })
+
+    return response.json()
+  },
+
+  async getDashboard(token: string, onRefresh: AuthRefresh): Promise<DashboardResponse> {
+    const response = await authorizedFetch('/api/settings/dashboard', token, onRefresh, {
       method: 'GET',
     })
 

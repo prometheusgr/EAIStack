@@ -2,6 +2,7 @@ import { useAuth } from '@/context/AuthContext'
 import { SettingsService } from '@/services/settingsService'
 import type {
   AuditLogResponse,
+  DashboardResponse,
   GuardrailPattern,
   SystemSettingsResponse,
   TestConnectionResult,
@@ -49,6 +50,15 @@ export function useSettingsService() {
     { immediate: false }
   )
 
+  const getDashboard = useApiCall<DashboardResponse>(
+    async () => {
+      if (!token) throw new Error('No auth token available')
+      const service = new SettingsService(token, refreshAccessToken)
+      return service.getDashboard()
+    },
+    { immediate: false }
+  )
+
   const testConnection = useApiMutation<string, TestConnectionResult>(async (url) => {
     if (!token) throw new Error('No auth token available')
     const service = new SettingsService(token, refreshAccessToken)
@@ -82,6 +92,7 @@ export function useSettingsService() {
     get,
     update,
     getAuditLog,
+    getDashboard,
     testConnection,
     createGuardrailPattern,
     setGuardrailPatternEnabled,

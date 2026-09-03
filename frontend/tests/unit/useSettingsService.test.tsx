@@ -10,6 +10,7 @@ vi.mock('../../src/api/settingsClient', () => ({
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
     getAuditLog: vi.fn(),
+    getDashboard: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -156,6 +157,36 @@ describe('useSettingsService', () => {
       expect(result.current.getAuditLog.isLoading).toBe(false)
     })
     expect(settingsClient.getAuditLog).toHaveBeenCalledWith(MOCK_TOKEN, expect.any(Function))
+  })
+
+  it('getDashboard.execute() loads dashboard status and reflects success state', async () => {
+    const dashboardResponse = {
+      rate_limit: { enabled: true, active_bucket_count: 2 },
+      guardrails: {
+        input_rejected_counts_by_pattern: { sql_injection: 1 },
+        output_redacted_count: 0,
+      },
+      tracing: {
+        db_desired_enabled: false,
+        process_actually_configured: false,
+        phoenix_ui_url: 'http://localhost:6006',
+      },
+    }
+    vi.mocked(settingsClient.getDashboard).mockResolvedValue(dashboardResponse)
+
+    const { result } = renderHook(() => useSettingsServiceHarness(), { wrapper })
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.getDashboard.execute()
+    })
+
+    await waitFor(() => {
+      expect(result.current.getDashboard.data).toEqual(dashboardResponse)
+      expect(result.current.getDashboard.error).toBeNull()
+      expect(result.current.getDashboard.isLoading).toBe(false)
+    })
+    expect(settingsClient.getDashboard).toHaveBeenCalledWith(MOCK_TOKEN, expect.any(Function))
   })
 
   it('update.mutateAsync() calls settingsClient.updateSettings with the payload', async () => {

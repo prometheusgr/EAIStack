@@ -253,6 +253,65 @@ class AuditLogResponse(BaseModel):
     entries: list[AuditLogEntry]
 
 
+class RateLimitStatusResponse(BaseModel):
+    """Rate-limit tile of GET /api/settings/dashboard.
+
+    active_bucket_count is a live snapshot from
+    app.services.rate_limiter_service.bucket_count() -- the total number of
+    identity/route pairs currently tracked in-process, not a per-route
+    breakdown. There is no recent-429-count field: rate-limit trips are
+    deliberately not audit-logged (see docs/SECURITY.md's Rate Limiting
+    section), so no real data source exists for that figure.
+    """
+
+    enabled: bool
+    active_bucket_count: int
+
+
+class GuardrailStatusResponse(BaseModel):
+    """Guardrail tile of GET /api/settings/dashboard.
+
+    input_rejected_counts_by_pattern is keyed by the pattern/reason that
+    tripped (guardrail.input_rejected's new_value), over the recent window
+    app.services.dashboard_service.RECENT_WINDOW defines. output_redacted
+    has no per-pattern breakdown available: filter_agent_response never
+    records which pattern matched, only that a redaction happened, since
+    the redacted content itself must never be audit-logged.
+    """
+
+    input_rejected_counts_by_pattern: dict[str, int]
+    output_redacted_count: int
+
+
+class TracingStatusResponse(BaseModel):
+    """Tracing tile of GET /api/settings/dashboard.
+
+    db_desired_enabled and process_actually_configured are independent and
+    can diverge: an admin's change via the Settings screen only takes
+    effect after the next backend restart (see
+    app.core.tracing.configure_tracing's docstring) -- this tile exists so
+    that gap is visible to an admin instead of silently assumed away.
+    """
+
+    db_desired_enabled: bool
+    process_actually_configured: bool
+    phoenix_ui_url: str
+
+
+class DashboardResponse(BaseModel):
+    """Response body for GET /api/settings/dashboard (issue #48).
+
+    Recent-activity is deliberately not duplicated here -- the frontend
+    dashboard view reuses the existing GET /api/settings/audit client
+    (issue #45) for that tile rather than this endpoint re-serving the same
+    rows under a different shape.
+    """
+
+    rate_limit: RateLimitStatusResponse
+    guardrails: GuardrailStatusResponse
+    tracing: TracingStatusResponse
+
+
 class GuardrailPatternResponse(BaseModel):
     """One row from GuardrailPatternRepository, as returned to the settings
     screen.
