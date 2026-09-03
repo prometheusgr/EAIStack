@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { login as loginAsAdmin } from './helpers'
 
 // Validates issue #16: guardrail thresholds/heuristics are admin-configurable
 // at runtime (no redeploy), the same way LLM provider and retention config
@@ -16,16 +17,6 @@ import { test, expect } from '@playwright/test'
 // this file -- the seeded testuser's SystemSettings row is shared, real
 // Postgres state across every spec in this suite (see AGENTS.md's e2e
 // "start from a clean, known state" convention).
-
-async function loginAsAdmin(page: import('@playwright/test').Page) {
-  await page.goto('/')
-  await page.locator('button:has-text("Login")').click()
-  await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
-  await page.locator('input[name="username"]').fill('testuser')
-  await page.locator('input[name="password"]').fill('testpassword')
-  await page.locator('input[type="submit"]').click()
-  await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
-}
 
 async function openSettings(page: import('@playwright/test').Page) {
   await page.locator('button:has-text("Settings")').click()

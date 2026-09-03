@@ -2,22 +2,13 @@ import { test, expect } from '@playwright/test'
 import { writeFileSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { login } from './helpers'
 
 // Validates issue #13's file-upload flow through the real UI, backend, and
 // MinIO -- not a mocked service layer. Unit tests already cover the upload
 // endpoint's logic (content-type/size validation, text extraction,
 // MinIO storage) with a fake DocumentStore; this is the "does it actually
 // work end to end" check per AGENTS.md's e2e-after-green process.
-
-async function login(page: import('@playwright/test').Page) {
-  await page.goto('/')
-  await page.locator('button:has-text("Login")').click()
-  await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
-  await page.locator('input[name="username"]').fill('testuser')
-  await page.locator('input[name="password"]').fill('testpassword')
-  await page.locator('input[type="submit"]').click()
-  await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
-}
 
 test.describe('Knowledge base file upload', () => {
   test('uploading a .txt file creates a document visible in the list', async ({ page }) => {

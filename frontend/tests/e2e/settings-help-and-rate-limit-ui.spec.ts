@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { login as loginAsAdmin } from './helpers'
 
 // Validates two additions to the Settings screen: (1) issue #37's UI for the
 // 5 rate-limit fields the backend already supported via GET/PUT /api/settings
@@ -28,15 +29,6 @@ import { test, expect } from '@playwright/test'
 // fixture across spec files, so most specs don't need to hit the token
 // endpoint at all).
 
-async function loginAsAdmin(page: import('@playwright/test').Page) {
-  await page.goto('/')
-  await page.locator('button:has-text("Login")').click()
-  await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
-  await page.locator('input[name="username"]').fill('testuser')
-  await page.locator('input[name="password"]').fill('testpassword')
-  await page.locator('input[type="submit"]').click()
-  await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
-}
 
 async function openSettings(page: import('@playwright/test').Page) {
   await page.locator('button:has-text("Settings")').click()
