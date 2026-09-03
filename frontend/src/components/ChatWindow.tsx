@@ -103,7 +103,12 @@ export function ChatWindow() {
         setThreadId(result.threadId);
         setMessages((prev) => [
           ...prev,
-          { role: "agent", text: result.response, sources: result.sources },
+          {
+            role: "agent",
+            text: result.response,
+            sources: result.sources,
+            wasModified: result.wasModified,
+          },
         ]);
       }
       listThreads.execute();
@@ -166,6 +171,11 @@ export function ChatWindow() {
                 >
                   {msg.text}
                 </p>
+                {msg.role === "agent" && msg.wasModified && (
+                  <div className="mt-2 pt-2 border-t border-border/50 text-xs text-muted-foreground">
+                    Part of this response was filtered by a content safety rule.
+                  </div>
+                )}
                 {msg.role === "agent" && msg.sources && msg.sources.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-border/50 text-xs text-muted-foreground">
                     <span className="font-semibold">Sources: </span>

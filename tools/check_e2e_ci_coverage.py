@@ -22,10 +22,18 @@ the mock.
 
 This linter enforces the structural half of that fix going forward: any
 spec file containing the `requires-profile-llm` marker comment must have
-a test title that matches ci.yml's e2e-tests step's --grep-invert
-pattern, so a new real-content spec cannot be added to CI's gating run
-without that mismatch being caught immediately, not discovered by a red
-CI job days later.
+*every* one of its test() titles matching ci.yml's e2e-tests step's
+--grep-invert pattern, so a new real-content spec (or a new test added to
+an already-excluded file) cannot slip into CI's gating run without that
+mismatch being caught immediately, not discovered by a red CI job days
+later.
+
+Checking only "at least one title matches" (an earlier version of this
+linter's rule) missed exactly this: a second test() added later to an
+already-marked file, whose title happened not to overlap the existing
+--grep-invert pattern, silently ran in CI's fake-provider job and failed
+there for an environment reason. See
+test_check_e2e_ci_coverage.py::test_flags_a_marked_file_where_only_some_titles_match.
 
 Run via CI to gate merges that reintroduce this mismatch.
 """
@@ -96,15 +104,21 @@ def check_e2e_ci_coverage(e2e_dir: Path, ci_workflow_path: Path) -> list[str]:
             )
             continue
 
-        if not any(ci_grep_invert_pattern in title for title in titles):
+        unmatched_titles = [
+            title for title in titles if not re.search(ci_grep_invert_pattern, title)
+        ]
+        if unmatched_titles:
             violations.append(
-                f"{spec_path}: marked '{_MARKER}', but none of its test titles "
-                f"({titles!r}) contain CI's current --grep-invert pattern "
-                f"({ci_grep_invert_pattern!r}) - CI is not actually excluding this "
-                f"spec, so it will fail there against the fake provider for an "
-                f"environment reason, not a code-correctness one. Update "
-                f"{ci_workflow_path.name}'s --grep-invert pattern to match this "
-                f"spec's title (or this spec's title, if it changed)."
+                f"{spec_path}: marked '{_MARKER}', but {len(unmatched_titles)} of its "
+                f"{len(titles)} test title(s) don't match CI's current --grep-invert "
+                f"pattern ({ci_grep_invert_pattern!r}): {unmatched_titles!r} - CI is not "
+                f"actually excluding {'these tests' if len(unmatched_titles) > 1 else 'this test'}, "
+                f"so {'they' if len(unmatched_titles) > 1 else 'it'} will run there against "
+                f"the fake provider and fail for an environment reason, not a "
+                f"code-correctness one. Every test() in a file carrying the "
+                f"'{_MARKER}' marker must be excluded, not just the first one added - "
+                f"update {ci_workflow_path.name}'s --grep-invert pattern to also match "
+                f"the title(s) listed above."
             )
 
     return violations
@@ -127,7 +141,9 @@ def main():
     violations = check_e2e_ci_coverage(e2e_dir, ci_workflow_path)
 
     if not violations:
-        print("✓ Every real-content e2e spec is correctly excluded from CI's fake-provider run.")
+        print(
+            "✓ Every real-content e2e spec is correctly excluded from CI's fake-provider run."
+        )
         sys.exit(0)
 
     print("❌ E2E CI COVERAGE VIOLATIONS (must fix):")

@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage
 
 from app.core.auth import get_current_user
 from app.core.llm_client import FakeChatModel
+from app.db.models import SystemSettings
 from app.guardrails.input_guardrail import DEFAULT_MAX_INPUT_LENGTH
 from app.main import app
 from app.repositories import AuditLogRepository
@@ -140,6 +141,7 @@ def test_chat_endpoint_records_audit_entry_on_output_redaction(client, db_sessio
 
     assert response.status_code == 200
     assert "[redacted]" in response.json()["response"]
+    assert response.json()["was_modified"] is True
 
     entries = AuditLogRepository(db_session).list_recent()
     assert len(entries) == 1
@@ -159,12 +161,13 @@ def test_chat_endpoint_does_not_record_audit_entry_for_unmodified_output(
     monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
     _login_as("user-a")
 
-    client.post("/api/agents/chat", json={"message": "What is our vacation policy?"})
+    response = client.post("/api/agents/chat", json={"message": "What is our vacation policy?"})
 
     app.dependency_overrides.clear()
 
     entries = AuditLogRepository(db_session).list_recent()
     assert len(entries) == 0
+    assert response.json()["was_modified"] is False
 
 
 @pytest.mark.unit
@@ -205,6 +208,72 @@ def test_chat_endpoint_extracts_text_from_list_shaped_message_content(
 
 
 @pytest.mark.unit
+def test_thread_history_replays_redacted_text_not_the_original(client, monkeypatch):
+    """GET /api/agents/threads/{thread_id} must apply the same output
+    guardrail redaction the live chat response got -- otherwise reopening a
+    thread re-exposes exactly the content the guardrail redacted, defeating
+    the guardrail entirely. LangGraph's checkpointer persists the agent's
+    raw, pre-filter message (filter_agent_response's redaction happens
+    after ainvoke() returns and is never written back into graph state), so
+    thread-history replay must independently re-filter stored content
+    rather than assuming the checkpoint already holds redacted text.
+    """
+    fake_llm = FakeChatModel(
+        responses=[AIMessage(content="Here is an API key: sk-abcdefghijklmnopqrstuvwx1234567890")]
+    )
+    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    _login_as("user-a")
+
+    chat_response = client.post("/api/agents/chat", json={"message": "What is our API key?"})
+    thread_id = chat_response.json()["thread_id"]
+    assert "[redacted]" in chat_response.json()["response"]
+
+    history_response = client.get(f"/api/agents/threads/{thread_id}")
+
+    app.dependency_overrides.clear()
+
+    assert history_response.status_code == 200
+    texts = [m["text"] for m in history_response.json()["messages"]]
+    agent_texts = " ".join(texts)
+    assert "[redacted]" in agent_texts
+    assert "sk-abcdefghijklmnopqrstuvwx1234567890" not in agent_texts
+
+
+@pytest.mark.unit
+def test_thread_history_does_not_filter_when_output_guardrail_is_disabled(
+    client, db_session, monkeypatch
+):
+    """When an admin has switched the output guardrail off, thread-history
+    replay must not silently re-apply it either -- the same
+    guardrail_config.output_enabled toggle that governs the live response
+    (see filter_agent_response) must govern replay identically, so
+    disabling the guardrail actually disables it everywhere, not just on
+    the initial response.
+    """
+    db_session.add(
+        SystemSettings(id="default", guardrails_output_enabled=False, updated_by="admin-1")
+    )
+    db_session.commit()
+
+    fake_llm = FakeChatModel(
+        responses=[AIMessage(content="Here is an API key: sk-abcdefghijklmnopqrstuvwx1234567890")]
+    )
+    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    _login_as("user-a")
+
+    chat_response = client.post("/api/agents/chat", json={"message": "What is our API key?"})
+    thread_id = chat_response.json()["thread_id"]
+    assert "sk-abcdefghijklmnopqrstuvwx1234567890" in chat_response.json()["response"]
+
+    history_response = client.get(f"/api/agents/threads/{thread_id}")
+
+    app.dependency_overrides.clear()
+
+    agent_texts = " ".join(m["text"] for m in history_response.json()["messages"])
+    assert "sk-abcdefghijklmnopqrstuvwx1234567890" in agent_texts
+
+
+@pytest.mark.unit
 def test_chat_endpoint_allowed_message_still_reaches_agent(client):
     """A message that passes the guardrail is processed normally end-to-end,
     confirming the guardrail check doesn't interfere with the happy path
@@ -218,3 +287,4 @@ def test_chat_endpoint_allowed_message_still_reaches_agent(client):
 
     assert response.status_code == 200
     assert "response" in response.json()
+    assert response.json()["was_modified"] is False

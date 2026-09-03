@@ -51,6 +51,7 @@ describe("ChatWindow", () => {
       response: "Test response from agent",
       threadId: "test-thread-123",
       sources: [],
+      wasModified: false,
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -73,6 +74,7 @@ describe("ChatWindow", () => {
       response: "This is the agent response",
       threadId: "test-thread-456",
       sources: [],
+      wasModified: false,
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -94,6 +96,7 @@ describe("ChatWindow", () => {
       response: "Test response",
       threadId: "test-thread-789",
       sources: [],
+      wasModified: false,
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -115,6 +118,7 @@ describe("ChatWindow", () => {
       response: "Test response",
       threadId: "test-thread-999",
       sources: [],
+      wasModified: false,
     };
 
     const mockSendChat = vi
@@ -440,6 +444,7 @@ describe("ChatWindow", () => {
       sources: [
         { knowledgeBaseId: "kb-1", title: "Vacation Policy", headingPath: null },
       ],
+      wasModified: false,
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -463,6 +468,7 @@ describe("ChatWindow", () => {
       sources: [
         { knowledgeBaseId: "kb-1", title: "Vacation Policy", headingPath: null },
       ],
+      wasModified: false,
     };
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
     vi.mocked(knowledgeBaseClient.get).mockResolvedValue({
@@ -503,6 +509,7 @@ describe("ChatWindow", () => {
       response: "I don't have specific information on that.",
       threadId: "test-thread-no-sources",
       sources: [],
+      wasModified: false,
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -517,6 +524,50 @@ describe("ChatWindow", () => {
       expect(screen.getByText("I don't have specific information on that.")).toBeInTheDocument();
     });
     expect(screen.queryByText(/sources?:/i)).not.toBeInTheDocument();
+  });
+
+  it("should show a redaction indicator on a message the output guardrail modified", async () => {
+    const mockResponse = {
+      response: "Here is an API key: [redacted]",
+      threadId: "test-thread-redacted",
+      sources: [],
+      wasModified: true,
+    };
+
+    vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
+
+    render(<ChatWindow />);
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: "What is our API key?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Here is an API key: [redacted]")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/filtered by a content safety rule/i)).toBeInTheDocument();
+  });
+
+  it("should not show a redaction indicator on an unmodified message", async () => {
+    const mockResponse = {
+      response: "You get 25 days of paid vacation per year.",
+      threadId: "test-thread-not-redacted",
+      sources: [],
+      wasModified: false,
+    };
+
+    vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
+
+    render(<ChatWindow />);
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: "How many vacation days do I get?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("You get 25 days of paid vacation per year.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/filtered by a content safety rule/i)).not.toBeInTheDocument();
   });
 
   it("should clear messages and start a new thread when New chat is clicked", async () => {
