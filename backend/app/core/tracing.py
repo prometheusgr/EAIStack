@@ -63,3 +63,18 @@ def configure_tracing(settings: Settings, *, enabled: bool) -> None:
     )
     LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
     _configured = True
+
+
+def is_tracing_configured() -> bool:
+    """Whether OTel tracing has actually been instrumented in this process.
+
+    Distinct from resolve_tracing_config(db).enabled (the DB-desired state,
+    re-read fresh on every call): this reflects whether configure_tracing
+    has actually run and succeeded here, in this process, since it started.
+    The two can diverge -- an admin's change via the settings screen only
+    takes effect after the next backend restart (see configure_tracing's
+    docstring) -- which is exactly the divergence issue #48's admin
+    dashboard surfaces to an admin who might otherwise assume a settings
+    change took effect immediately, the way every other config field does.
+    """
+    return _configured

@@ -104,7 +104,7 @@ def test_repository_exposes_no_delete_or_update_method(db_session):
 
     public_methods = {name for name in dir(repo) if not name.startswith("_")}
 
-    assert public_methods == {"db", "record", "list_recent"}
+    assert public_methods == {"db", "record", "list_recent", "count_by_action_and_value_since"}
 
 
 @pytest.mark.unit
@@ -136,3 +136,76 @@ def test_list_recent_returns_newest_first(db_session):
         "api_key_purge_days",
         "conversation_retention_hours",
     ]
+
+
+@pytest.mark.unit
+def test_count_by_action_and_value_since_groups_and_counts_matching_action(db_session):
+    """Issue #48's dashboard needs per-pattern trip counts for
+    guardrail.input_rejected, grouped by new_value (the pattern/reason that
+    tripped, per chat_guardrail_service.check_input_guardrail). Unrelated
+    actions must not pollute the count -- list_recent(limit=100) can't
+    guarantee this once other audit-event types are mixed in, which is why
+    this is a dedicated, action-filtered query rather than client-side
+    aggregation over list_recent.
+    """
+    repo = AuditLogRepository(db_session)
+    since = datetime(2026, 8, 21, 0, 0, 0, tzinfo=timezone.utc)
+
+    repo.record(
+        actor_user_id="user-1",
+        action="guardrail.input_rejected",
+        field_name="message",
+        old_value=None,
+        new_value="sql_injection",
+        now=datetime(2026, 8, 21, 9, 0, 0, tzinfo=timezone.utc),
+    )
+    repo.record(
+        actor_user_id="user-2",
+        action="guardrail.input_rejected",
+        field_name="message",
+        old_value=None,
+        new_value="sql_injection",
+        now=datetime(2026, 8, 21, 10, 0, 0, tzinfo=timezone.utc),
+    )
+    repo.record(
+        actor_user_id="user-3",
+        action="guardrail.input_rejected",
+        field_name="message",
+        old_value=None,
+        new_value="instruction_override",
+        now=datetime(2026, 8, 21, 11, 0, 0, tzinfo=timezone.utc),
+    )
+    # A different action entirely -- must not be counted or grouped in.
+    repo.record(
+        actor_user_id="admin-1",
+        action="retention.update",
+        field_name="conversation_retention_hours",
+        old_value="72",
+        new_value="24",
+        now=datetime(2026, 8, 21, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    db_session.commit()
+
+    counts = repo.count_by_action_and_value_since("guardrail.input_rejected", since=since)
+
+    assert counts == {"sql_injection": 2, "instruction_override": 1}
+
+
+@pytest.mark.unit
+def test_count_by_action_and_value_since_excludes_entries_before_the_cutoff(db_session):
+    repo = AuditLogRepository(db_session)
+    since = datetime(2026, 8, 21, 0, 0, 0, tzinfo=timezone.utc)
+
+    repo.record(
+        actor_user_id="user-1",
+        action="guardrail.input_rejected",
+        field_name="message",
+        old_value=None,
+        new_value="sql_injection",
+        now=datetime(2026, 8, 20, 23, 59, 59, tzinfo=timezone.utc),
+    )
+    db_session.commit()
+
+    counts = repo.count_by_action_and_value_since("guardrail.input_rejected", since=since)
+
+    assert counts == {}

@@ -8,11 +8,15 @@ from app.api.schemas import (
     AuditLogEntry,
     AuditLogResponse,
     CreateGuardrailPatternRequest,
+    DashboardResponse,
     GuardrailPatternResponse,
+    GuardrailStatusResponse,
     ProviderOption,
+    RateLimitStatusResponse,
     SystemSettingsResponse,
     TestConnectionRequest,
     TestConnectionResponse,
+    TracingStatusResponse,
     UpdateGuardrailPatternRequest,
     UpdateSettingsRequest,
 )
@@ -28,6 +32,7 @@ from app.repositories import (
 from app.services import (
     available_provider_options,
     resolve_audit_log_ui_config,
+    resolve_dashboard_status,
     resolve_embedding_config,
     resolve_guardrail_config,
     resolve_llm_config,
@@ -327,6 +332,35 @@ async def get_audit_log(
     """
     entries = AuditLogRepository(db).list_recent()
     return AuditLogResponse(entries=[AuditLogEntry.model_validate(entry) for entry in entries])
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+async def get_dashboard(
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Get the admin dashboard's status snapshot (issue #48): rate-limit
+    bucket state, guardrail trip counts over a recent window, and tracing
+    status. Admin-only, read-only -- see
+    app.services.dashboard_service.resolve_dashboard_status for how each
+    tile's data source was chosen.
+    """
+    status = resolve_dashboard_status(db, now=utc_now())
+    return DashboardResponse(
+        rate_limit=RateLimitStatusResponse(
+            enabled=status.rate_limit.enabled,
+            active_bucket_count=status.rate_limit.active_bucket_count,
+        ),
+        guardrails=GuardrailStatusResponse(
+            input_rejected_counts_by_pattern=status.guardrails.input_rejected_counts_by_pattern,
+            output_redacted_count=status.guardrails.output_redacted_count,
+        ),
+        tracing=TracingStatusResponse(
+            db_desired_enabled=status.tracing.db_desired_enabled,
+            process_actually_configured=status.tracing.process_actually_configured,
+            phoenix_ui_url=status.tracing.phoenix_ui_url,
+        ),
+    )
 
 
 @router.post("/test-connection", response_model=TestConnectionResponse)

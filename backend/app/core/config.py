@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     # policy an admin should be able to redirect at will.
     tracing_enabled: bool = False
     tracing_otlp_endpoint: str = "http://localhost:6006/v1/traces"
+    # Browser-facing Phoenix UI root, deliberately separate from
+    # tracing_otlp_endpoint above (issue #48's admin dashboard links out to
+    # this). The backend reaches Phoenix at the docker-compose-internal
+    # hostname (http://phoenix:6006/...), which is not resolvable from an
+    # admin's browser outside that network -- this field is what an admin's
+    # browser can actually load, and defaults to localhost:6006 (the port
+    # docker-compose publishes) for the common local-dev/docker-compose
+    # deployment. A fork with a different Phoenix ingress/hostname (e.g.
+    # behind the Phase 5 K8s ingress) overrides this env var accordingly.
+    tracing_ui_url: str = "http://localhost:6006"
 
     # Admin audit log viewer (issue #45). Transparent-by-default: on unless
     # a fork has a specific reason (e.g. routing audit consumption through

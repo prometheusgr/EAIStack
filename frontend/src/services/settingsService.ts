@@ -2,6 +2,7 @@ import { settingsClient } from '@/api/settingsClient'
 import type { AuthRefresh } from '@/api/authorizedFetch'
 import type {
   AuditLogResponse,
+  DashboardResponse,
   GuardrailPattern,
   SystemSettingsResponse,
   TestConnectionResult,
@@ -27,6 +28,11 @@ export class SettingsService {
   async getAuditLog(): Promise<AuditLogResponse> {
     if (!this.token) throw new Error('No auth token available')
     return settingsClient.getAuditLog(this.token, this.onRefresh)
+  }
+
+  async getDashboard(): Promise<DashboardResponse> {
+    if (!this.token) throw new Error('No auth token available')
+    return settingsClient.getDashboard(this.token, this.onRefresh)
   }
 
   async testConnection(url: string): Promise<TestConnectionResult> {
