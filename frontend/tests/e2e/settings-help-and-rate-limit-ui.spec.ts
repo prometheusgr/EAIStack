@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test'
-import { login as loginAsAdmin } from './helpers'
 
 // Validates two additions to the Settings screen: (1) issue #37's UI for the
 // 5 rate-limit fields the backend already supported via GET/PUT /api/settings
@@ -17,18 +16,12 @@ import { login as loginAsAdmin } from './helpers'
 // seeded testuser's SystemSettings row is shared, real Postgres state across
 // every spec in this suite.
 //
-// Each test logs in fresh, matching every other spec file's own
-// loginAsAdmin convention in this suite. Note for future maintainers: this
-// file's 4 fresh logins, stacked on top of another spec file's own per-test
-// logins in the same CI run/worker, can trip POST /api/auth/token's own
-// rate limiter (issue #25, default capacity 10/refill 10 per minute, keyed
-// by client IP) -- a real, pre-existing risk across this whole e2e suite
-// (every spec file logs in per-test), not unique to this file. Mitigated
-// for now via docker-compose.yml's RATE_LIMIT_AUTH_CAPACITY override;
-// tracked as issue #53 for a proper fix (e.g. a shared storageState login
-// fixture across spec files, so most specs don't need to hit the token
-// endpoint at all).
-
+// Runs in the 'chromium' project, pre-authenticated via storageState (see
+// playwright.config.ts and tests/e2e/auth.setup.ts) -- issue #53's real fix
+// for the per-test-login/shared-rate-limit-bucket collision this comment
+// used to describe: each test now navigates to '/' directly instead of
+// performing its own real login, so this file's tests no longer consume any
+// of POST /api/auth/token's rate-limit budget at all.
 
 async function openSettings(page: import('@playwright/test').Page) {
   await page.locator('button:has-text("Settings")').click()
@@ -45,7 +38,7 @@ test.describe('Settings screen: rate limit UI and help tooltips (issue #37)', ()
   test('the Rate Limiting section renders all five fields with their current values', async ({
     page,
   }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     await expect(page.getByLabel(/enable rate limiting/i)).toBeVisible()
@@ -61,7 +54,7 @@ test.describe('Settings screen: rate limit UI and help tooltips (issue #37)', ()
   })
 
   test('changing the chat burst capacity persists across a reload', async ({ page }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     const capacityInput = page.getByLabel(/chat burst capacity/i)
@@ -91,7 +84,7 @@ test.describe('Settings screen: rate limit UI and help tooltips (issue #37)', ()
   test('a field help tooltip is reachable by keyboard and reveals explanatory text', async ({
     page,
   }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     // Every tooltip trigger shares the accessible name "Show help" (see
@@ -125,7 +118,7 @@ test.describe('Settings screen: rate limit UI and help tooltips (issue #37)', ()
   test('the "Common setups" reference panel is visible on the Settings screen', async ({
     page,
   }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     await expect(page.getByText('Common setups')).toBeVisible()

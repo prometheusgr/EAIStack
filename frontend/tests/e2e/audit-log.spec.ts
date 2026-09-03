@@ -12,16 +12,10 @@ import { test, expect } from '@playwright/test'
 // runs of this file -- the seeded testuser's SystemSettings row is shared,
 // real Postgres state across every spec in this suite (see AGENTS.md's e2e
 // "start from a clean, known state" convention).
-
-async function loginAsAdmin(page: import('@playwright/test').Page) {
-  await page.goto('/')
-  await page.locator('button:has-text("Login")').click()
-  await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
-  await page.locator('input[name="username"]').fill('testuser')
-  await page.locator('input[name="password"]').fill('testpassword')
-  await page.locator('input[type="submit"]').click()
-  await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
-}
+//
+// Runs in the 'chromium' project, pre-authenticated via storageState (see
+// playwright.config.ts and tests/e2e/auth.setup.ts) -- issue #53 -- so
+// each test navigates to '/' directly rather than performing a real login.
 
 async function openSettings(page: import('@playwright/test').Page) {
   await page.locator('button:has-text("Settings")').click()
@@ -35,7 +29,7 @@ async function openAuditLog(page: import('@playwright/test').Page) {
 
 test.describe('Admin audit log viewer (issue #45)', () => {
   test('the Audit Log nav entry is visible to an admin', async ({ page }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
 
     await expect(page.locator('button:has-text("Audit Log")')).toBeVisible()
   })
@@ -43,7 +37,7 @@ test.describe('Admin audit log viewer (issue #45)', () => {
   test('a real settings change produces an entry visible on the Audit Log screen', async ({
     page,
   }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     const inputToggle = page.locator('#guardrails-input-enabled')

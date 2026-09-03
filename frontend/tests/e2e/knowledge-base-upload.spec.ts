@@ -2,17 +2,20 @@ import { test, expect } from '@playwright/test'
 import { writeFileSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { login } from './helpers'
 
 // Validates issue #13's file-upload flow through the real UI, backend, and
 // MinIO -- not a mocked service layer. Unit tests already cover the upload
 // endpoint's logic (content-type/size validation, text extraction,
 // MinIO storage) with a fake DocumentStore; this is the "does it actually
 // work end to end" check per AGENTS.md's e2e-after-green process.
+//
+// Runs in the 'chromium' project, pre-authenticated via storageState (see
+// playwright.config.ts and tests/e2e/auth.setup.ts) -- issue #53 -- so
+// each test navigates to '/' directly rather than performing a real login.
 
 test.describe('Knowledge base file upload', () => {
   test('uploading a .txt file creates a document visible in the list', async ({ page }) => {
-    await login(page)
+    await page.goto('/')
 
     await page.locator('button:has-text("Embeddings")').click()
     await expect(page.getByRole('heading', { name: 'Embeddings' })).toBeVisible()
@@ -36,7 +39,7 @@ test.describe('Knowledge base file upload', () => {
   test('uploading an unsupported file type shows an error and does not add a row', async ({
     page,
   }) => {
-    await login(page)
+    await page.goto('/')
 
     await page.locator('button:has-text("Embeddings")').click()
     await page.getByRole('tab', { name: /upload file/i }).click()

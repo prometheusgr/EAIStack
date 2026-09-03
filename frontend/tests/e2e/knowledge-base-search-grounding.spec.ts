@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test'
-import { login } from './helpers'
 
 // requires-profile-llm
 //
@@ -30,6 +29,10 @@ import { login } from './helpers'
 // cover the prefix/chunking/hybrid-search logic in isolation (mocked HTTP
 // boundary or the fake provider); nothing before this drove a real chat
 // question through the real embedding + chunking + ranking pipeline.
+//
+// Runs in the 'chromium' project, pre-authenticated via storageState (see
+// playwright.config.ts and tests/e2e/auth.setup.ts) -- issue #53 -- so
+// this test navigates to '/' directly rather than performing a real login.
 
 test.describe('Knowledge base search grounding', () => {
   test('chat answers are grounded in a document only present in the knowledge base', async ({
@@ -43,7 +46,7 @@ test.describe('Knowledge base search grounding', () => {
     // output-guardrail-redaction-indicator.spec.ts's test.setTimeout.
     test.setTimeout(90000)
 
-    await login(page)
+    await page.goto('/')
 
     // A fact distinctive enough that the LLM cannot already know it and
     // could only answer correctly by actually retrieving this document -
