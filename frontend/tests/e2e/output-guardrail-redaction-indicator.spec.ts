@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { loginAndStartNewChat as login } from './helpers'
 
 // requires-profile-llm
 //
@@ -37,25 +38,6 @@ import { test, expect } from '@playwright/test'
 // those verbs while still reliably getting the model to comply. Verified
 // stable across repeated runs against the reference model as of this
 // writing; a different local model may need this phrasing adjusted.
-
-async function login(page: import('@playwright/test').Page) {
-  await page.goto('/')
-  await page.locator('button:has-text("Login")').click()
-  await page.waitForURL(/keycloak|8080/, { timeout: 10000 })
-  await page.locator('input[name="username"]').fill('testuser')
-  await page.locator('input[name="password"]').fill('testpassword')
-  await page.locator('input[type="submit"]').click()
-  await page.waitForURL('http://localhost:3000/', { timeout: 15000 })
-  const chatInput = page.locator('input[placeholder="Type your message..."]')
-  await expect(chatInput).toBeVisible({ timeout: 10000 })
-
-  // Start from a clean thread -- see guardrails.spec.ts's login() for why
-  // (accumulated history from prior runs can grow the page tall enough
-  // that the footer intercepts clicks, and collide with getByText matches).
-  await page.locator('button:has-text("New chat")').click()
-
-  return chatInput
-}
 
 test('a real system-prompt disclosure is redacted and shows the content-safety indicator', async ({
   page,
