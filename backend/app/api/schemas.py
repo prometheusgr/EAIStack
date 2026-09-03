@@ -59,8 +59,12 @@ class ChatResponse(BaseModel):
     # filter_agent_response). The redacted content itself is never exposed
     # here or anywhere else -- only the fact that a redaction happened, so
     # the user sees a factual signal rather than an indistinguishable
-    # "the model didn't know this."
-    was_modified: bool = False
+    # "the model didn't know this." No default: this field exists so a
+    # redaction is never silently indistinguishable from "nothing to
+    # report" -- a future call site that forgets to set it explicitly
+    # should fail loudly (a Pydantic validation error), not silently
+    # manufacture a false "not redacted" signal.
+    was_modified: bool
 
 
 class ThreadSummary(BaseModel):

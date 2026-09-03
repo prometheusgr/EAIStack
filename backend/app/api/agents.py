@@ -22,11 +22,12 @@ from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import utc_now
 from app.guardrails.input_guardrail import GuardrailVerdict
+from app.guardrails.output_guardrail import filter_output
 from app.prompts.chat_prompts import CHAT_AGENT_SYSTEM_PROMPT
 from app.repositories import ThreadRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services import check_input_guardrail, filter_agent_response
-from app.services.guardrail_config_service import resolve_guardrail_config
+from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
 from app.services.rate_limit_config_service import resolve_rate_limit_config
 from app.services.rate_limiter_service import check_chat_rate_limit, rate_limit_exceeded_response
 
@@ -193,25 +194,46 @@ async def get_thread_history(
     checkpoint_tuple = SqlAlchemyCheckpointSaver(db).get_tuple(
         {"configurable": {"thread_id": thread.id}}
     )
-    messages = _render_messages(checkpoint_tuple)
+    guardrail_config = resolve_guardrail_config(db)
+    messages = _render_messages(checkpoint_tuple, guardrail_config=guardrail_config)
 
     return ThreadHistoryResponse(id=thread.id, messages=messages)
 
 
-def _render_messages(checkpoint_tuple: CheckpointTuple | None) -> list[ThreadMessage]:
+def _render_messages(
+    checkpoint_tuple: CheckpointTuple | None, *, guardrail_config: GuardrailConfig
+) -> list[ThreadMessage]:
     """Map a checkpoint's stored LangChain messages to user/agent turns.
 
     Mirrors what ChatWindow already renders: only human and AI messages
     are shown, tool-call/tool-result messages are internal detail.
+
+    Re-runs the output guardrail on every stored AI message before
+    returning it. This is necessary, not defensive: LangGraph's
+    checkpointer persists call_agent's raw response during ainvoke() (see
+    app.agents.chat_agent), before app.api.agents.chat ever calls
+    filter_agent_response -- that redaction is applied only to the
+    in-memory value used for the immediate HTTP response and is never
+    written back into graph state. Without re-filtering here, reopening a
+    thread would return the original, unredacted text for a message the
+    live chat response correctly redacted, silently defeating the output
+    guardrail on every replay. Uses the pure filter_output directly, not
+    filter_agent_response: this is a read path, not a new redaction event,
+    so it must not write a fresh guardrail.output_redacted audit entry
+    every time a thread happens to be viewed.
     """
     if checkpoint_tuple is None:
         return []
 
     stored_messages = checkpoint_tuple.checkpoint["channel_values"].get("messages", [])
+    system_prompt = CHAT_AGENT_SYSTEM_PROMPT.render().text
     rendered: list[ThreadMessage] = []
     for message in stored_messages:
         if isinstance(message, HumanMessage):
             rendered.append(ThreadMessage(role="user", text=str(message.content)))
         elif isinstance(message, AIMessage) and message.content:
-            rendered.append(ThreadMessage(role="agent", text=str(message.content)))
+            text = str(message.content)
+            if guardrail_config.output_enabled:
+                text = filter_output(text, system_prompt=system_prompt).text
+            rendered.append(ThreadMessage(role="agent", text=text))
     return rendered

@@ -468,12 +468,26 @@ process: only the fact that a redaction happened. This indicator is on by
 default with no config to disable it (unlike the admin dashboard/audit-log
 UI, which some forks may reasonably want to hide) — a guardrail's action
 should never be silently indistinguishable from the model simply not
-knowing something. Thread-history replay does not (yet) reconstruct this
-flag for past turns — `_render_messages` in `app.api.agents` rebuilds
-messages from LangChain checkpoint state, which only ever holds the
-already-redacted final text, not a per-message `was_modified` bit — so the
-indicator is scoped to the live turn only, the same limitation issue #19's
-source-citations feature has for the identical reason.
+knowing something.
+
+**Thread-history replay re-filters independently of the live response.**
+LangGraph's checkpointer persists `call_agent`'s raw response during
+`ainvoke()` (see `app.agents.chat_agent`) *before* `app.api.agents.chat`
+ever calls `filter_agent_response` — that redaction is applied only to the
+in-memory value used for the immediate HTTP response and is never written
+back into graph state or the checkpoint. Without independent handling,
+`GET /api/agents/threads/{thread_id}` would return a thread's original,
+unredacted text on every subsequent view, silently defeating the output
+guardrail the moment a user reopened a conversation. `_render_messages`
+therefore re-runs the pure `filter_output` (not `filter_agent_response`,
+which would additionally write a fresh, spurious
+`guardrail.output_redacted` audit entry on every read) against every
+stored AI message before returning thread history, honoring the same
+`guardrail_config.output_enabled` toggle the live path does. The
+`was_modified` *badge* is still scoped to the live turn only, the same
+limitation issue #19's source-citations feature has for the identical
+reason (`ThreadMessage` carries no per-message flag) — but the redaction
+itself, unlike the badge, is never lost on replay.
 
 ### Rate Limiting (Resource Exhaustion, Not Content — Issue #25)
 
