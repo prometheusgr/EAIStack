@@ -3,6 +3,7 @@ import { useEmbeddingsService } from '@/hooks/useEmbeddingsService'
 import type { EmbeddingResponse } from '@/types/embeddings'
 import { Button } from '@/components/ui/button'
 import { KnowledgeBaseUpload } from './KnowledgeBaseUpload'
+import { EmbeddingDetail } from './EmbeddingDetail'
 import {
   Table,
   TableBody,
@@ -17,6 +18,7 @@ export function EmbeddingsList() {
   const { list, deleteDocument } = useEmbeddingsService()
   const [deleting, setDeleting] = useState<string | null>(null)
   const [embeddings, setEmbeddings] = useState<EmbeddingResponse[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     list.execute()
@@ -40,6 +42,10 @@ export function EmbeddingsList() {
     } finally {
       setDeleting(null)
     }
+  }
+
+  if (selectedId) {
+    return <EmbeddingDetail id={selectedId} onBack={() => setSelectedId(null)} />
   }
 
   if (list.isLoading) {
@@ -97,7 +103,15 @@ export function EmbeddingsList() {
           <TableBody>
             {embeddings.map((embedding) => (
               <TableRow key={embedding.id} className="hover:bg-gray-50">
-                <TableCell className="font-medium">{embedding.title || 'Untitled'}</TableCell>
+                <TableCell className="font-medium">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(embedding.id)}
+                    className="text-blue-600 hover:text-blue-800 hover:underline text-left"
+                  >
+                    {embedding.title || 'Untitled'}
+                  </button>
+                </TableCell>
                 <TableCell>{new Date(embedding.created_at).toLocaleDateString()}</TableCell>
                 <TableCell>{new Date(embedding.updated_at).toLocaleDateString()}</TableCell>
                 <TableCell className="text-right">
