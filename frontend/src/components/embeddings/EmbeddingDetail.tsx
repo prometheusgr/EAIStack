@@ -8,9 +8,14 @@ interface EmbeddingDetailProps {
   id: string
   similarityScore?: number
   onBack?: () => void
+  // Called after a successful delete, instead of onBack, so a caller that
+  // keeps its own copy of the embeddings list (e.g. EmbeddingsList) can
+  // remove the deleted row rather than leaving it stale once the user
+  // returns to the list.
+  onDeleted?: () => void
 }
 
-export function EmbeddingDetail({ id, similarityScore, onBack }: EmbeddingDetailProps) {
+export function EmbeddingDetail({ id, similarityScore, onBack, onDeleted }: EmbeddingDetailProps) {
   const { getEmbedding, deleteDocument } = useEmbeddingsService(id)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -33,7 +38,9 @@ export function EmbeddingDetail({ id, similarityScore, onBack }: EmbeddingDetail
         throw new Error('Embedding not loaded')
       }
       await deleteDocument.mutateAsync(embedding.doc_id)
-      if (onBack) {
+      if (onDeleted) {
+        onDeleted()
+      } else if (onBack) {
         onBack()
       }
     } catch (err) {

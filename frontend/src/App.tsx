@@ -74,12 +74,7 @@ function AppContent() {
       {currentView === 'apikeys' && (
         <APIKeys />
       )}
-      {currentView === 'embeddings' && (
-        <>
-          <h2 className="text-2xl font-semibold mb-4">Embeddings</h2>
-          <EmbeddingsList />
-        </>
-      )}
+      {currentView === 'embeddings' && <EmbeddingsList />}
       {currentView === 'embeddings-search' && (
         <>
           <h2 className="text-2xl font-semibold mb-4">Semantic Search</h2>

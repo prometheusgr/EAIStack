@@ -97,4 +97,29 @@ describe('EmbeddingsList', () => {
       expect(screen.getByRole('button', { name: 'Second Document' })).toBeInTheDocument()
     })
   })
+
+  it('removes the document from the list after it is deleted from the detail view', async () => {
+    mockDeleteDocumentMutation.mutateAsync.mockResolvedValue(undefined)
+    global.confirm = vi.fn(() => true)
+
+    render(<EmbeddingsList />)
+
+    const titleLink = await screen.findByRole('button', { name: 'First Document' })
+    fireEvent.click(titleLink)
+
+    await waitFor(() => {
+      expect(screen.getByText('Content of the first document')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Delete Document'))
+
+    await waitFor(() => {
+      expect(mockDeleteDocumentMutation.mutateAsync).toHaveBeenCalledWith('doc-1')
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'First Document' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Second Document' })).toBeInTheDocument()
+    })
+  })
 })
