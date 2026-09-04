@@ -69,9 +69,15 @@ test('a chat send throttled by the rate limiter shows a distinguishable countdow
   )
 
   // A follow-up request, sent through the real chat UI, should now be
-  // denied with several seconds still remaining on the countdown.
+  // denied with several seconds still remaining on the countdown. The Send
+  // button's own label changes ("Send" -> "Retry in Ns" -> "Send" again),
+  // so it's located structurally (the one button next to the message
+  // input) rather than by text -- a text-based locator like
+  // button:has-text("Send") stops matching the instant the label changes
+  // to "Retry in Ns", which is exactly the state this test needs to
+  // observe.
   const chatInput = page.locator('input[placeholder="Type your message..."]')
-  const sendButton = page.locator('button:has-text("Send")')
+  const sendButton = chatInput.locator('xpath=following-sibling::button[1]')
   await chatInput.fill(`Rate limit probe over the limit ${Date.now()}`)
   await sendButton.click()
 
