@@ -37,6 +37,7 @@ const DASHBOARD_RESPONSE: DashboardResponse = {
     process_actually_configured: false,
     phoenix_ui_url: 'http://localhost:6006',
   },
+  keycloak_console_url: 'http://localhost:8080',
 }
 
 const AUDIT_LOG_RESPONSE: AuditLogResponse = {

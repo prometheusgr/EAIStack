@@ -18,10 +18,17 @@ import { useSettingsService } from '@/hooks/useSettingsService'
 function AppContent() {
   const { isAuthenticated, isLoading, login, isAdmin, authError } = useAuth()
   const [currentView, setCurrentView] = useState<MainLayoutView>('chat')
-  const { get: getSettings } = useSettingsService()
+  const { get: getSettings, getDashboard } = useSettingsService()
 
   useEffect(() => {
-    if (isAdmin) getSettings.execute()
+    if (isAdmin) {
+      getSettings.execute()
+      // Fetched here (not just by Dashboard.tsx on its own mount) because
+      // the nav's "User Management" deep link (issue #40) needs
+      // keycloak_console_url as soon as an admin logs in, not only after
+      // they've visited the Dashboard tab.
+      getDashboard.execute()
+    }
   }, [isAdmin])
 
   if (isLoading) {
@@ -64,6 +71,7 @@ function AppContent() {
       currentView={currentView}
       onViewChange={setCurrentView}
       auditLogUiEnabled={getSettings.data?.audit_log_ui_enabled ?? true}
+      keycloakConsoleUrl={getDashboard.data?.keycloak_console_url}
     >
       {currentView === 'chat' && (
         <>

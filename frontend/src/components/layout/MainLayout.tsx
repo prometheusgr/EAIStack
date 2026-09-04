@@ -21,6 +21,23 @@ interface MainLayoutProps {
    * hide it a moment later for the common case where it stays enabled.
    */
   auditLogUiEnabled?: boolean
+  /** Browser-facing Keycloak admin console root (issue #40), backing the
+   * "User Management" nav deep link below. Undefined until
+   * GET /api/settings/dashboard resolves -- the link is omitted rather
+   * than rendered with a placeholder href in that brief window.
+   */
+  keycloakConsoleUrl?: string
+}
+
+/** Keycloak's admin console route to the realm's user list, given the
+ * browser-facing console root the backend resolves (issue #40). The realm
+ * name itself ("eaistack") is not currently exposed by the backend's
+ * dashboard response -- hardcoded here to match the single realm this
+ * template ships (infra/keycloak/realm-import.json's "realm": "eaistack").
+ * A fork that renames the realm should update this alongside that file.
+ */
+export function buildKeycloakUsersConsoleUrl(consoleUrl: string): string {
+  return `${consoleUrl.replace(/\/$/, '')}/admin/master/console/#/eaistack/users`
 }
 
 export function MainLayout({
@@ -28,6 +45,7 @@ export function MainLayout({
   currentView,
   onViewChange,
   auditLogUiEnabled = true,
+  keycloakConsoleUrl,
 }: MainLayoutProps) {
   const { logout, user, isAdmin } = useAuth()
 
@@ -113,6 +131,16 @@ export function MainLayout({
             >
               Audit Log
             </Button>
+          )}
+          {isAdmin && keycloakConsoleUrl && (
+            <a
+              href={buildKeycloakUsersConsoleUrl(keycloakConsoleUrl)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center px-4 py-2 rounded-none border-b-2 border-transparent text-xs md:text-sm text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              User Management
+            </a>
           )}
         </div>
       </nav>

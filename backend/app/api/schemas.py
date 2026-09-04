@@ -316,11 +316,17 @@ class DashboardResponse(BaseModel):
     dashboard view reuses the existing GET /api/settings/audit client
     (issue #45) for that tile rather than this endpoint re-serving the same
     rows under a different shape.
+
+    keycloak_console_url (issue #40) rides along on this existing response
+    rather than a new single-value endpoint -- the frontend nav needs it to
+    render the "User Management" deep link, and this is the response the
+    nav's admin-gated screens already fetch.
     """
 
     rate_limit: RateLimitStatusResponse
     guardrails: GuardrailStatusResponse
     tracing: TracingStatusResponse
+    keycloak_console_url: str
 
 
 class GuardrailPatternResponse(BaseModel):

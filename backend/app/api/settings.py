@@ -360,6 +360,7 @@ async def get_dashboard(
             process_actually_configured=status.tracing.process_actually_configured,
             phoenix_ui_url=status.tracing.phoenix_ui_url,
         ),
+        keycloak_console_url=status.keycloak_console_url,
     )
 
 

@@ -154,3 +154,21 @@ def test_resolve_dashboard_status_includes_the_phoenix_ui_url(db_session):
     status = resolve_dashboard_status(db_session, now=FIXED_NOW)
 
     assert status.tracing.phoenix_ui_url == settings.tracing_ui_url
+
+
+@pytest.mark.unit
+def test_resolve_dashboard_status_keycloak_console_url_falls_back_to_keycloak_url(db_session):
+    """No override configured -- issue #40's User Management nav link should
+    still resolve to something an admin's browser can load, not blank."""
+    with patch.object(settings, "keycloak_console_url", None):
+        status = resolve_dashboard_status(db_session, now=FIXED_NOW)
+
+    assert status.keycloak_console_url == settings.keycloak_url
+
+
+@pytest.mark.unit
+def test_resolve_dashboard_status_keycloak_console_url_uses_override_when_set(db_session):
+    with patch.object(settings, "keycloak_console_url", "https://keycloak.example.com"):
+        status = resolve_dashboard_status(db_session, now=FIXED_NOW)
+
+    assert status.keycloak_console_url == "https://keycloak.example.com"

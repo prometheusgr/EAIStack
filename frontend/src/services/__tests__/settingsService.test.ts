@@ -157,6 +157,7 @@ describe('SettingsService', () => {
         process_actually_configured: false,
         phoenix_ui_url: 'http://localhost:6006',
       },
+      keycloak_console_url: 'http://localhost:8080',
     }
 
     it('delegates to settingsClient.getDashboard with the constructor token', async () => {

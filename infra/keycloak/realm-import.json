@@ -4,6 +4,10 @@
   "displayName": "EAIStack Realm",
   "displayNameHtml": "<b>Enterprise AI Stack</b>",
   "sslRequired": "none",
+  "eventsEnabled": true,
+  "eventsListeners": ["jboss-logging"],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
   "roles": {
     "realm": [
       {

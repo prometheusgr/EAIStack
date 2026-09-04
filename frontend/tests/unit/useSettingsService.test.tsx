@@ -171,6 +171,7 @@ describe('useSettingsService', () => {
         process_actually_configured: false,
         phoenix_ui_url: 'http://localhost:6006',
       },
+      keycloak_console_url: 'http://localhost:8080',
     }
     vi.mocked(settingsClient.getDashboard).mockResolvedValue(dashboardResponse)
 

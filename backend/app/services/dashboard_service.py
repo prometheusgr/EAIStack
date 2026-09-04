@@ -24,6 +24,10 @@ must be backed by a real data path" requirement:
   reported, since they can genuinely diverge -- an admin's settings-screen
   change only takes effect after the next backend restart. Also carries the
   browser-facing Phoenix UI URL for an outbound link.
+- keycloak_console_url (issue #40): the browser-facing Keycloak admin
+  console root backing the frontend's "User Management" nav deep link.
+  Falls back to keycloak_url when keycloak_console_url is unset, the same
+  override-with-default shape as every other admin-configurable URL here.
 """
 
 from dataclasses import dataclass
@@ -69,6 +73,7 @@ class DashboardStatus:
     rate_limit: RateLimitStatus
     guardrails: GuardrailStatus
     tracing: TracingStatus
+    keycloak_console_url: str
 
 
 def resolve_dashboard_status(db: Session, *, now: datetime) -> DashboardStatus:
@@ -103,4 +108,5 @@ def resolve_dashboard_status(db: Session, *, now: datetime) -> DashboardStatus:
             process_actually_configured=is_tracing_configured(),
             phoenix_ui_url=settings.tracing_ui_url,
         ),
+        keycloak_console_url=settings.keycloak_console_url or settings.keycloak_url,
     )

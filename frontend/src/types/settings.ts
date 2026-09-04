@@ -53,6 +53,7 @@ export interface DashboardResponse {
   rate_limit: RateLimitStatus
   guardrails: GuardrailStatus
   tracing: TracingStatus
+  keycloak_console_url: string
 }
 
 export interface SystemSettingsResponse {

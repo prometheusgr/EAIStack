@@ -108,3 +108,17 @@ def test_dashboard_endpoint_reports_tracing_status_with_phoenix_link(client):
     assert tracing["process_actually_configured"] is False
     assert isinstance(tracing["db_desired_enabled"], bool)
     assert tracing["phoenix_ui_url"].startswith("http")
+
+
+@pytest.mark.unit
+def test_dashboard_endpoint_reports_keycloak_console_url(client):
+    """Backs issue #40's User Management nav deep link -- the frontend needs
+    a real, non-blank URL to point that link at."""
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.get("/api/settings/dashboard")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["keycloak_console_url"].startswith("http")
