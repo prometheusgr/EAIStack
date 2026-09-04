@@ -323,6 +323,26 @@ class DashboardResponse(BaseModel):
     tracing: TracingStatusResponse
 
 
+class NavConfigResponse(BaseModel):
+    """Response body for GET /api/settings/nav-config (issue #40).
+
+    Deliberately separate from DashboardResponse: this carries only
+    small, rarely-changing config values the admin nav needs at login (the
+    Keycloak admin console URL, for the "User Management" deep link), not
+    the live operational status DashboardResponse reports -- see
+    app.services.nav_config_service's module docstring for why bolting
+    this onto the dashboard endpoint would be the wrong home.
+
+    keycloak_users_console_url is None when this deployment has no
+    browser-facing Keycloak console URL configured (see
+    Settings.keycloak_console_url's docstring); the frontend omits the nav
+    link rather than rendering one pointed at an internal-only address it
+    can never reach.
+    """
+
+    keycloak_users_console_url: str | None
+
+
 class GuardrailPatternResponse(BaseModel):
     """One row from GuardrailPatternRepository, as returned to the settings
     screen.

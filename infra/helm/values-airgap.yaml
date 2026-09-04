@@ -131,6 +131,12 @@ backend:
 
   port: 8000
 
+  # Browser-facing Keycloak admin console root (issue #40's "User
+  # Management" nav deep link) -- set this to match keycloak.externalHostname
+  # above (e.g. "https://keycloak.example.com") once that's set, or the link
+  # falls back to a cluster-internal address admin browsers can't load.
+  keycloakConsoleUrl: ""
+
   # LLM provider config (llama-cpp, openai-compatible, fake)
   llm:
     provider: "llama-cpp"

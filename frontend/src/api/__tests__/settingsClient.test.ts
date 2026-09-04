@@ -398,6 +398,28 @@ describe('settingsClient', () => {
     })
   })
 
+  describe('getNavConfig', () => {
+    it('GETs /api/settings/nav-config and returns the parsed config', async () => {
+      const responseBody = {
+        keycloak_users_console_url:
+          'http://localhost:8080/admin/master/console/#/eaistack/users',
+      }
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: async () => responseBody,
+      })
+
+      const result = await settingsClient.getNavConfig(mockToken, mockRefresh)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/settings/nav-config'),
+        expect.objectContaining({ method: 'GET' })
+      )
+      expect(result).toEqual(responseBody)
+    })
+  })
+
   describe('deleteGuardrailPattern', () => {
     it('DELETEs /api/settings/guardrail-patterns/{id}', async () => {
       mockFetch.mockResolvedValueOnce({

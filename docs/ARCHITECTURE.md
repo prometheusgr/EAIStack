@@ -48,6 +48,8 @@ keycloakLoginUrl.searchParams.set('prompt', 'login')
 
 See [docs/AUTH_TROUBLESHOOTING.md](./AUTH_TROUBLESHOOTING.md) for debugging logout and fresh-instance issues.
 
+**User lifecycle (creating, disabling, deleting a user; granting the `admin` role) is entirely a Keycloak admin-console operation** — EAIStack's frontend has no in-app screen for it, only an admin-gated "User Management" nav entry that deep-links to Keycloak's own console. The full URL (realm and admin-console path included) is composed server-side by `backend/app/services/nav_config_service.py` from `keycloak_console_url`/`keycloak_realm` in `backend/app/core/config.py` and served by `GET /api/settings/nav-config`, so the realm name is resolved in one place rather than duplicated in the frontend. See [docs/USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for the full walkthrough, including why no in-app editor was built and where Keycloak's own admin/login event history (enabled by default in this realm's config) lives.
+
 ---
 
 ### Fully Air-Gapped

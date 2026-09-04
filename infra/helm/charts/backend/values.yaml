@@ -31,6 +31,16 @@ podSecurityContext:
 # External hostname for backend's SANs (if exposed outside the cluster)
 externalHostname: ""
 
+# Browser-facing Keycloak admin console root (issue #40's "User Management"
+# nav deep link), e.g. "https://keycloak.example.com". Empty means the link
+# is omitted (see MainLayout.tsx) rather than pointed at the
+# cluster-internal KEYCLOAK_URL an admin's browser cannot load. Not derived
+# automatically from the keycloak chart's own externalHostname -- a
+# subchart cannot see a sibling subchart's values -- so set this
+# explicitly if the keycloak chart is installed with its own
+# externalHostname.
+keycloakConsoleUrl: ""
+
 # OIDC client configuration
 oidcClient:
   clientId: "eaistack-backend"

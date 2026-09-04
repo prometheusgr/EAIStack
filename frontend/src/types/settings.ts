@@ -55,6 +55,18 @@ export interface DashboardResponse {
   tracing: TracingStatus
 }
 
+/** Static, rarely-changing admin-nav config (issue #40), deliberately
+ * separate from DashboardResponse -- see backend's
+ * app.services.nav_config_service module docstring for why.
+ */
+export interface NavConfigResponse {
+  /** null means this deployment has no browser-facing Keycloak console URL
+   * configured -- the "User Management" nav link is omitted rather than
+   * pointed at the backend-internal keycloak_url, which would silently 404.
+   */
+  keycloak_users_console_url: string | null
+}
+
 export interface SystemSettingsResponse {
   llm_provider: string
   llm_url: string

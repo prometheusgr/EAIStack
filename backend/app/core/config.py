@@ -113,6 +113,25 @@ class Settings(BaseSettings):
     # meantime, so no one mistakes it for a value requiring no setup.
     keycloak_client_secret: str = "eaistack-api-secret"
 
+    # Browser-facing Keycloak admin console root (issue #40's "User
+    # Management" nav deep link), deliberately separate from keycloak_url
+    # above -- same split as tracing_ui_url vs tracing_otlp_endpoint. The
+    # backend usually reaches Keycloak at an internal-only hostname an
+    # admin's browser cannot load (docker-compose's "keycloak:8080", or a
+    # .svc.cluster.local address under Helm), so this field is what the
+    # browser should be sent to instead.
+    #
+    # None means "not configured" -- resolve_dashboard_status does NOT fall
+    # back to keycloak_url here (unlike some other override/default pairs in
+    # this file): keycloak_url is usually the wrong, internal-only value for
+    # a browser, and falling back to it would silently render a nav link
+    # guaranteed to 404 rather than correctly omitting it. docker-compose.yml
+    # and the Helm chart's backend values.yaml both set this explicitly;
+    # leaving it unset in a real deployment means the "User Management" nav
+    # entry simply doesn't appear, which is the honest outcome given no
+    # correct value is known.
+    keycloak_console_url: str | None = None
+
     # Path to the internal CA bundle every outbound HTTP client verifies
     # against, mounted into the pod by the Helm chart (Phase 5, Decision 2).
     # None keeps httpx's default trust store, which is what local dev and

@@ -11,6 +11,7 @@ vi.mock('../../src/api/settingsClient', () => ({
     updateSettings: vi.fn(),
     getAuditLog: vi.fn(),
     getDashboard: vi.fn(),
+    getNavConfig: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -187,6 +188,28 @@ describe('useSettingsService', () => {
       expect(result.current.getDashboard.isLoading).toBe(false)
     })
     expect(settingsClient.getDashboard).toHaveBeenCalledWith(MOCK_TOKEN, expect.any(Function))
+  })
+
+  it('getNavConfig.execute() loads nav config and reflects success state', async () => {
+    const navConfigResponse = {
+      keycloak_users_console_url:
+        'http://localhost:8080/admin/master/console/#/eaistack/users',
+    }
+    vi.mocked(settingsClient.getNavConfig).mockResolvedValue(navConfigResponse)
+
+    const { result } = renderHook(() => useSettingsServiceHarness(), { wrapper })
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.getNavConfig.execute()
+    })
+
+    await waitFor(() => {
+      expect(result.current.getNavConfig.data).toEqual(navConfigResponse)
+      expect(result.current.getNavConfig.error).toBeNull()
+      expect(result.current.getNavConfig.isLoading).toBe(false)
+    })
+    expect(settingsClient.getNavConfig).toHaveBeenCalledWith(MOCK_TOKEN, expect.any(Function))
   })
 
   it('update.mutateAsync() calls settingsClient.updateSettings with the payload', async () => {

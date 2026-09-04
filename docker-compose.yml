@@ -233,6 +233,13 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/eaistack
       MINIO_URL: http://minio:9000
       KEYCLOAK_URL: http://keycloak:8080
+      # keycloak:8080 above is the docker-compose-internal hostname the
+      # backend uses for token verification -- not resolvable from an
+      # admin's browser. KEYCLOAK_CONSOLE_URL (issue #40) is what the
+      # frontend's "User Management" nav link is sent to instead, same
+      # kind of internal-vs-browser-facing split as tracing_ui_url vs
+      # tracing_otlp_endpoint in backend/app/core/config.py.
+      KEYCLOAK_CONSOLE_URL: http://localhost:8080
       # Defaults to the mocked LLM. Override to "llama-cpp" (see docs/LLM_SETUP.md)
       # to route chat through the llama-server container.
       LLM_PROVIDER: ${LLM_PROVIDER:-fake}

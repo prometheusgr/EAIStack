@@ -10,6 +10,7 @@ vi.mock('@/api/settingsClient', () => ({
     updateSettings: vi.fn(),
     getAuditLog: vi.fn(),
     getDashboard: vi.fn(),
+    getNavConfig: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -174,6 +175,30 @@ describe('SettingsService', () => {
 
       await expect(service.getDashboard()).rejects.toThrow('No auth token available')
       expect(settingsClient.getDashboard).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getNavConfig', () => {
+    const navConfigResponse = {
+      keycloak_users_console_url:
+        'http://localhost:8080/admin/master/console/#/eaistack/users',
+    }
+
+    it('delegates to settingsClient.getNavConfig with the constructor token', async () => {
+      vi.mocked(settingsClient.getNavConfig).mockResolvedValueOnce(navConfigResponse)
+
+      const service = new SettingsService(mockToken, mockRefresh)
+      const result = await service.getNavConfig()
+
+      expect(settingsClient.getNavConfig).toHaveBeenCalledWith(mockToken, mockRefresh)
+      expect(result).toEqual(navConfigResponse)
+    })
+
+    it('throws if no token is available', async () => {
+      const service = new SettingsService('', mockRefresh)
+
+      await expect(service.getNavConfig()).rejects.toThrow('No auth token available')
+      expect(settingsClient.getNavConfig).not.toHaveBeenCalled()
     })
   })
 

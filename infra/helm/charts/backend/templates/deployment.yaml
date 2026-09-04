@@ -43,6 +43,19 @@ spec:
             secretKeyRef:
               name: {{ include "backend.secretName" . }}
               key: keycloak-client-secret
+        {{- if .Values.keycloakConsoleUrl }}
+        # Browser-facing Keycloak admin console root (issue #40), backing
+        # the frontend's "User Management" nav deep link. KEYCLOAK_URL above
+        # is a cluster-internal .svc.cluster.local address an admin's
+        # browser cannot load, so this must be set explicitly for the link
+        # to resolve to anything real -- there is no way to derive it from
+        # the keycloak subchart's own externalHostname value here, since a
+        # subchart cannot see a sibling subchart's values (see
+        # values-airgap.yaml's global.fullnameOverrides comment for the
+        # general version of this constraint).
+        - name: KEYCLOAK_CONSOLE_URL
+          value: {{ .Values.keycloakConsoleUrl | quote }}
+        {{- end }}
         # LLM configuration
         - name: LLM_PROVIDER
           value: "llama-cpp"

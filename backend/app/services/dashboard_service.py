@@ -24,6 +24,12 @@ must be backed by a real data path" requirement:
   reported, since they can genuinely diverge -- an admin's settings-screen
   change only takes effect after the next backend restart. Also carries the
   browser-facing Phoenix UI URL for an outbound link.
+
+Issue #40's "User Management" nav deep link deliberately does NOT live
+here: it's a small, rarely-changing config value with no need for the
+audit-log aggregation and rate-limit introspection this endpoint performs
+on every call, so it has its own lightweight endpoint/service instead --
+see app.services.nav_config_service.
 """
 
 from dataclasses import dataclass

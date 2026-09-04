@@ -11,6 +11,7 @@ from app.api.schemas import (
     DashboardResponse,
     GuardrailPatternResponse,
     GuardrailStatusResponse,
+    NavConfigResponse,
     ProviderOption,
     RateLimitStatusResponse,
     SystemSettingsResponse,
@@ -36,6 +37,7 @@ from app.services import (
     resolve_embedding_config,
     resolve_guardrail_config,
     resolve_llm_config,
+    resolve_nav_config,
     resolve_rate_limit_config,
     resolve_retention_config,
     resolve_tracing_config,
@@ -360,6 +362,24 @@ async def get_dashboard(
             process_actually_configured=status.tracing.process_actually_configured,
             phoenix_ui_url=status.tracing.phoenix_ui_url,
         ),
+    )
+
+
+@router.get("/nav-config", response_model=NavConfigResponse)
+async def get_nav_config(
+    user: dict = Depends(require_admin),
+):
+    """Get static, rarely-changing values the admin nav needs at login
+    (issue #40): currently just the Keycloak admin console URL backing the
+    "User Management" deep link. Admin-only, read-only, and deliberately
+    separate from GET /api/settings/dashboard -- see
+    app.services.nav_config_service's module docstring for why a value
+    this cheap and static shouldn't force every admin login to pay for
+    that endpoint's audit-log aggregation and rate-limit introspection.
+    """
+    config = resolve_nav_config()
+    return NavConfigResponse(
+        keycloak_users_console_url=config.keycloak_users_console_url,
     )
 
 

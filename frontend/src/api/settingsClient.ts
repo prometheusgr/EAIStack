@@ -3,6 +3,7 @@ import type {
   AuditLogResponse,
   DashboardResponse,
   GuardrailPattern,
+  NavConfigResponse,
   SystemSettingsResponse,
   TestConnectionResult,
   UpdateSettingsRequest,
@@ -17,6 +18,7 @@ export interface SettingsClient {
   ): Promise<SystemSettingsResponse>
   getAuditLog(token: string, onRefresh: AuthRefresh): Promise<AuditLogResponse>
   getDashboard(token: string, onRefresh: AuthRefresh): Promise<DashboardResponse>
+  getNavConfig(token: string, onRefresh: AuthRefresh): Promise<NavConfigResponse>
   testConnection(
     url: string,
     token: string,
@@ -72,6 +74,14 @@ const settingsClient: SettingsClient = {
 
   async getDashboard(token: string, onRefresh: AuthRefresh): Promise<DashboardResponse> {
     const response = await authorizedFetch('/api/settings/dashboard', token, onRefresh, {
+      method: 'GET',
+    })
+
+    return response.json()
+  },
+
+  async getNavConfig(token: string, onRefresh: AuthRefresh): Promise<NavConfigResponse> {
+    const response = await authorizedFetch('/api/settings/nav-config', token, onRefresh, {
       method: 'GET',
     })
 

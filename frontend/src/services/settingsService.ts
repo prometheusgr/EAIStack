@@ -4,6 +4,7 @@ import type {
   AuditLogResponse,
   DashboardResponse,
   GuardrailPattern,
+  NavConfigResponse,
   SystemSettingsResponse,
   TestConnectionResult,
   UpdateSettingsRequest,
@@ -33,6 +34,11 @@ export class SettingsService {
   async getDashboard(): Promise<DashboardResponse> {
     if (!this.token) throw new Error('No auth token available')
     return settingsClient.getDashboard(this.token, this.onRefresh)
+  }
+
+  async getNavConfig(): Promise<NavConfigResponse> {
+    if (!this.token) throw new Error('No auth token available')
+    return settingsClient.getNavConfig(this.token, this.onRefresh)
   }
 
   async testConnection(url: string): Promise<TestConnectionResult> {
