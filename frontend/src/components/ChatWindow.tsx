@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { ShieldAlert, Clock, AlertCircle } from "lucide-react";
 import { useChatService } from "../hooks/useChatService";
 import { useThreadsService } from "../hooks/useThreadsService";
 import { useIsMounted } from "../hooks/useIsMounted";
+import { useRetryCountdown } from "../hooks/useRetryCountdown";
 import { ChatMessage } from "../types/chat";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -10,15 +12,44 @@ import { SourceDocumentModal } from "./SourceDocumentModal";
 
 const GENERIC_ERROR_MESSAGE = "Something went wrong and your message failed to send. Please try again.";
 
-// A raw HTTP status/reason string (ApiErrorImpl's fallback when the backend
-// doesn't supply a human-readable message, e.g. a 500) is not fit to show a
-// user -- only a guardrail-style 4xx rejection carries a message worth
-// displaying, so anything else still falls back to the generic text.
-function describeSendError(error: unknown): string {
-  if (error instanceof ApiErrorImpl && error.status >= 400 && error.status < 500 && error.message) {
-    return error.message;
+/** A send failure, classified so the UI can show a distinguishable signal
+ * (issue #47) instead of one undifferentiated red banner for every 4xx:
+ * - "guardrail": the input was content-filtered (400, see input_guardrail.py).
+ * - "rate_limit": the request was throttled (429, see rate_limiter_service.py)
+ *   -- carries retryAfterSeconds when the backend's Retry-After header was
+ *   present, for the countdown below.
+ * - "generic": anything else (5xx, an unmapped 4xx with no message, a plain
+ *   FastAPI HTTPException) -- never shows the raw backend detail/message,
+ *   since those aren't guaranteed fit for a user to read.
+ */
+type SendErrorInfo =
+  | { kind: "guardrail"; text: string }
+  | { kind: "rate_limit"; text: string; retryAfterSeconds?: number }
+  | { kind: "generic"; text: string };
+
+// rate_limit_exceeded_response's detail is always this exact literal (see
+// backend/app/services/rate_limiter_service.py) -- checking it directly,
+// rather than relying on status === 429 alone, keeps this classification
+// tied to the one backend contract that actually promises the shape, in
+// case a future 429 from an unrelated source doesn't carry Retry-After.
+const RATE_LIMIT_DETAIL = "rate_limit_exceeded";
+
+function classifySendError(error: unknown): SendErrorInfo {
+  if (error instanceof ApiErrorImpl && error.status === 429 && error.detail === RATE_LIMIT_DETAIL) {
+    return {
+      kind: "rate_limit",
+      text: error.message || GENERIC_ERROR_MESSAGE,
+      retryAfterSeconds: error.retryAfterSeconds,
+    };
   }
-  return GENERIC_ERROR_MESSAGE;
+  // A raw HTTP status/reason string (ApiErrorImpl's fallback when the
+  // backend doesn't supply a human-readable message, e.g. a 500) is not fit
+  // to show a user -- only a guardrail-style 4xx rejection carries a
+  // message worth displaying, so anything else falls back to generic text.
+  if (error instanceof ApiErrorImpl && error.status >= 400 && error.status < 500 && error.message) {
+    return { kind: "guardrail", text: error.message };
+  }
+  return { kind: "generic", text: GENERIC_ERROR_MESSAGE };
 }
 
 export function ChatWindow() {
@@ -28,9 +59,13 @@ export function ChatWindow() {
   const [inputValue, setInputValue] = useState("");
   const [threadId, setThreadId] = useState<string>("");
   const [hasLoadedInitialThread, setHasLoadedInitialThread] = useState(false);
-  const [sendErrorMessage, setSendErrorMessage] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<SendErrorInfo | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const isMounted = useIsMounted();
+  const retrySecondsRemaining = useRetryCountdown(
+    sendError?.kind === "rate_limit" ? sendError.retryAfterSeconds : undefined
+  );
+  const sendDisabledForRateLimit = sendError?.kind === "rate_limit" && retrySecondsRemaining !== null;
   // Tracks which thread is currently active, independent of React's render
   // cycle. handleSend's catch block closes over `threadId` state at the
   // moment the send *started* -- if the user switches threads (or starts a
@@ -68,7 +103,7 @@ export function ChatWindow() {
       return;
     }
     activeThreadIdRef.current = id;
-    setSendErrorMessage(null);
+    setSendError(null);
     if (!id) {
       setThreadId("");
       setMessages([]);
@@ -78,7 +113,7 @@ export function ChatWindow() {
   };
 
   const handleSend = async () => {
-    if (!inputValue.trim() || isPending) {
+    if (!inputValue.trim() || isPending || sendDisabledForRateLimit) {
       return;
     }
 
@@ -92,7 +127,7 @@ export function ChatWindow() {
     activeThreadIdRef.current = sendThreadId;
 
     try {
-      setSendErrorMessage(null);
+      setSendError(null);
       setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
       setInputValue("");
 
@@ -115,7 +150,7 @@ export function ChatWindow() {
     } catch (error) {
       const stillOnSameThread = activeThreadIdRef.current === sendThreadId;
       if (isMounted() && stillOnSameThread) setMessages((prev) => prev.slice(0, -1));
-      if (isMounted() && stillOnSameThread) setSendErrorMessage(describeSendError(error));
+      if (isMounted() && stillOnSameThread) setSendError(classifySendError(error));
     }
   };
 
@@ -206,9 +241,41 @@ export function ChatWindow() {
               </div>
             </div>
           )}
-          {sendErrorMessage && (
-            <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm">
-              {sendErrorMessage}
+          {sendError && sendError.kind === "rate_limit" && (
+            <div
+              role="alert"
+              aria-label="Rate limit reached"
+              className="flex items-start gap-2 bg-amber-50 border border-amber-300 text-amber-900 px-4 py-2 rounded-md text-sm"
+            >
+              <Clock className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <p>{sendError.text}</p>
+                {retrySecondsRemaining !== null && (
+                  <p className="text-xs mt-1 opacity-80">
+                    Try again in {retrySecondsRemaining}s
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          {sendError && sendError.kind === "guardrail" && (
+            <div
+              role="alert"
+              aria-label="Message rejected by content safety rule"
+              className="flex items-start gap-2 bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm"
+            >
+              <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <p>{sendError.text}</p>
+            </div>
+          )}
+          {sendError && sendError.kind === "generic" && (
+            <div
+              role="alert"
+              aria-label="Message failed to send"
+              className="flex items-start gap-2 bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm"
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <p>{sendError.text}</p>
             </div>
           )}
         </div>
@@ -218,16 +285,20 @@ export function ChatWindow() {
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && !isPending && handleSend()}
+            onKeyPress={(e) => e.key === "Enter" && !isPending && !sendDisabledForRateLimit && handleSend()}
             placeholder="Type your message..."
             disabled={isPending}
             className="flex-1 px-4 py-2 border border-input rounded-md bg-background text-foreground placeholder-muted-foreground disabled:opacity-50"
           />
           <Button
             onClick={handleSend}
-            disabled={isPending || !inputValue.trim()}
+            disabled={isPending || !inputValue.trim() || sendDisabledForRateLimit}
           >
-            {isPending ? "Sending..." : "Send"}
+            {isPending
+              ? "Sending..."
+              : sendDisabledForRateLimit
+                ? `Retry in ${retrySecondsRemaining}s`
+                : "Send"}
           </Button>
         </div>
       </CardContent>

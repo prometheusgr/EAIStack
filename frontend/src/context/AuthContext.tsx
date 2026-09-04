@@ -19,11 +19,12 @@ interface AuthContextType {
   user: AuthUser | null
   roles: string[]
   isAdmin: boolean
-  // A human-readable message from the most recent failed /api/auth/token
-  // call (initial code exchange or a background refresh) -- e.g. a rate
-  // limit trip's "Too many requests..." text. null when there is nothing
-  // to show, or the endpoint gave no message (see parseErrorBody).
-  authError: string | null
+  // Details of the most recent failed /api/auth/token call (initial code
+  // exchange or a background refresh) -- e.g. a rate limit trip's "Too many
+  // requests..." text plus the Retry-After countdown, when the backend
+  // supplied one. null when there is nothing to show, or the endpoint gave
+  // no message (see parseErrorBody).
+  authError: { message: string; retryAfterSeconds?: number } | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -35,7 +36,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<AuthUser | null>(null)
   const [roles, setRoles] = useState<string[]>([])
   const [keycloakUrl, setKeycloakUrl] = useState<string>('http://localhost:8080/')
-  const [authError, setAuthError] = useState<string | null>(null)
+  const [authError, setAuthError] = useState<{ message: string; retryAfterSeconds?: number } | null>(
+    null
+  )
   const isMounted = useIsMounted()
 
   useEffect(() => {
@@ -115,7 +118,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             // instead of silently dropping the user back to the login
             // button with no explanation.
             const body = await parseErrorBody(tokenResponse)
-            if (isMounted()) setAuthError(body.message ?? null)
+            if (isMounted()) {
+              setAuthError(
+                body.message
+                  ? { message: body.message, retryAfterSeconds: body.retryAfterSeconds }
+                  : null
+              )
+            }
           } catch {
             // Error handled below
           }
@@ -206,7 +215,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // untouched; the caller can retry after Retry-After.
         const body = await parseErrorBody(response)
         if (response.status === 429) {
-          if (isMounted()) setAuthError(body.message ?? null)
+          if (isMounted()) {
+            setAuthError(
+              body.message
+                ? { message: body.message, retryAfterSeconds: body.retryAfterSeconds }
+                : null
+            )
+          }
           return false
         }
 

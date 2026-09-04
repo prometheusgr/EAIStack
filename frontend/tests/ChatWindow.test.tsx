@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { ChatWindow } from "../src/components/ChatWindow";
 import * as agentsClient from "../src/api/agentsClient";
 import { threadsClient } from "../src/api/threadsClient";
@@ -238,6 +238,68 @@ describe("ChatWindow", () => {
     await waitFor(() => {
       expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
     });
+  });
+
+  it("should show a distinguishable rate-limit indicator, not the guardrail-rejection banner, for a 429", async () => {
+    vi.mocked(agentsClient.sendChatMessage).mockRejectedValueOnce(
+      new ApiErrorImpl(429, "rate_limit_exceeded", "Too many requests. Please wait before sending another message.", 30)
+    );
+
+    render(<ChatWindow />);
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Too many requests. Please wait before sending another message.")
+      ).toBeInTheDocument();
+    });
+    // Distinguishable from a guardrail rejection -- a different label/role
+    // (issue #47), not the same undifferentiated "couldn't be sent" copy a
+    // content-filter rejection uses.
+    expect(screen.getByRole("alert", { name: /rate limit/i })).toBeInTheDocument();
+  });
+
+  it("should show a live countdown from the Retry-After header and disable Send until it elapses", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(agentsClient.sendChatMessage).mockRejectedValueOnce(
+      new ApiErrorImpl(429, "rate_limit_exceeded", "Too many requests.", 30)
+    );
+
+    render(<ChatWindow />);
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/try again in 30s/i)).toBeInTheDocument();
+    });
+    // The Send button itself relabels to show the countdown while disabled,
+    // rather than staying labelled "Send" while silently inert.
+    expect(screen.getByRole("button", { name: /retry in 30s/i })).toBeDisabled();
+
+    // Mid-countdown behavior (ticking once per second) is covered by
+    // useRetryCountdown's own unit tests -- this only needs to confirm the
+    // button re-enables once the countdown reaches 0. The countdown
+    // reschedules its own setTimeout on each tick (a "rolling" timer), so
+    // advancing by the full 30s in one call only fires the first tick --
+    // step forward one second at a time instead.
+    for (let i = 0; i < 30; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+    }
+    expect(screen.queryByText(/try again in/i)).not.toBeInTheDocument();
+    // Re-fill the input: handleSend already cleared it on the original
+    // (failed) attempt, and an empty input legitimately disables Send too
+    // -- this checks the countdown itself no longer holds it disabled.
+    fireEvent.change(input, { target: { value: "Test again" } });
+    expect(screen.getByRole("button", { name: /^send$/i })).not.toBeDisabled();
+
+    vi.useRealTimers();
   });
 
   it("should remove the rejected message from the conversation so it isn't shown as sent", async () => {

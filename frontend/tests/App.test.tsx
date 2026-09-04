@@ -99,6 +99,49 @@ function baseAuth(overrides: Partial<ReturnType<typeof mockUseAuth>> = {}) {
   }
 }
 
+describe('App login screen auth error (issue #47)', () => {
+  it('shows the backend message when authError is set with no retryAfterSeconds', () => {
+    mockUseAuth.mockReturnValue(
+      baseAuth({
+        isAuthenticated: false,
+        authError: { message: "That message couldn't be sent. Please rephrase your question." },
+      })
+    )
+
+    render(<App />)
+
+    expect(
+      screen.getByText("That message couldn't be sent. Please rephrase your question.")
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /login/i })).toBeEnabled()
+  })
+
+  it('shows a live countdown and disables Login while a rate-limit retryAfterSeconds is counting down', async () => {
+    vi.useFakeTimers()
+    mockUseAuth.mockReturnValue(
+      baseAuth({
+        isAuthenticated: false,
+        authError: {
+          message: 'Too many requests. Please wait before trying again.',
+          retryAfterSeconds: 3,
+        },
+      })
+    )
+
+    render(<App />)
+
+    expect(screen.getByText(/too many requests/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /retry in 3s/i })).toBeDisabled()
+
+    for (let i = 0; i < 3; i++) {
+      await vi.advanceTimersByTimeAsync(1000)
+    }
+
+    expect(screen.getByRole('button', { name: /^login$/i })).toBeEnabled()
+    vi.useRealTimers()
+  })
+})
+
 describe('App admin gating for the Settings view', () => {
   it('does not show the Settings nav item for a non-admin user', () => {
     mockUseAuth.mockReturnValue(baseAuth({ isAdmin: false }))
