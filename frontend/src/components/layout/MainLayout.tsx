@@ -21,23 +21,16 @@ interface MainLayoutProps {
    * hide it a moment later for the common case where it stays enabled.
    */
   auditLogUiEnabled?: boolean
-  /** Browser-facing Keycloak admin console root (issue #40), backing the
-   * "User Management" nav deep link below. Undefined until
-   * GET /api/settings/dashboard resolves -- the link is omitted rather
-   * than rendered with a placeholder href in that brief window.
+  /** Full, ready-to-open Keycloak admin console URL for this realm's user
+   * list (issue #40), computed server-side by
+   * app.services.dashboard_service._build_keycloak_users_console_url so
+   * the realm name and console URL shape are resolved in one place, not
+   * duplicated as a hardcoded literal here. Undefined until
+   * GET /api/settings/dashboard resolves; null means this deployment has
+   * no browser-facing console URL configured. Either way the nav link is
+   * omitted rather than rendered with a placeholder or guessed-at href.
    */
-  keycloakConsoleUrl?: string
-}
-
-/** Keycloak's admin console route to the realm's user list, given the
- * browser-facing console root the backend resolves (issue #40). The realm
- * name itself ("eaistack") is not currently exposed by the backend's
- * dashboard response -- hardcoded here to match the single realm this
- * template ships (infra/keycloak/realm-import.json's "realm": "eaistack").
- * A fork that renames the realm should update this alongside that file.
- */
-export function buildKeycloakUsersConsoleUrl(consoleUrl: string): string {
-  return `${consoleUrl.replace(/\/$/, '')}/admin/master/console/#/eaistack/users`
+  keycloakUsersConsoleUrl?: string | null
 }
 
 export function MainLayout({
@@ -45,7 +38,7 @@ export function MainLayout({
   currentView,
   onViewChange,
   auditLogUiEnabled = true,
-  keycloakConsoleUrl,
+  keycloakUsersConsoleUrl,
 }: MainLayoutProps) {
   const { logout, user, isAdmin } = useAuth()
 
@@ -132,9 +125,9 @@ export function MainLayout({
               Audit Log
             </Button>
           )}
-          {isAdmin && keycloakConsoleUrl && (
+          {isAdmin && keycloakUsersConsoleUrl && (
             <a
-              href={buildKeycloakUsersConsoleUrl(keycloakConsoleUrl)}
+              href={keycloakUsersConsoleUrl}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center px-4 py-2 rounded-none border-b-2 border-transparent text-xs md:text-sm text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"

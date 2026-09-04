@@ -18,16 +18,20 @@ import { useSettingsService } from '@/hooks/useSettingsService'
 function AppContent() {
   const { isAuthenticated, isLoading, login, isAdmin, authError } = useAuth()
   const [currentView, setCurrentView] = useState<MainLayoutView>('chat')
-  const { get: getSettings, getDashboard } = useSettingsService()
+  const { get: getSettings, getNavConfig } = useSettingsService()
 
   useEffect(() => {
     if (isAdmin) {
       getSettings.execute()
-      // Fetched here (not just by Dashboard.tsx on its own mount) because
-      // the nav's "User Management" deep link (issue #40) needs
-      // keycloak_console_url as soon as an admin logs in, not only after
-      // they've visited the Dashboard tab.
-      getDashboard.execute()
+      // A separate, lightweight endpoint (GET /api/settings/nav-config),
+      // not GET /api/settings/dashboard -- the nav's "User Management"
+      // deep link (issue #40) needs keycloak_users_console_url as soon as
+      // an admin logs in, and the dashboard endpoint does real work (a
+      // 24h audit-log aggregation query, live rate-limit bucket
+      // introspection) that a static nav value shouldn't force every
+      // login to pay for. Dashboard.tsx still independently fetches the
+      // full dashboard status itself, fresh, when that tab is opened.
+      getNavConfig.execute()
     }
   }, [isAdmin])
 
@@ -71,7 +75,7 @@ function AppContent() {
       currentView={currentView}
       onViewChange={setCurrentView}
       auditLogUiEnabled={getSettings.data?.audit_log_ui_enabled ?? true}
-      keycloakConsoleUrl={getDashboard.data?.keycloak_console_url}
+      keycloakUsersConsoleUrl={getNavConfig.data?.keycloak_users_console_url}
     >
       {currentView === 'chat' && (
         <>

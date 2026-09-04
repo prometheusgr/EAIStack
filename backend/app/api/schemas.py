@@ -316,17 +316,31 @@ class DashboardResponse(BaseModel):
     dashboard view reuses the existing GET /api/settings/audit client
     (issue #45) for that tile rather than this endpoint re-serving the same
     rows under a different shape.
-
-    keycloak_console_url (issue #40) rides along on this existing response
-    rather than a new single-value endpoint -- the frontend nav needs it to
-    render the "User Management" deep link, and this is the response the
-    nav's admin-gated screens already fetch.
     """
 
     rate_limit: RateLimitStatusResponse
     guardrails: GuardrailStatusResponse
     tracing: TracingStatusResponse
-    keycloak_console_url: str
+
+
+class NavConfigResponse(BaseModel):
+    """Response body for GET /api/settings/nav-config (issue #40).
+
+    Deliberately separate from DashboardResponse: this carries only
+    small, rarely-changing config values the admin nav needs at login (the
+    Keycloak admin console URL, for the "User Management" deep link), not
+    the live operational status DashboardResponse reports -- see
+    app.services.nav_config_service's module docstring for why bolting
+    this onto the dashboard endpoint would be the wrong home.
+
+    keycloak_users_console_url is None when this deployment has no
+    browser-facing Keycloak console URL configured (see
+    Settings.keycloak_console_url's docstring); the frontend omits the nav
+    link rather than rendering one pointed at an internal-only address it
+    can never reach.
+    """
+
+    keycloak_users_console_url: str | None
 
 
 class GuardrailPatternResponse(BaseModel):

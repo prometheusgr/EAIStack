@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { MainLayout, buildKeycloakUsersConsoleUrl } from './MainLayout'
+import type { ComponentProps } from 'react'
+import { MainLayout } from './MainLayout'
 import { AuthProvider } from '../../context/AuthContext'
 
 function buildToken(payload: Record<string, unknown>): string {
@@ -23,7 +24,9 @@ const NON_ADMIN_TOKEN = buildToken({
   realm_access: { roles: [] },
 })
 
-function renderLayout(props: Partial<React.ComponentProps<typeof MainLayout>> = {}) {
+const CONSOLE_URL = 'http://localhost:8080/admin/master/console/#/eaistack/users'
+
+function renderLayout(props: Partial<ComponentProps<typeof MainLayout>> = {}) {
   return render(
     <AuthProvider>
       <MainLayout currentView="chat" onViewChange={() => {}} {...props}>
@@ -41,13 +44,13 @@ describe('MainLayout User Management link (issue #40)', () => {
   it('renders a User Management deep link to the Keycloak admin console for an admin', async () => {
     localStorage.setItem('access_token', ADMIN_TOKEN)
 
-    renderLayout({ keycloakConsoleUrl: 'http://localhost:8080' })
+    renderLayout({ keycloakUsersConsoleUrl: CONSOLE_URL })
 
     await waitFor(() => {
       expect(screen.getByRole('link', { name: /user management/i })).toBeInTheDocument()
     })
     const link = screen.getByRole('link', { name: /user management/i })
-    expect(link).toHaveAttribute('href', 'http://localhost:8080/admin/master/console/#/eaistack/users')
+    expect(link).toHaveAttribute('href', CONSOLE_URL)
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', 'noreferrer')
   })
@@ -55,7 +58,7 @@ describe('MainLayout User Management link (issue #40)', () => {
   it('does not render the link for a non-admin user', async () => {
     localStorage.setItem('access_token', NON_ADMIN_TOKEN)
 
-    renderLayout({ keycloakConsoleUrl: 'http://localhost:8080' })
+    renderLayout({ keycloakUsersConsoleUrl: CONSOLE_URL })
 
     await waitFor(() => {
       expect(screen.getByText('content')).toBeInTheDocument()
@@ -66,25 +69,22 @@ describe('MainLayout User Management link (issue #40)', () => {
   it('does not render the link before the console URL has loaded', async () => {
     localStorage.setItem('access_token', ADMIN_TOKEN)
 
-    renderLayout({ keycloakConsoleUrl: undefined })
+    renderLayout({ keycloakUsersConsoleUrl: undefined })
 
     await waitFor(() => {
       expect(screen.getByText('content')).toBeInTheDocument()
     })
     expect(screen.queryByRole('link', { name: /user management/i })).not.toBeInTheDocument()
   })
-})
 
-describe('buildKeycloakUsersConsoleUrl', () => {
-  it('appends the admin console users path to the console root', () => {
-    expect(buildKeycloakUsersConsoleUrl('http://localhost:8080')).toBe(
-      'http://localhost:8080/admin/master/console/#/eaistack/users'
-    )
-  })
+  it('does not render the link when the backend reports no console URL configured', async () => {
+    localStorage.setItem('access_token', ADMIN_TOKEN)
 
-  it('does not double up a trailing slash on the console root', () => {
-    expect(buildKeycloakUsersConsoleUrl('http://localhost:8080/')).toBe(
-      'http://localhost:8080/admin/master/console/#/eaistack/users'
-    )
+    renderLayout({ keycloakUsersConsoleUrl: null })
+
+    await waitFor(() => {
+      expect(screen.getByText('content')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('link', { name: /user management/i })).not.toBeInTheDocument()
   })
 })

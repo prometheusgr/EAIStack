@@ -4,6 +4,7 @@ import type {
   AuditLogResponse,
   DashboardResponse,
   GuardrailPattern,
+  NavConfigResponse,
   SystemSettingsResponse,
   TestConnectionResult,
   UpdateSettingsRequest,
@@ -59,6 +60,15 @@ export function useSettingsService() {
     { immediate: false }
   )
 
+  const getNavConfig = useApiCall<NavConfigResponse>(
+    async () => {
+      if (!token) throw new Error('No auth token available')
+      const service = new SettingsService(token, refreshAccessToken)
+      return service.getNavConfig()
+    },
+    { immediate: false }
+  )
+
   const testConnection = useApiMutation<string, TestConnectionResult>(async (url) => {
     if (!token) throw new Error('No auth token available')
     const service = new SettingsService(token, refreshAccessToken)
@@ -93,6 +103,7 @@ export function useSettingsService() {
     update,
     getAuditLog,
     getDashboard,
+    getNavConfig,
     testConnection,
     createGuardrailPattern,
     setGuardrailPatternEnabled,

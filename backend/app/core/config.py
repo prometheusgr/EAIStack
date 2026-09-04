@@ -119,12 +119,17 @@ class Settings(BaseSettings):
     # backend usually reaches Keycloak at an internal-only hostname an
     # admin's browser cannot load (docker-compose's "keycloak:8080", or a
     # .svc.cluster.local address under Helm), so this field is what the
-    # browser should be sent to instead. None means "no override" --
-    # resolve_dashboard_status falls back to keycloak_url, which is only
-    # correct when the two happen to coincide (e.g. a bare `uvicorn
-    # --reload` run against a locally-installed Keycloak); docker-compose.yml
-    # and the Helm chart both set this explicitly rather than relying on
-    # that fallback.
+    # browser should be sent to instead.
+    #
+    # None means "not configured" -- resolve_dashboard_status does NOT fall
+    # back to keycloak_url here (unlike some other override/default pairs in
+    # this file): keycloak_url is usually the wrong, internal-only value for
+    # a browser, and falling back to it would silently render a nav link
+    # guaranteed to 404 rather than correctly omitting it. docker-compose.yml
+    # and the Helm chart's backend values.yaml both set this explicitly;
+    # leaving it unset in a real deployment means the "User Management" nav
+    # entry simply doesn't appear, which is the honest outcome given no
+    # correct value is known.
     keycloak_console_url: str | None = None
 
     # Path to the internal CA bundle every outbound HTTP client verifies
