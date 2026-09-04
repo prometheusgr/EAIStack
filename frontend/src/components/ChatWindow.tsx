@@ -9,6 +9,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ApiErrorImpl } from "../api/authorizedFetch";
 import { SourceDocumentModal } from "./SourceDocumentModal";
+import { RetentionNotice } from "./RetentionNotice";
 
 const GENERIC_ERROR_MESSAGE = "Something went wrong and your message failed to send. Please try again.";
 
@@ -186,6 +187,7 @@ export function ChatWindow() {
         </div>
       </CardHeader>
       <CardContent className="flex flex-col flex-1 gap-4">
+        <RetentionNotice />
         <div className="flex-1 overflow-y-auto space-y-3 border border-border rounded-md p-4 bg-muted">
           {messages.length === 0 && (
             <div className="text-center text-muted-foreground text-sm py-8">

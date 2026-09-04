@@ -12,6 +12,7 @@ vi.mock('../../src/api/settingsClient', () => ({
     getAuditLog: vi.fn(),
     getDashboard: vi.fn(),
     getNavConfig: vi.fn(),
+    getRetentionNotice: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -86,6 +87,8 @@ const SETTINGS_RESPONSE = {
   rate_limit_auth_refill_per_minute_is_db_override: false,
   audit_log_ui_enabled: true,
   audit_log_ui_enabled_is_db_override: false,
+  retention_notice_enabled: true,
+  retention_notice_enabled_is_db_override: false,
   guardrail_patterns: [],
   available_providers: { llm: [], embedding: [] },
 }
@@ -210,6 +213,29 @@ describe('useSettingsService', () => {
       expect(result.current.getNavConfig.isLoading).toBe(false)
     })
     expect(settingsClient.getNavConfig).toHaveBeenCalledWith(MOCK_TOKEN, expect.any(Function))
+  })
+
+  it('getRetentionNotice.execute() loads the effective retention policy and reflects success state', async () => {
+    const retentionNoticeResponse = {
+      conversation_retention_hours: 24,
+      cleanup_on_logout: true,
+      notice_enabled: true,
+    }
+    vi.mocked(settingsClient.getRetentionNotice).mockResolvedValue(retentionNoticeResponse)
+
+    const { result } = renderHook(() => useSettingsServiceHarness(), { wrapper })
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.getRetentionNotice.execute()
+    })
+
+    await waitFor(() => {
+      expect(result.current.getRetentionNotice.data).toEqual(retentionNoticeResponse)
+      expect(result.current.getRetentionNotice.error).toBeNull()
+      expect(result.current.getRetentionNotice.isLoading).toBe(false)
+    })
+    expect(settingsClient.getRetentionNotice).toHaveBeenCalledWith(MOCK_TOKEN, expect.any(Function))
   })
 
   it('update.mutateAsync() calls settingsClient.updateSettings with the payload', async () => {

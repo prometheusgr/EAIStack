@@ -11,6 +11,7 @@ vi.mock('@/api/settingsClient', () => ({
     getAuditLog: vi.fn(),
     getDashboard: vi.fn(),
     getNavConfig: vi.fn(),
+    getRetentionNotice: vi.fn(),
     createGuardrailPattern: vi.fn(),
     setGuardrailPatternEnabled: vi.fn(),
     deleteGuardrailPattern: vi.fn(),
@@ -62,6 +63,8 @@ describe('SettingsService', () => {
     rate_limit_auth_refill_per_minute_is_db_override: false,
     audit_log_ui_enabled: true,
     audit_log_ui_enabled_is_db_override: false,
+    retention_notice_enabled: true,
+    retention_notice_enabled_is_db_override: false,
     guardrail_patterns: [],
     available_providers: { llm: [], embedding: [] },
   }
@@ -199,6 +202,31 @@ describe('SettingsService', () => {
 
       await expect(service.getNavConfig()).rejects.toThrow('No auth token available')
       expect(settingsClient.getNavConfig).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getRetentionNotice', () => {
+    const retentionNoticeResponse = {
+      conversation_retention_hours: 24,
+      cleanup_on_logout: true,
+      notice_enabled: true,
+    }
+
+    it('delegates to settingsClient.getRetentionNotice with the constructor token', async () => {
+      vi.mocked(settingsClient.getRetentionNotice).mockResolvedValueOnce(retentionNoticeResponse)
+
+      const service = new SettingsService(mockToken, mockRefresh)
+      const result = await service.getRetentionNotice()
+
+      expect(settingsClient.getRetentionNotice).toHaveBeenCalledWith(mockToken, mockRefresh)
+      expect(result).toEqual(retentionNoticeResponse)
+    })
+
+    it('throws if no token is available', async () => {
+      const service = new SettingsService('', mockRefresh)
+
+      await expect(service.getRetentionNotice()).rejects.toThrow('No auth token available')
+      expect(settingsClient.getRetentionNotice).not.toHaveBeenCalled()
     })
   })
 

@@ -4,6 +4,7 @@ import type {
   DashboardResponse,
   GuardrailPattern,
   NavConfigResponse,
+  RetentionNoticeResponse,
   SystemSettingsResponse,
   TestConnectionResult,
   UpdateSettingsRequest,
@@ -19,6 +20,7 @@ export interface SettingsClient {
   getAuditLog(token: string, onRefresh: AuthRefresh): Promise<AuditLogResponse>
   getDashboard(token: string, onRefresh: AuthRefresh): Promise<DashboardResponse>
   getNavConfig(token: string, onRefresh: AuthRefresh): Promise<NavConfigResponse>
+  getRetentionNotice(token: string, onRefresh: AuthRefresh): Promise<RetentionNoticeResponse>
   testConnection(
     url: string,
     token: string,
@@ -82,6 +84,17 @@ const settingsClient: SettingsClient = {
 
   async getNavConfig(token: string, onRefresh: AuthRefresh): Promise<NavConfigResponse> {
     const response = await authorizedFetch('/api/settings/nav-config', token, onRefresh, {
+      method: 'GET',
+    })
+
+    return response.json()
+  },
+
+  async getRetentionNotice(
+    token: string,
+    onRefresh: AuthRefresh
+  ): Promise<RetentionNoticeResponse> {
+    const response = await authorizedFetch('/api/settings/retention-notice', token, onRefresh, {
       method: 'GET',
     })
 

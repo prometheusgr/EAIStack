@@ -5,6 +5,7 @@ import type {
   DashboardResponse,
   GuardrailPattern,
   NavConfigResponse,
+  RetentionNoticeResponse,
   SystemSettingsResponse,
   TestConnectionResult,
   UpdateSettingsRequest,
@@ -39,6 +40,11 @@ export class SettingsService {
   async getNavConfig(): Promise<NavConfigResponse> {
     if (!this.token) throw new Error('No auth token available')
     return settingsClient.getNavConfig(this.token, this.onRefresh)
+  }
+
+  async getRetentionNotice(): Promise<RetentionNoticeResponse> {
+    if (!this.token) throw new Error('No auth token available')
+    return settingsClient.getRetentionNotice(this.token, this.onRefresh)
   }
 
   async testConnection(url: string): Promise<TestConnectionResult> {

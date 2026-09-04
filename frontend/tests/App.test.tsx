@@ -59,6 +59,12 @@ vi.mock('../src/hooks/useSettingsService', () => ({
       isLoading: false,
       execute: vi.fn(),
     },
+    getRetentionNotice: {
+      data: undefined,
+      error: null,
+      isLoading: false,
+      execute: vi.fn(),
+    },
     update: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, error: null, data: null },
     createGuardrailPattern: {
       mutate: vi.fn(),
