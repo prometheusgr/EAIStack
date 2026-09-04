@@ -22,7 +22,8 @@ function RefreshProbe() {
     <div>
       <div data-testid="is-admin">{String(isAdmin)}</div>
       <div data-testid="is-authenticated">{String(isAuthenticated)}</div>
-      <div data-testid="auth-error">{authError ?? ''}</div>
+      <div data-testid="auth-error">{authError?.message ?? ''}</div>
+      <div data-testid="auth-error-retry-after">{authError?.retryAfterSeconds ?? ''}</div>
       <button onClick={() => refreshAccessToken()}>refresh</button>
     </div>
   )
@@ -31,7 +32,12 @@ function RefreshProbe() {
 function AuthErrorProbe() {
   const { isLoading, authError } = useAuth()
   if (isLoading) return <div>loading</div>
-  return <div data-testid="auth-error">{authError ?? ''}</div>
+  return (
+    <div>
+      <div data-testid="auth-error">{authError?.message ?? ''}</div>
+      <div data-testid="auth-error-retry-after">{authError?.retryAfterSeconds ?? ''}</div>
+    </div>
+  )
 }
 
 describe('AuthContext isAdmin', () => {
@@ -315,6 +321,7 @@ describe('AuthContext isAdmin', () => {
           'Too many requests. Please wait before trying again.'
         )
       })
+      expect(screen.getByTestId('auth-error-retry-after')).toHaveTextContent('30')
     })
 
     it('clears the code from the URL even after a failed exchange, so a reload does not repeat it', async () => {

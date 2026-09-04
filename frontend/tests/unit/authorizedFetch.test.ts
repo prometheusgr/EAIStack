@@ -108,4 +108,60 @@ describe('authorizedFetch', () => {
       message: '',
     })
   })
+
+  it('carries the Retry-After header as retryAfterSeconds on a 429 response (issue #47)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: new Headers({ 'Retry-After': '30' }),
+      json: async () => ({ detail: 'rate_limit_exceeded', message: 'Too many requests.' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const onRefresh = vi.fn().mockResolvedValue(true)
+
+    await expect(authorizedFetch('/api/thing', 'token', onRefresh)).rejects.toMatchObject({
+      status: 429,
+      detail: 'rate_limit_exceeded',
+      message: 'Too many requests.',
+      retryAfterSeconds: 30,
+    })
+  })
+
+  it('leaves retryAfterSeconds undefined when no Retry-After header is present (e.g. a guardrail 400)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      headers: new Headers(),
+      json: async () => ({ detail: 'prompt_injection_suspected', message: "That message couldn't be sent." }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const onRefresh = vi.fn().mockResolvedValue(true)
+
+    await expect(authorizedFetch('/api/thing', 'token', onRefresh)).rejects.toMatchObject({
+      status: 400,
+      retryAfterSeconds: undefined,
+    })
+  })
+
+  it('ignores a malformed Retry-After header rather than producing NaN', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: new Headers({ 'Retry-After': 'None' }),
+      json: async () => ({ detail: 'rate_limit_exceeded', message: 'Too many requests.' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const onRefresh = vi.fn().mockResolvedValue(true)
+
+    await expect(authorizedFetch('/api/thing', 'token', onRefresh)).rejects.toMatchObject({
+      status: 429,
+      retryAfterSeconds: undefined,
+    })
+  })
 })

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { Clock } from 'lucide-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { useRetryCountdown } from './hooks/useRetryCountdown'
 import { ChatWindow } from './components/ChatWindow'
 import { APIKeys } from './components/APIKeys'
 import { AuditLog } from './components/AuditLog'
@@ -19,6 +21,8 @@ function AppContent() {
   const { isAuthenticated, isLoading, login, isAdmin, authError } = useAuth()
   const [currentView, setCurrentView] = useState<MainLayoutView>('chat')
   const { get: getSettings, getNavConfig } = useSettingsService()
+  const retrySecondsRemaining = useRetryCountdown(authError?.retryAfterSeconds)
+  const loginDisabledForRateLimit = authError?.retryAfterSeconds !== undefined && retrySecondsRemaining !== null
 
   useEffect(() => {
     if (isAdmin) {
@@ -54,17 +58,24 @@ function AppContent() {
         {authError && (
           <div
             data-testid="auth-error-banner"
-            className="bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm max-w-md text-center"
+            role="alert"
+            className={`flex items-start gap-2 px-4 py-2 rounded-md text-sm max-w-md text-center ${
+              loginDisabledForRateLimit
+                ? 'bg-amber-50 border border-amber-300 text-amber-900'
+                : 'bg-destructive/10 border border-destructive text-destructive'
+            }`}
           >
-            {authError}
+            {loginDisabledForRateLimit && <Clock className="h-4 w-4 mt-0.5 flex-shrink-0" />}
+            <p>{authError.message}</p>
           </div>
         )}
         <Button
           data-testid="login-button"
           onClick={login}
+          disabled={loginDisabledForRateLimit}
           size="lg"
         >
-          Login
+          {loginDisabledForRateLimit ? `Retry in ${retrySecondsRemaining}s` : 'Login'}
         </Button>
       </div>
     )
