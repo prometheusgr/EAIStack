@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Kubernetes-native (K3s as the target, production-grade but approachable for K8s-unfamiliar users)
 - Thin vertical slice first (one complete flow: login → chat → agent-with-tool → grounded response)
 - Strict TDD discipline (mock LLM boundary, TDD everything else; CI gates every commit)
+- Single-organization tenancy only: isolation is per-user within one Keycloak realm/deployment, not cross-organization multi-tenant SaaS — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)'s "Tenancy Scope" section for the boundary and the documented upgrade path (issue #26)
 
 ## Current Status
 

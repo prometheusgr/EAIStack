@@ -70,6 +70,50 @@ Each conversation thread is a LangGraph "checkpoint" keyed by `(user_id, thread_
 - `SESSION_CLEANUP_ON_LOGOUT`: Purge checkpoint on Keycloak logout
 - `SESSION_TTL_HOURS`: TTL-based cleanup for abandoned sessions (both can be enabled together)
 
+### Tenancy Scope: Single-Organization, Not Multi-Tenant SaaS
+
+Isolation in this template is **per-user, within a single organization**: every
+row is scoped by `user_id` (derived from the validated Keycloak `sub` claim),
+enforced structurally by `ThreadRepository`/`APIKeyRepository` and the doc-search
+MCP boundary (see [docs/REPOSITORY_PATTERN.md](./REPOSITORY_PATTERN.md) and
+[docs/SECURITY.md](./SECURITY.md)'s "MCP Server Isolation"). There is no
+organization/tenant concept anywhere in the schema, auth flow, or Keycloak realm
+config.
+
+**The supported deployment pattern is one Keycloak realm + one EAIStack
+deployment per organization** — separate Postgres, separate MinIO bucket,
+separate K8s namespace (or cluster) per customer, exactly the isolation
+boundary the rest of this document already assumes. This is correct for that
+shape and shouldn't be casually extended: a single deployment serving multiple
+customer organizations against a shared Postgres instance / knowledge base pool
+is **out of scope** and not something this schema or auth flow defends against
+today. A user's `user_id` uniquely identifies them only within one realm; two
+different organizations' Keycloak realms could in principle mint tokens with
+colliding `sub` values, and nothing in this codebase would tell them apart.
+
+**Upgrade path for a fork that needs true multi-tenant SaaS isolation**
+(same treatment as "No KMS in v1" above — a documented path, not built in, to
+keep the template's complexity down for the common case):
+1. Add a `tenant_id` column to every tenant-scoped table (`knowledge_base`,
+   `embeddings`, `conversation_threads`, `api_keys`, `system_settings`, etc.)
+   and thread it through every repository query alongside `user_id` — the same
+   structural-enforcement pattern `docs/REPOSITORY_PATTERN.md` already uses for
+   `user_id`, extended by one column.
+2. Resolve `tenant_id` from the token, not a client-supplied parameter: either
+   a claim in a shared Keycloak realm's tokens (e.g. a custom `tenant_id`
+   claim mapped per user/group) or the realm itself if using one Keycloak
+   realm per tenant against a shared backend deployment.
+3. Add Postgres row-level security (RLS) policies keyed on `tenant_id` as a
+   defense-in-depth backstop below the application layer, so a bug in a
+   repository's `WHERE` clause can't leak another tenant's rows outright.
+4. Extend doc-search's own token verification (see "MCP Server Isolation" in
+   `docs/SECURITY.md`) to also check `tenant_id`, not just `user_id` — the same
+   "never trust an identity claim handed to it by another service" principle
+   applies to tenant identity, not just user identity.
+5. Re-audit `docs/SECURITY.md`'s retention, audit-log, and rate-limiting
+   sections: each currently reasons about isolation only at the `user_id`
+   level and would need a `tenant_id` dimension added to their own scoping.
+
 ### MCP Transport
 
 Custom MCP tool servers (e.g., document search) expose **Streamable HTTP** (stateless, K8s-native), not stdio (which assumes co-located processes). This allows MCP servers to scale horizontally and live in separate pods.
