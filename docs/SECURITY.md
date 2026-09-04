@@ -251,6 +251,12 @@ def test_session_isolation():
 
 ## MCP Server Isolation
 
+**Scope note**: everything below is per-user isolation within a single
+organization/Keycloak realm, not cross-organization multi-tenant isolation —
+see [docs/ARCHITECTURE.md](./ARCHITECTURE.md)'s "Tenancy Scope: Single-
+Organization, Not Multi-Tenant SaaS" for the explicit boundary and the
+documented upgrade path for a fork that needs true multi-tenant SaaS support.
+
 **Status**: Phase 3, implemented — `mcp-servers/doc-search`.
 
 `search_knowledge_base` runs as a standalone MCP server, reached by the
