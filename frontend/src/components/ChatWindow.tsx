@@ -150,6 +150,14 @@ export function ChatWindow() {
     } catch (error) {
       const stillOnSameThread = activeThreadIdRef.current === sendThreadId;
       if (isMounted() && stillOnSameThread) setMessages((prev) => prev.slice(0, -1));
+      // Restore the message the user typed: it was optimistically cleared
+      // above, but a rejected send (guardrail, rate limit, or a generic
+      // failure) means it was never actually sent. Without this, the input
+      // box is left empty and Send stays disabled (!inputValue.trim()) even
+      // after a rate-limit countdown elapses -- correctly re-enabled by
+      // sendDisabledForRateLimit turning false, but still blocked by an
+      // unrelated, now-stale reason the user has no way to see.
+      if (isMounted() && stillOnSameThread) setInputValue(userMessage);
       if (isMounted() && stillOnSameThread) setSendError(classifySendError(error));
     }
   };

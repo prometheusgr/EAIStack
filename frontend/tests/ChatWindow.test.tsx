@@ -159,6 +159,30 @@ describe("ChatWindow", () => {
     });
   });
 
+  it("should restore the typed message to the input after a failed send, instead of leaving it empty", async () => {
+    // The input is optimistically cleared when a send starts. On failure it
+    // was never actually sent, so leaving the box empty both loses the
+    // user's typed text and (for a rate-limit trip) leaves Send stuck
+    // disabled by !inputValue.trim() even after the countdown elapses --
+    // found via e2e coverage of issue #47's "Send re-enables when the
+    // countdown ends" requirement.
+    vi.mocked(agentsClient.sendChatMessage).mockRejectedValueOnce(
+      new ApiErrorImpl(400, "some_unmapped_reason", undefined)
+    );
+
+    render(<ChatWindow />);
+
+    const input = screen.getByPlaceholderText(/message/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "My unsent message" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+    });
+
+    expect(input.value).toBe("My unsent message");
+  });
+
   it.each([
     ["prompt_injection_suspected", "That message couldn't be sent. Please rephrase your question."],
     ["input_too_long", "That message is too long. Please shorten it and try again."],
