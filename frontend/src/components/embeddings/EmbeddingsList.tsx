@@ -3,6 +3,7 @@ import { useEmbeddingsService } from '@/hooks/useEmbeddingsService'
 import type { EmbeddingResponse } from '@/types/embeddings'
 import { Button } from '@/components/ui/button'
 import { KnowledgeBaseUpload } from './KnowledgeBaseUpload'
+import { EmbeddingDetail } from './EmbeddingDetail'
 import {
   Table,
   TableBody,
@@ -17,6 +18,7 @@ export function EmbeddingsList() {
   const { list, deleteDocument } = useEmbeddingsService()
   const [deleting, setDeleting] = useState<string | null>(null)
   const [embeddings, setEmbeddings] = useState<EmbeddingResponse[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     list.execute()
@@ -42,9 +44,25 @@ export function EmbeddingsList() {
     }
   }
 
+  if (selectedId) {
+    return (
+      <EmbeddingDetail
+        id={selectedId}
+        onBack={() => setSelectedId(null)}
+        onDeleted={() => {
+          setEmbeddings((prev) => prev.filter((e) => e.id !== selectedId))
+          setSelectedId(null)
+        }}
+      />
+    )
+  }
+
+  const heading = <h2 className="text-2xl font-semibold mb-4">Embeddings</h2>
+
   if (list.isLoading) {
     return (
       <div className="space-y-4">
+        {heading}
         <div className="text-gray-500">Loading...</div>
         <Skeleton className="h-12 w-full" />
         <Skeleton className="h-12 w-full" />
@@ -55,16 +73,19 @@ export function EmbeddingsList() {
 
   if (list.error) {
     return (
-      <div className="p-4 bg-red-50 text-red-700 rounded border border-red-200" role="alert">
-        <p>{list.error instanceof Error ? list.error.message : 'Failed to load embeddings'}</p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => list.execute()}
-          className="mt-2"
-        >
-          Retry
-        </Button>
+      <div className="space-y-4">
+        {heading}
+        <div className="p-4 bg-red-50 text-red-700 rounded border border-red-200" role="alert">
+          <p>{list.error instanceof Error ? list.error.message : 'Failed to load embeddings'}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => list.execute()}
+            className="mt-2"
+          >
+            Retry
+          </Button>
+        </div>
       </div>
     )
   }
@@ -72,6 +93,7 @@ export function EmbeddingsList() {
   if (embeddings.length === 0) {
     return (
       <div className="space-y-6">
+        {heading}
         <KnowledgeBaseUpload onUploadSuccess={() => list.execute()} />
         <div className="text-center py-12 text-gray-500">
           <p className="text-lg">No documents yet</p>
@@ -83,6 +105,7 @@ export function EmbeddingsList() {
 
   return (
     <div className="space-y-6">
+      {heading}
       <KnowledgeBaseUpload onUploadSuccess={() => list.execute()} />
       <div className="rounded-lg border">
         <Table>
@@ -97,7 +120,16 @@ export function EmbeddingsList() {
           <TableBody>
             {embeddings.map((embedding) => (
               <TableRow key={embedding.id} className="hover:bg-gray-50">
-                <TableCell className="font-medium">{embedding.title || 'Untitled'}</TableCell>
+                <TableCell className="font-medium">
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto p-0"
+                    onClick={() => setSelectedId(embedding.id)}
+                  >
+                    {embedding.title || 'Untitled'}
+                  </Button>
+                </TableCell>
                 <TableCell>{new Date(embedding.created_at).toLocaleDateString()}</TableCell>
                 <TableCell>{new Date(embedding.updated_at).toLocaleDateString()}</TableCell>
                 <TableCell className="text-right">
