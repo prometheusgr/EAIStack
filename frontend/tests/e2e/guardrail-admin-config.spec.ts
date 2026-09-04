@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test'
-import { login as loginAsAdmin } from './helpers'
 
 // Validates issue #16: guardrail thresholds/heuristics are admin-configurable
 // at runtime (no redeploy), the same way LLM provider and retention config
@@ -17,6 +16,10 @@ import { login as loginAsAdmin } from './helpers'
 // this file -- the seeded testuser's SystemSettings row is shared, real
 // Postgres state across every spec in this suite (see AGENTS.md's e2e
 // "start from a clean, known state" convention).
+//
+// Runs in the 'chromium' project, pre-authenticated via storageState (see
+// playwright.config.ts and tests/e2e/auth.setup.ts) -- issue #53 -- so
+// each test navigates to '/' directly rather than performing a real login.
 
 async function openSettings(page: import('@playwright/test').Page) {
   await page.locator('button:has-text("Settings")').click()
@@ -40,7 +43,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
   test('lowering the input length limit rejects a message that was previously allowed', async ({
     page,
   }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     const lengthInput = page.locator('#max-input-length')
@@ -68,7 +71,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
   test('disabling the input guardrail lets a previously-rejected message through', async ({
     page,
   }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     const inputToggle = page.locator('#guardrails-input-enabled')
@@ -105,7 +108,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
   test('an admin-added custom phrase is enforced immediately, without a Save', async ({
     page,
   }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     const customPhrase = `zzz-e2e-custom-phrase-${Date.now()}`
@@ -132,7 +135,7 @@ test.describe('Admin-configurable guardrails (issue #16)', () => {
   test('toggling a built-in pattern off allows a message that pattern would normally catch', async ({
     page,
   }) => {
-    await loginAsAdmin(page)
+    await page.goto('/')
     await openSettings(page)
 
     // "Instruction override (ignore/disregard previous instructions)" is

@@ -18,3 +18,7 @@ dist-ssr/
 coverage/
 test-results/
 playwright-report/
+
+# Saved Playwright session (real Keycloak tokens for the seeded e2e
+# testuser account) -- see tests/e2e/auth.setup.ts.
+tests/e2e/.auth/
