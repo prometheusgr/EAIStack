@@ -39,6 +39,7 @@ from app.services import (
     resolve_guardrail_config,
     resolve_llm_config,
     resolve_nav_config,
+    resolve_rag_config,
     resolve_rate_limit_config,
     resolve_retention_config,
     resolve_retention_notice_config,
@@ -102,6 +103,7 @@ def _to_response(
     rate_limit_config = resolve_rate_limit_config(db, db_settings)
     audit_log_ui_config = resolve_audit_log_ui_config(db, db_settings)
     retention_notice_config = resolve_retention_notice_config(db, db_settings)
+    rag_config = resolve_rag_config(db, db_settings)
 
     return SystemSettingsResponse(
         llm_provider=llm_config.provider,
@@ -183,6 +185,28 @@ def _to_response(
         retention_notice_enabled_is_db_override=bool(
             db_settings and db_settings.retention_notice_enabled is not None
         ),
+        rag_similarity_threshold=rag_config.similarity_threshold,
+        rag_similarity_threshold_is_db_override=bool(
+            db_settings and db_settings.rag_similarity_threshold is not None
+        ),
+        rag_max_results=rag_config.max_results,
+        rag_max_results_is_db_override=bool(
+            db_settings and db_settings.rag_max_results is not None
+        ),
+        rag_min_chunk_size=rag_config.min_chunk_size,
+        rag_min_chunk_size_is_db_override=bool(
+            db_settings and db_settings.rag_min_chunk_size is not None
+        ),
+        rag_chunk_size=rag_config.chunk_size,
+        rag_chunk_size_is_db_override=bool(db_settings and db_settings.rag_chunk_size is not None),
+        rag_chunk_overlap_ratio=rag_config.chunk_overlap_ratio,
+        rag_chunk_overlap_ratio_is_db_override=bool(
+            db_settings and db_settings.rag_chunk_overlap_ratio is not None
+        ),
+        rag_max_excerpt_chars=rag_config.max_excerpt_chars,
+        rag_max_excerpt_chars_is_db_override=bool(
+            db_settings and db_settings.rag_max_excerpt_chars is not None
+        ),
         available_providers={
             category: [ProviderOption(**option) for option in options]
             for category, options in available_provider_options().items()
@@ -261,6 +285,32 @@ async def update_settings(
             f"A URL is required for embedding provider: {embedding_provider}",
         )
 
+    # rag_min_chunk_size/rag_chunk_size are independent fields (issue #68),
+    # so neither can be bounded against the other by a stateless
+    # Field(ge=..., le=...) on UpdateSettingsRequest alone - the payload may
+    # set only one of the two, leaving the other at its currently-resolved
+    # value. Resolve what the *effective* pair would become after this
+    # payload applies, and reject before writing anything if it would
+    # invert the range.
+    current_rag_config = resolve_rag_config(db, db_settings)
+    effective_min_chunk_size = (
+        payload.rag_min_chunk_size
+        if payload.rag_min_chunk_size is not None
+        else current_rag_config.min_chunk_size
+    )
+    effective_chunk_size = (
+        payload.rag_chunk_size
+        if payload.rag_chunk_size is not None
+        else current_rag_config.chunk_size
+    )
+    if effective_min_chunk_size >= effective_chunk_size:
+        return _error_response(
+            400,
+            "rag_chunk_size_bounds_inverted",
+            "The minimum chunk size must be less than the maximum chunk size "
+            f"(got minimum={effective_min_chunk_size}, maximum={effective_chunk_size}).",
+        )
+
     # Captured before the write: the audit trail must show the actual
     # transition (72 -> 24), which is unrecoverable once upsert has run.
     previous_retention = _retention_override_values(db_settings)
@@ -269,6 +319,7 @@ async def update_settings(
     previous_rate_limit = _rate_limit_override_values(db_settings)
     previous_audit_log_ui = _audit_log_ui_override_values(db_settings)
     previous_retention_notice = _retention_notice_override_values(db_settings)
+    previous_rag_config = _rag_config_override_values(db_settings)
 
     updated_settings = repo.upsert(
         llm_provider=payload.llm_provider,
@@ -292,6 +343,12 @@ async def update_settings(
         rate_limit_auth_refill_per_minute=payload.rate_limit_auth_refill_per_minute,
         audit_log_ui_enabled=payload.audit_log_ui_enabled,
         retention_notice_enabled=payload.retention_notice_enabled,
+        rag_similarity_threshold=payload.rag_similarity_threshold,
+        rag_max_results=payload.rag_max_results,
+        rag_min_chunk_size=payload.rag_min_chunk_size,
+        rag_chunk_size=payload.rag_chunk_size,
+        rag_chunk_overlap_ratio=payload.rag_chunk_overlap_ratio,
+        rag_max_excerpt_chars=payload.rag_max_excerpt_chars,
         updated_by=user["user_id"],
     )
 
@@ -330,6 +387,12 @@ async def update_settings(
         actor_user_id=user["user_id"],
         previous=previous_retention_notice,
         current=_retention_notice_override_values(updated_settings),
+    )
+    _record_rag_config_changes(
+        db,
+        actor_user_id=user["user_id"],
+        previous=previous_rag_config,
+        current=_rag_config_override_values(updated_settings),
     )
 
     db.commit()
@@ -757,6 +820,60 @@ def _record_audit_log_ui_changes(
         repo.record(
             actor_user_id=actor_user_id,
             action="audit_log_ui.config_update",
+            field_name=field,
+            old_value=previous[field],
+            new_value=new_value,
+            now=changed_at,
+        )
+
+
+def _rag_config_override_values(db_settings: SystemSettings | None) -> dict[str, str | None]:
+    """Snapshot the RAG retrieval/chunking columns' raw override values as
+    strings.
+
+    Mirrors _rate_limit_override_values exactly, for the same reason: the
+    audit trail must record what the admin set (including "cleared back to
+    the env default", as None), not what the value happened to resolve to.
+    """
+    fields = (
+        "rag_similarity_threshold",
+        "rag_max_results",
+        "rag_min_chunk_size",
+        "rag_chunk_size",
+        "rag_chunk_overlap_ratio",
+        "rag_max_excerpt_chars",
+    )
+    if db_settings is None:
+        return {field: None for field in fields}
+
+    return {
+        field: None if getattr(db_settings, field) is None else str(getattr(db_settings, field))
+        for field in fields
+    }
+
+
+def _record_rag_config_changes(
+    db: Session,
+    *,
+    actor_user_id: str,
+    previous: dict[str, str | None],
+    current: dict[str, str | None],
+) -> None:
+    """Append one "rag_config.config_update" audit entry per RAG field whose
+    value actually changed.
+
+    Mirrors _record_rate_limit_changes' shape exactly (only changed fields
+    recorded, one shared timestamp per request).
+    """
+    repo = AuditLogRepository(db)
+    changed_at = utc_now()
+
+    for field, new_value in current.items():
+        if previous[field] == new_value:
+            continue
+        repo.record(
+            actor_user_id=actor_user_id,
+            action="rag_config.config_update",
             field_name=field,
             old_value=previous[field],
             new_value=new_value,

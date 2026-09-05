@@ -935,6 +935,227 @@ def test_put_settings_rate_limit_audit_entry_records_actual_transition(client, d
     assert entries[1].new_value == "5"
 
 
+# --- RAG retrieval/chunking config (issue #68) --------------------------------
+
+
+@pytest.mark.unit
+def test_get_settings_includes_rag_fields_with_env_defaults(client):
+    """With no SystemSettings row, GET reflects the env-level RAG defaults
+    and reports every field as not DB-overridden.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["rag_similarity_threshold"] == settings.rag_similarity_threshold
+    assert data["rag_similarity_threshold_is_db_override"] is False
+    assert data["rag_max_results"] == settings.rag_max_results
+    assert data["rag_max_results_is_db_override"] is False
+    assert data["rag_min_chunk_size"] == settings.rag_min_chunk_size
+    assert data["rag_min_chunk_size_is_db_override"] is False
+    assert data["rag_chunk_size"] == settings.rag_chunk_size
+    assert data["rag_chunk_size_is_db_override"] is False
+    assert data["rag_chunk_overlap_ratio"] == settings.rag_chunk_overlap_ratio
+    assert data["rag_chunk_overlap_ratio_is_db_override"] is False
+    assert data["rag_max_excerpt_chars"] == settings.rag_max_excerpt_chars
+    assert data["rag_max_excerpt_chars_is_db_override"] is False
+
+
+@pytest.mark.unit
+def test_put_settings_updates_rag_fields_and_get_reflects_override(client):
+    """PUT should persist RAG overrides, and a following GET should reflect
+    them with is_db_override flipped to True -- the same round trip every
+    other overridable field goes through.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    put_response = client.put(
+        "/api/settings",
+        json={
+            "rag_similarity_threshold": 0.4,
+            "rag_max_results": 3,
+            "rag_min_chunk_size": 200,
+            "rag_chunk_size": 600,
+            "rag_chunk_overlap_ratio": 0.2,
+            "rag_max_excerpt_chars": 1500,
+        },
+    )
+    assert put_response.status_code == 200
+
+    get_response = client.get("/api/settings")
+
+    app.dependency_overrides.clear()
+
+    data = get_response.json()
+    assert data["rag_similarity_threshold"] == 0.4
+    assert data["rag_similarity_threshold_is_db_override"] is True
+    assert data["rag_max_results"] == 3
+    assert data["rag_max_results_is_db_override"] is True
+    assert data["rag_min_chunk_size"] == 200
+    assert data["rag_min_chunk_size_is_db_override"] is True
+    assert data["rag_chunk_size"] == 600
+    assert data["rag_chunk_size_is_db_override"] is True
+    assert data["rag_chunk_overlap_ratio"] == 0.2
+    assert data["rag_chunk_overlap_ratio_is_db_override"] is True
+    assert data["rag_max_excerpt_chars"] == 1500
+    assert data["rag_max_excerpt_chars_is_db_override"] is True
+
+
+@pytest.mark.unit
+def test_put_settings_rag_max_results_below_one_returns_422(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"rag_max_results": 0})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_put_settings_rag_chunk_overlap_ratio_above_bound_returns_422(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"rag_chunk_overlap_ratio": 0.95})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_put_settings_rag_similarity_threshold_out_of_range_returns_422(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"rag_similarity_threshold": 3.0})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_put_settings_rag_min_chunk_size_above_current_max_returns_400(client):
+    """Raising rag_min_chunk_size above the currently-effective rag_chunk_size
+    (env default 1000) without also raising the max in the same payload must
+    be rejected -- neither field's bound alone can express this.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"rag_min_chunk_size": 1500})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "rag_chunk_size_bounds_inverted"
+
+
+@pytest.mark.unit
+def test_put_settings_rag_chunk_size_below_current_min_returns_400(client):
+    """Lowering rag_chunk_size below the currently-effective rag_min_chunk_size
+    (env default 500) without also lowering the min in the same payload must
+    be rejected.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"rag_chunk_size": 100})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "rag_chunk_size_bounds_inverted"
+
+
+@pytest.mark.unit
+def test_put_settings_rag_min_and_max_chunk_size_inverted_in_same_payload_returns_400(client):
+    """Setting both fields in the same payload with min >= max must be
+    rejected too, not just the one-field-at-a-time cases above.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put(
+        "/api/settings",
+        json={"rag_min_chunk_size": 800, "rag_chunk_size": 400},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "rag_chunk_size_bounds_inverted"
+
+
+@pytest.mark.unit
+def test_put_settings_rag_min_and_max_chunk_size_can_both_change_together(client):
+    """A payload that raises both min and max together, keeping min < max
+    throughout, must succeed -- the validation compares the *effective*
+    pair, not each field against the other's stale value.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put(
+        "/api/settings",
+        json={"rag_min_chunk_size": 1200, "rag_chunk_size": 2000},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["rag_min_chunk_size"] == 1200
+    assert data["rag_chunk_size"] == 2000
+
+
+@pytest.mark.unit
+def test_put_settings_records_rag_config_update_audit_entries_only_for_changed_fields(
+    client, db_session
+):
+    """Mirrors the rate-limit audit test: re-saving settings without
+    touching the RAG fields must not fabricate audit entries, and a changed
+    field is recorded under the "rag_config.config_update" action.
+    """
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"rag_max_results": 3})
+    client.put("/api/settings", json={"rag_max_results": 3})  # unchanged re-save
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "rag_config.config_update"
+    ]
+    assert len(entries) == 1
+    assert entries[0].field_name == "rag_max_results"
+    assert entries[0].old_value is None
+    assert entries[0].new_value == "3"
+
+
+@pytest.mark.unit
+def test_put_settings_rag_audit_entry_records_actual_transition(client, db_session):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    client.put("/api/settings", json={"rag_max_results": 3})
+    client.put("/api/settings", json={"rag_max_results": 8})
+
+    app.dependency_overrides.clear()
+
+    entries = [
+        e
+        for e in AuditLogRepository(db_session).list_recent()
+        if e.action == "rag_config.config_update" and e.field_name == "rag_max_results"
+    ]
+    # Newest first: the second PUT (3 -> 8) then the first (None -> 3).
+    assert entries[0].old_value == "3"
+    assert entries[0].new_value == "8"
+    assert entries[1].old_value is None
+    assert entries[1].new_value == "3"
+
+
 # --- Guardrail pattern endpoints (issue #16) ----------------------------------
 
 

@@ -11,6 +11,7 @@ from sqlalchemy import (
     Column,
     Computed,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     LargeBinary,
@@ -377,6 +378,47 @@ class SystemSettings(Base):
     # govern their own data. Resolved per-call, same as audit_log_ui_enabled
     # - toggling visibility of a notice has no restart constraint.
     retention_notice_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # RAG retrieval/chunking tuning (issue #68). Resolved per-call via
+    # app.services.rag_config_service.resolve_rag_config - an admin's change
+    # takes effect on the very next chat/search request, no restart. Read
+    # independently by doc-search too (its own partial SystemSettings
+    # mirror, mcp-servers/doc-search/app/models.py, carries only the
+    # query-time subset: threshold, max_results, max_excerpt_chars), since
+    # doc-search is a separate deployable with no import path back to this
+    # module - see that mirror's docstring and
+    # backend/tests/unit/test_doc_search_schema_parity.py.
+    #
+    # rag_similarity_threshold is a cosine-distance cutoff, not a similarity
+    # score: pgvector's cosine_distance is 0 (identical) to 2 (opposite), so
+    # *smaller* is more similar - a match is kept when its distance is
+    # *below* this value, not above. None means no cutoff (today's
+    # behavior, every top_k slot always fills); 0.0 is a valid, deliberately
+    # strict setting.
+    rag_similarity_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # The actual enforced ceiling on how many chunks a single retrieval
+    # returns, not just a caller-suppliable default - doc-search clamps a
+    # tool-caller-supplied top_k to this value. Unlike the threshold, 0 has
+    # no meaningful interpretation, so this stays a plain nullable int
+    # bounded ge=1 at the request-schema boundary, same as the rate-limit
+    # capacity fields above.
+    rag_max_results: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Chunk sizing for backend/app/services/chunking_service.py, read only
+    # at index time (document create/update) - changing these does NOT
+    # retroactively re-chunk documents already indexed. See
+    # docs/RAG_CONFIGURATION.md for the retroactivity caveat in full.
+    # rag_min_chunk_size and rag_chunk_size are independent, admin-facing
+    # fields (not one derived from the other), so app.api.settings.py
+    # enforces rag_min_chunk_size < rag_chunk_size across both fields at
+    # the API layer - a NULL column can't carry a cross-field bound itself,
+    # the same reasoning documented on max_input_length above.
+    rag_min_chunk_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rag_chunk_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rag_chunk_overlap_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Safety-net truncation on a single retrieved chunk's excerpt text
+    # before it reaches the LLM (mcp-servers/doc-search/app/search.py) -
+    # chunking already bounds normal chunk size, so this only bites an
+    # unusually large individual chunk.
+    rag_max_excerpt_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )

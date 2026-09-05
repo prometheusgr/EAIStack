@@ -30,6 +30,7 @@ from starlette.types import ASGIApp
 import app.db as app_db
 from app.auth import TokenVerificationError, verify_bearer_token
 from app.search import SearchResultWithSources
+from app.search import resolve_rag_config as _resolve_rag_config
 from app.search import search_knowledge_base_with_sources as _search_knowledge_base_with_sources
 
 _current_user_id: contextvars.ContextVar[str] = contextvars.ContextVar("current_user_id")
@@ -181,8 +182,23 @@ def _build_mcp() -> FastMCP:
         def run_search() -> SearchResultWithSources:
             db = app_db.SessionLocal()
             try:
+                # rag_max_results (issue #68) is the actual enforced
+                # ceiling, not just a suggested default: a tool-caller
+                # (the LLM, via its own top_k argument above) can request
+                # any value, but the effective query never returns more
+                # than an admin has configured. similarity_threshold/
+                # max_excerpt_chars are resolved from the same config so a
+                # runtime change to any of the three takes effect on the
+                # very next call, no redeploy.
+                rag_config = _resolve_rag_config(db)
+                clamped_top_k = min(top_k, rag_config.max_results)
                 return _search_knowledge_base_with_sources(
-                    db, user_id=user_id, query=query, top_k=top_k
+                    db,
+                    user_id=user_id,
+                    query=query,
+                    top_k=clamped_top_k,
+                    similarity_threshold=rag_config.similarity_threshold,
+                    max_excerpt_chars=rag_config.max_excerpt_chars,
                 )
             finally:
                 db.close()

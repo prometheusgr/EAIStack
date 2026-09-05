@@ -15,28 +15,45 @@ class EmbeddingRepository:
         self.db = db
 
     def search_similar(
-        self, user_id: str, query_embedding: list[float], top_k: int
+        self,
+        user_id: str,
+        query_embedding: list[float],
+        top_k: int,
+        *,
+        similarity_threshold: float | None = None,
     ) -> list[tuple[Embedding, KnowledgeBase, float]]:
         """Return the top_k most similar embeddings for a user, nearest first.
 
         Ranking is done in Postgres via pgvector's cosine distance operator.
         The third tuple element is the cosine distance (0 = identical,
         2 = opposite); lower is more similar.
+
+        similarity_threshold (issue #68), when not None, excludes any match
+        whose distance is >= this cutoff - so a query with nothing relevant
+        in the corpus can return fewer than top_k results, or none at all,
+        instead of always returning the k least-bad chunks. The cosine
+        distance expression is repeated in .filter() rather than referenced
+        by its "distance" label: Postgres allows ORDER BY to reference a
+        SELECT-list alias, but WHERE cannot, so the same expression must be
+        given twice. None (the default) preserves the exact pre-#68
+        behavior - no cutoff.
         """
+        distance = Embedding.embedding.cosine_distance(query_embedding)
         query = (
             self.db.query(
                 Embedding,
                 KnowledgeBase,
-                Embedding.embedding.cosine_distance(query_embedding).label("distance"),
+                distance.label("distance"),
             )
             .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)
             .filter(
                 KnowledgeBase.user_id == user_id,
                 Embedding.deleted_at.is_(None),
             )
-            .order_by("distance")
-            .limit(top_k)
         )
+        if similarity_threshold is not None:
+            query = query.filter(distance < similarity_threshold)
+        query = query.order_by("distance").limit(top_k)
         return [(emb, kb, distance) for emb, kb, distance in query.all()]
 
     def list_for_user(self, user_id: str) -> list[tuple[Embedding, KnowledgeBase]]:

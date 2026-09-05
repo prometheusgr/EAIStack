@@ -483,6 +483,22 @@ class SystemSettingsResponse(BaseModel):
     # retention windows governing their own data.
     retention_notice_enabled: bool
     retention_notice_enabled_is_db_override: bool
+    # RAG retrieval/chunking tuning (issue #68) - see
+    # app.services.rag_config_service. rag_similarity_threshold is a
+    # cosine-distance cutoff (smaller = more similar; a match is kept when
+    # its distance is below this value), not a similarity score.
+    rag_similarity_threshold: Optional[float] = None
+    rag_similarity_threshold_is_db_override: bool
+    rag_max_results: int
+    rag_max_results_is_db_override: bool
+    rag_min_chunk_size: int
+    rag_min_chunk_size_is_db_override: bool
+    rag_chunk_size: int
+    rag_chunk_size_is_db_override: bool
+    rag_chunk_overlap_ratio: float
+    rag_chunk_overlap_ratio_is_db_override: bool
+    rag_max_excerpt_chars: int
+    rag_max_excerpt_chars_is_db_override: bool
     available_providers: dict[str, list[ProviderOption]]
 
 
@@ -533,3 +549,16 @@ class UpdateSettingsRequest(BaseModel):
     # See SystemSettingsResponse.retention_notice_enabled: takes effect on
     # the next request, no restart required.
     retention_notice_enabled: Optional[bool] = None
+    # RAG retrieval/chunking tuning (issue #68). rag_similarity_threshold is
+    # a cosine distance (0=identical, 2=opposite), so its bound is [0, 2],
+    # not the [0, 1] range a similarity *score* would have. rag_min_chunk_size
+    # and rag_chunk_size are independent fields; the app.api.settings PUT
+    # handler validates min < max across whichever of the two the payload
+    # sets (see update_settings's _validate_rag_chunk_bounds) since a
+    # per-field Field(ge=..., le=...) bound cannot express that.
+    rag_similarity_threshold: Optional[float] = Field(default=None, ge=0, le=2)
+    rag_max_results: Optional[int] = Field(default=None, ge=1)
+    rag_min_chunk_size: Optional[int] = Field(default=None, ge=1)
+    rag_chunk_size: Optional[int] = Field(default=None, ge=1)
+    rag_chunk_overlap_ratio: Optional[float] = Field(default=None, ge=0, le=0.9)
+    rag_max_excerpt_chars: Optional[int] = Field(default=None, ge=1)

@@ -13,7 +13,18 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Boolean, Column, Computed, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    Computed,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -99,8 +110,10 @@ Embedding.__table__.append_column(  # type: ignore[attr-defined]
 
 
 class SystemSettings(Base):
-    """Mirrors backend/app/db/models.py's SystemSettings (embedding columns only
-    — doc-search has no reason to read the LLM or retention columns).
+    """Mirrors backend/app/db/models.py's SystemSettings (embedding columns,
+    plus the RAG query-time fields doc-search resolves itself - issue #68 -
+    only; doc-search has no reason to read the LLM, retention, guardrail,
+    tracing, or rate-limit columns).
     """
 
     __tablename__ = "system_settings"
@@ -116,6 +129,16 @@ class SystemSettings(Base):
     cleanup_on_logout: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     knowledge_base_purge_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     api_key_purge_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # RAG retrieval tuning (issue #68), query-time subset only - chunk
+    # sizing (rag_min_chunk_size/rag_chunk_size/rag_chunk_overlap_ratio) is
+    # backend-only (index time), so doc-search does not mirror those
+    # columns. See app.search.resolve_rag_config, this service's own
+    # independent copy of backend/app/services/rag_config_service.py's
+    # resolution - not shared code, since doc-search has no import path
+    # back to backend/.
+    rag_similarity_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rag_max_results: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rag_max_excerpt_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )

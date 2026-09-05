@@ -138,6 +138,23 @@ export interface SystemSettingsResponse {
   // retention windows governing their own data.
   retention_notice_enabled: boolean
   retention_notice_enabled_is_db_override: boolean
+  // RAG retrieval/chunking tuning (issue #68). rag_similarity_threshold is
+  // a cosine-distance cutoff (smaller = more similar; a match is kept when
+  // its distance is below this value), not a similarity score - null means
+  // no cutoff. rag_min_chunk_size/rag_chunk_size only affect newly-
+  // (re)indexed documents, not documents already chunked and stored.
+  rag_similarity_threshold: number | null
+  rag_similarity_threshold_is_db_override: boolean
+  rag_max_results: number
+  rag_max_results_is_db_override: boolean
+  rag_min_chunk_size: number
+  rag_min_chunk_size_is_db_override: boolean
+  rag_chunk_size: number
+  rag_chunk_size_is_db_override: boolean
+  rag_chunk_overlap_ratio: number
+  rag_chunk_overlap_ratio_is_db_override: boolean
+  rag_max_excerpt_chars: number
+  rag_max_excerpt_chars_is_db_override: boolean
   available_providers: {
     llm: ProviderOption[]
     embedding: ProviderOption[]
@@ -172,4 +189,14 @@ export interface UpdateSettingsRequest {
   // See SystemSettingsResponse.retention_notice_enabled: takes effect on
   // the next request, no restart required.
   retention_notice_enabled?: boolean | null
+  // RAG retrieval/chunking tuning (issue #68). rag_min_chunk_size and
+  // rag_chunk_size are independent fields; the backend rejects a PUT that
+  // would make the effective minimum >= the effective maximum with a 400,
+  // regardless of which of the two fields this payload sets.
+  rag_similarity_threshold?: number | null
+  rag_max_results?: number | null
+  rag_min_chunk_size?: number | null
+  rag_chunk_size?: number | null
+  rag_chunk_overlap_ratio?: number | null
+  rag_max_excerpt_chars?: number | null
 }

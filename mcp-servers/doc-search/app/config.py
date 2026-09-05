@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text-v1.5.Q4_K_M.gguf"
     embedding_timeout: int = 60
 
+    # RAG retrieval tuning (issue #68), query-time subset only. Mirrors
+    # backend/app/core/config.py's identically-named fields - an admin's
+    # runtime override (via the Settings screen, stored in system_settings)
+    # wins over these, see app.search.resolve_rag_config. Chunk sizing has
+    # no equivalent here: chunking happens only at index time, in the
+    # backend, never in doc-search.
+    rag_similarity_threshold: float | None = None
+    rag_max_results: int = 5
+    rag_max_excerpt_chars: int = 2000
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

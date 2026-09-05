@@ -12,6 +12,7 @@ config, the repository owns data access and the user-isolation filter.
 
 import random
 from dataclasses import dataclass
+from typing import TypeVar
 
 import httpx
 from sqlalchemy.orm import Session
@@ -93,12 +94,40 @@ class EmbeddingConfig:
     timeout: int
 
 
-def _resolve_field(db_value: str | None, env_default: str) -> str:
+@dataclass(frozen=True)
+class RagConfig:
+    """Effective RAG retrieval policy for one call, DB override merged over
+    env defaults - the query-time subset doc-search needs (issue #68).
+
+    This is doc-search's own independent copy of
+    backend/app/services/rag_config_service.py's RagConfig/resolve_rag_config
+    - not shared code, since doc-search is a separate deployable with no
+    import path back to backend/ (same reasoning as resolve_embedding_config
+    above). Chunk sizing has no equivalent here: chunking happens only at
+    index time, in the backend.
+
+    similarity_threshold is a cosine-distance cutoff, not a similarity
+    score: smaller distance means more similar, so a match is kept when its
+    distance is below this value. None means no cutoff; 0.0 is a valid,
+    deliberately strict override - see
+    EmbeddingRepository.search_similar's identical semantics.
+    """
+
+    similarity_threshold: float | None
+    max_results: int
+    max_excerpt_chars: int
+
+
+_T = TypeVar("_T")
+
+
+def _resolve_field(db_value: _T | None, env_default: _T) -> _T:
     """Resolve one overridable field: the DB value if a row set it, else the
     env default. Mirrors backend/app/services/system_settings_service.py's
     _resolve_field exactly, including the is-not-None (not truthiness) check
     — an empty-string DB override (e.g. the "fake" provider's URL) must not
-    be discarded in favor of the env default.
+    be discarded in favor of the env default, and an explicit 0.0/0
+    override (e.g. rag_similarity_threshold) must not be discarded either.
     """
     return db_value if db_value is not None else env_default
 
@@ -123,6 +152,30 @@ def resolve_embedding_config(db: Session) -> EmbeddingConfig:
             db_settings.embedding_model if db_settings else None, settings.embedding_model
         ),
         timeout=settings.embedding_timeout,
+    )
+
+
+def resolve_rag_config(db: Session) -> RagConfig:
+    """Resolve the effective RAG retrieval policy, reading the same
+    system_settings row the backend's resolve_rag_config reads — this is
+    what keeps an admin's runtime retrieval-tuning change (issue #68)
+    honored on the very next query, the same way resolve_embedding_config
+    above keeps a provider switch honored without a redeploy.
+    """
+    db_settings = db.query(SystemSettings).filter(SystemSettings.id == "default").first()
+
+    return RagConfig(
+        similarity_threshold=_resolve_field(
+            db_settings.rag_similarity_threshold if db_settings else None,
+            settings.rag_similarity_threshold,
+        ),
+        max_results=_resolve_field(
+            db_settings.rag_max_results if db_settings else None, settings.rag_max_results
+        ),
+        max_excerpt_chars=_resolve_field(
+            db_settings.rag_max_excerpt_chars if db_settings else None,
+            settings.rag_max_excerpt_chars,
+        ),
     )
 
 
@@ -167,7 +220,13 @@ def embed_query(db: Session, text: str) -> list[float]:
 
 
 def search_knowledge_base_with_sources(
-    db: Session, user_id: str, query: str, top_k: int = 5
+    db: Session,
+    user_id: str,
+    query: str,
+    top_k: int = 5,
+    *,
+    similarity_threshold: float | None = None,
+    max_excerpt_chars: int = MAX_EXCERPT_CHARS,
 ) -> SearchResultWithSources:
     """Search user_id's knowledge base for passages relevant to query.
 
@@ -183,12 +242,23 @@ def search_knowledge_base_with_sources(
     sources list. Deduplicated to the single highest-ranked chunk per
     document (see _deduplicate_by_document) so one document's many chunks
     can't crowd out other documents in the result.
+
+    similarity_threshold/max_excerpt_chars (issue #68) default to this
+    module's pre-#68 behavior (no cutoff; MAX_EXCERPT_CHARS) so an existing
+    caller that doesn't pass them keeps working unchanged. app.server's
+    tool handler resolves RagConfig once per call and passes both through,
+    alongside clamping top_k to RagConfig.max_results.
     """
     query_embedding = embed_query(db, query)
 
     repo = EmbeddingRepository(db)
     candidates = repo.search_hybrid(
-        user_id, query_embedding, query_text=query, top_k=top_k, return_candidates=True
+        user_id,
+        query_embedding,
+        query_text=query,
+        top_k=top_k,
+        return_candidates=True,
+        similarity_threshold=similarity_threshold,
     )
 
     if not candidates:
@@ -201,8 +271,8 @@ def search_knowledge_base_with_sources(
     excerpts = []
     sources = []
     for embedding, knowledge_base, _ in matches:
-        excerpt = embedding.chunk_text[:MAX_EXCERPT_CHARS]
-        if len(embedding.chunk_text) > MAX_EXCERPT_CHARS:
+        excerpt = embedding.chunk_text[:max_excerpt_chars]
+        if len(embedding.chunk_text) > max_excerpt_chars:
             excerpt += "..."
 
         header = f"Title: {knowledge_base.title}"

@@ -20,6 +20,7 @@ from app.models import Embedding, KnowledgeBase, SystemSettings
 from app.search import (
     generate_query_embedding,
     resolve_embedding_config,
+    resolve_rag_config,
     search_knowledge_base_with_sources,
 )
 
@@ -493,3 +494,102 @@ def test_resolve_embedding_config_timeout_always_comes_from_env(db_session):
     config = resolve_embedding_config(db_session)
 
     assert config.timeout == settings.embedding_timeout
+
+
+# resolve_rag_config: DB-override-vs-env-default resolution for the RAG
+# retrieval query-time fields (issue #68).
+#
+# Mirrors backend/tests/unit/test_rag_config_service.py's scenarios, since
+# app.search.resolve_rag_config is doc-search's own independent copy of
+# backend/app/services/rag_config_service.py's function of the same name,
+# reading the same system_settings row. Marked integration like the rest of
+# this file: doc-search has no SQLite fallback.
+
+
+@pytest.mark.integration
+def test_resolve_rag_config_falls_back_to_env_settings_when_no_db_row(db_session):
+    """With no SystemSettings row at all, every field comes from env settings."""
+    config = resolve_rag_config(db_session)
+
+    assert config.similarity_threshold == settings.rag_similarity_threshold
+    assert config.max_results == settings.rag_max_results
+    assert config.max_excerpt_chars == settings.rag_max_excerpt_chars
+
+
+@pytest.mark.integration
+def test_resolve_rag_config_uses_db_override_when_present(db_session):
+    """A DB row with non-null RAG fields overrides the env-var defaults for
+    every overridable field.
+    """
+    db_session.add(
+        SystemSettings(
+            id="default",
+            rag_similarity_threshold=0.4,
+            rag_max_results=3,
+            rag_max_excerpt_chars=1000,
+            updated_by="admin-1",
+        )
+    )
+    db_session.commit()
+
+    config = resolve_rag_config(db_session)
+
+    assert config.similarity_threshold == 0.4
+    assert config.max_results == 3
+    assert config.max_excerpt_chars == 1000
+
+
+@pytest.mark.integration
+def test_resolve_rag_config_similarity_threshold_zero_is_a_real_override(db_session):
+    """0.0 is a meaningful override ("reject everything, even a perfect
+    match"), not "unset" - a truthiness check would silently discard it the
+    same way it would for conversation_retention_hours=0.
+    """
+    db_session.add(SystemSettings(id="default", rag_similarity_threshold=0.0, updated_by="admin-1"))
+    db_session.commit()
+
+    config = resolve_rag_config(db_session)
+
+    assert config.similarity_threshold == 0.0
+
+
+@pytest.mark.integration
+def test_search_knowledge_base_with_sources_similarity_threshold_excludes_far_matches(db_session):
+    """similarity_threshold, when passed through, excludes a chunk whose
+    distance is beyond the cutoff - the mechanism issue #68 exists to
+    enable ("nothing relevant was found" instead of the k least-bad chunks).
+    """
+    _seed_chunk(
+        db_session,
+        user_id="user-a",
+        title="Unrelated Doc",
+        chunk_text="This document is about something completely different.",
+    )
+
+    result = search_knowledge_base_with_sources(
+        db_session,
+        user_id="user-a",
+        query="a query about a topic never mentioned anywhere in the corpus",
+        top_k=5,
+        similarity_threshold=0.0,
+    )
+
+    assert result.sources == []
+    assert "No matching documents" in result.text
+
+
+@pytest.mark.integration
+def test_search_knowledge_base_with_sources_custom_max_excerpt_chars(db_session):
+    """max_excerpt_chars, when passed through, controls the truncation cap
+    instead of the module's MAX_EXCERPT_CHARS default.
+    """
+    long_chunk = "B" * 500
+    _seed_chunk(db_session, user_id="user-a", title="Long Doc", chunk_text=long_chunk)
+
+    result = search_knowledge_base_with_sources(
+        db_session, user_id="user-a", query="long", top_k=5, max_excerpt_chars=100
+    )
+
+    assert "B" * 100 in result.text
+    assert "..." in result.text
+    assert "B" * 101 not in result.text

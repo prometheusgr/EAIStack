@@ -51,7 +51,12 @@ class EmbeddingRepository:
         self.db = db
 
     def search_similar(
-        self, user_id: str, query_embedding: list[float], top_k: int
+        self,
+        user_id: str,
+        query_embedding: list[float],
+        top_k: int,
+        *,
+        similarity_threshold: float | None = None,
     ) -> list[tuple[Embedding, KnowledgeBase, float]]:
         """Return the top_k most similar embeddings for a user, nearest first.
 
@@ -62,21 +67,31 @@ class EmbeddingRepository:
         Only the embedding's own soft-delete flag is checked, matching
         backend/app/repositories/embedding_repository.py exactly — the two
         implementations must agree on what counts as a live document.
+
+        similarity_threshold (issue #68), when not None, excludes any match
+        whose distance is >= this cutoff, mirroring the backend's identical
+        parameter on its own EmbeddingRepository.search_similar. The cosine
+        distance expression is repeated in .filter() rather than referenced
+        by its "distance" label, since Postgres's WHERE clause cannot
+        reference a SELECT-list alias the way ORDER BY can. None (the
+        default) preserves the exact pre-#68 behavior - no cutoff.
         """
+        distance = Embedding.embedding.cosine_distance(query_embedding)
         query = (
             self.db.query(
                 Embedding,
                 KnowledgeBase,
-                Embedding.embedding.cosine_distance(query_embedding).label("distance"),
+                distance.label("distance"),
             )
             .join(KnowledgeBase, Embedding.doc_id == KnowledgeBase.id)
             .filter(
                 KnowledgeBase.user_id == user_id,
                 Embedding.deleted_at.is_(None),
             )
-            .order_by("distance")
-            .limit(top_k)
         )
+        if similarity_threshold is not None:
+            query = query.filter(distance < similarity_threshold)
+        query = query.order_by("distance").limit(top_k)
         return [(emb, kb, distance) for emb, kb, distance in query.all()]
 
     def search_hybrid(
@@ -87,6 +102,7 @@ class EmbeddingRepository:
         top_k: int,
         *,
         return_candidates: bool = False,
+        similarity_threshold: float | None = None,
     ) -> list[tuple[Embedding, KnowledgeBase, float]]:
         """Return the top_k results for a user, ranking by a fusion of
         vector similarity and Postgres full-text search.
@@ -123,10 +139,23 @@ class EmbeddingRepository:
         candidates are enough" decision (this method, via
         _CANDIDATE_MULTIPLIER); search.py owns only "how many final,
         deduplicated results to return."
+
+        similarity_threshold (issue #68) is applied only to the vector
+        branch, since it is a cosine-distance concept with no equivalent on
+        the lexical (ts_rank) branch - a document with no vector match
+        close enough to clear the threshold can still surface here purely
+        via a strong lexical match, which is the intended behavior of
+        hybrid search (see this method's own docstring on why the lexical
+        branch exists at all).
         """
         candidate_limit = top_k * _CANDIDATE_MULTIPLIER
 
-        vector_ranking = self.search_similar(user_id, query_embedding, candidate_limit)
+        vector_ranking = self.search_similar(
+            user_id,
+            query_embedding,
+            candidate_limit,
+            similarity_threshold=similarity_threshold,
+        )
         lexical_ranking = self._search_lexical(user_id, query_text, candidate_limit)
 
         fused = _fuse_rankings(vector_ranking, lexical_ranking)

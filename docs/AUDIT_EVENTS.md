@@ -46,6 +46,7 @@ One row per changed field, per change (`backend/app/db/models.py`, `AuditLog`):
 | `rate_limit.config_update` | An admin changes a rate-limit field (`rate_limit_enabled`, chat/auth capacity and refill rate) via the Settings UI | `backend/app/api/settings.py`, `_record_rate_limit_changes()` |
 | `audit_log_ui.config_update` | An admin changes `audit_log_ui_enabled` (whether the in-product Audit Log view is shown) via the Settings UI | `backend/app/api/settings.py`, `_record_audit_log_ui_changes()` |
 | `retention_notice.config_update` | An admin changes `retention_notice_enabled` (whether the end-user-facing retention notice is shown in the chat UI) via the Settings UI | `backend/app/api/settings.py`, `_record_retention_notice_changes()` |
+| `rag_config.config_update` | An admin changes a RAG retrieval/chunking field (`rag_similarity_threshold`, `rag_max_results`, `rag_min_chunk_size`, `rag_chunk_size`, `rag_chunk_overlap_ratio`, `rag_max_excerpt_chars`) via the Settings UI — see `docs/RAG_CONFIGURATION.md` | `backend/app/api/settings.py`, `_record_rag_config_changes()` |
 
 Only fields whose value actually changed produce an entry — re-saving the settings form without touching a given field writes zero rows for it. All entries from one request share a single `now` timestamp so a multi-field change is legible as one event.
 
