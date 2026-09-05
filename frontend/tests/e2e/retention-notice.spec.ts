@@ -10,7 +10,11 @@ import { startNewChat } from './helpers'
 //
 // Content-independent (no LLM interaction needed to see the notice), so this
 // runs under CI's default fake-provider profile like most specs in this
-// suite -- no requires-profile-llm marker needed.
+// suite -- it does not need the "real content" marker AGENTS.md's E2E
+// section describes for specs that assert on actual model output (see
+// tools/check_e2e_ci_coverage.py, which does a literal substring search for
+// that marker string across every spec file -- this sentence is phrased to
+// avoid an accidental match).
 //
 // Runs in the 'chromium' project, pre-authenticated via storageState (see
 // playwright.config.ts and tests/e2e/auth.setup.ts) -- issue #53 -- so each
