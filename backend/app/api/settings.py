@@ -416,8 +416,9 @@ async def get_retention_notice(
     the caller's responsibility to honor that flag rather than render the
     notice unconditionally.
     """
-    retention_config = resolve_retention_config(db)
-    notice_config = resolve_retention_notice_config(db)
+    db_settings = SystemSettingsRepository(db).get()
+    retention_config = resolve_retention_config(db, db_settings)
+    notice_config = resolve_retention_notice_config(db, db_settings)
     return RetentionNoticeResponse(
         conversation_retention_hours=retention_config.conversation_retention_hours,
         cleanup_on_logout=retention_config.cleanup_on_logout,

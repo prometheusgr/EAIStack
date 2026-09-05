@@ -43,20 +43,81 @@ async function resetStaleAdminOverrides(): Promise<void> {
     return
   }
   const { access_token: accessToken } = await tokenResponse.json()
+  const authHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  }
 
+  // PUT /api/settings is a full-replace, not a merge: SystemSettingsRepository
+  // .upsert() writes every one of its ~20 columns on every call, and any
+  // field omitted from the request body defaults to null (UpdateSettingsRequest's
+  // own docstring: "omitting one clears it rather than leaving the previous
+  // value in place"). Settings.tsx's own save button avoids this trap by
+  // always round-tripping the *entire* currently-loaded settings object and
+  // only changing the field the admin actually edited -- this GET-then-PUT
+  // does the same, so a real override left by another spec (rate-limit
+  // capacity, a guardrail toggle, retention_notice_enabled, etc.) survives
+  // untouched, and only the four fields this function actually targets are
+  // forced back to their env defaults.
+  const currentSettingsResponse = await fetch('http://localhost:8001/api/settings', {
+    headers: authHeaders,
+  })
+  if (!currentSettingsResponse.ok) {
+    console.warn(
+      `[global-setup] Failed to read current settings (${currentSettingsResponse.status}); skipping admin override reset.`
+    )
+    return
+  }
+  const current = await currentSettingsResponse.json()
+
+  // Each field is carried forward as its current resolved value only when a
+  // DB override is actually in effect (*_is_db_override); otherwise sending
+  // null, not the resolved value, so a field that already has no override
+  // stays that way rather than being pinned to today's env default as a new
+  // explicit DB row.
   const settingsResponse = await fetch('http://localhost:8001/api/settings', {
     method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    // null clears a field back to its env-var default -- the same semantics
-    // Settings.tsx's "Reset retention to default" button relies on.
+    headers: authHeaders,
     body: JSON.stringify({
       llm_provider: null,
       llm_url: null,
       llm_model: null,
       tracing_enabled: null,
+      embedding_provider: current.embedding_provider_is_db_override ? current.embedding_provider : null,
+      embedding_url: current.embedding_url_is_db_override ? current.embedding_url : null,
+      embedding_model: current.embedding_model_is_db_override ? current.embedding_model : null,
+      conversation_retention_hours: current.conversation_retention_hours_is_db_override
+        ? current.conversation_retention_hours
+        : null,
+      cleanup_on_logout: current.cleanup_on_logout_is_db_override ? current.cleanup_on_logout : null,
+      knowledge_base_purge_days: current.knowledge_base_purge_days_is_db_override
+        ? current.knowledge_base_purge_days
+        : null,
+      api_key_purge_days: current.api_key_purge_days_is_db_override ? current.api_key_purge_days : null,
+      max_input_length: current.max_input_length_is_db_override ? current.max_input_length : null,
+      guardrails_input_enabled: current.guardrails_input_enabled_is_db_override
+        ? current.guardrails_input_enabled
+        : null,
+      guardrails_output_enabled: current.guardrails_output_enabled_is_db_override
+        ? current.guardrails_output_enabled
+        : null,
+      rate_limit_enabled: current.rate_limit_enabled_is_db_override ? current.rate_limit_enabled : null,
+      rate_limit_chat_capacity: current.rate_limit_chat_capacity_is_db_override
+        ? current.rate_limit_chat_capacity
+        : null,
+      rate_limit_chat_refill_per_minute: current.rate_limit_chat_refill_per_minute_is_db_override
+        ? current.rate_limit_chat_refill_per_minute
+        : null,
+      rate_limit_auth_capacity: current.rate_limit_auth_capacity_is_db_override
+        ? current.rate_limit_auth_capacity
+        : null,
+      rate_limit_auth_refill_per_minute: current.rate_limit_auth_refill_per_minute_is_db_override
+        ? current.rate_limit_auth_refill_per_minute
+        : null,
+      audit_log_ui_enabled: current.audit_log_ui_enabled_is_db_override ? current.audit_log_ui_enabled : null,
+      retention_notice_enabled: current.retention_notice_enabled_is_db_override
+        ? current.retention_notice_enabled
+        : null,
     }),
   })
   if (!settingsResponse.ok) {
