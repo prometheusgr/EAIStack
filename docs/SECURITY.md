@@ -158,6 +158,37 @@ Purges are batched (500 rows per round-trip), never issued as one unbounded
 DELETE, so a deployment with months of accumulated history doesn't hold a single
 long transaction.
 
+### End-User Transparency (issue #49)
+
+**Status**: implemented.
+
+Retention windows were fully admin-configurable from Phase 4b onward, but
+visibility into them was admin-only — an ordinary chat user had no in-product
+way to see how long their own conversation history was kept. `GET
+/api/settings/retention-notice` closes that gap: it reports the same
+*effective* (resolved DB-override-or-env-default) values `GET /api/settings`
+does for `conversation_retention_hours` and `cleanup_on_logout`, but is
+deliberately **not** admin-gated (`get_current_user`, not `require_admin`) —
+these are read-only, already-resolved values, so no elevated trust is needed
+to read them.
+
+`ChatWindow` renders the response as a small, dismissible notice ("Your
+conversation history is retained for N hours" / "kept indefinitely" / "purged
+immediately", plus a note when logout-triggered cleanup is also on). The
+notice is per-session (dismissing it does not persist across a reload) and
+carries no admin-only detail — a user who wants the full picture (purge-day
+windows for documents/API keys, etc.) is directed to `docs/SECURITY.md`'s
+table above via the admin, not this notice.
+
+**Transparent by default**: `retention_notice_enabled` (env default `True`,
+DB-override via `app.services.retention_notice_config_service`, same
+resolved-per-call pattern as `audit_log_ui_enabled`) controls whether the
+notice renders at all. A fork can turn it off — e.g. a deployment where every
+window is "keep forever" and the notice would be uninteresting — but the
+default stays visible, not opt-in. Changing it is audit-logged
+(`retention_notice.config_update`), like every other admin-configurable
+switch.
+
 ## Session & Context Lifecycle
 
 Every conversation exists as a LangGraph "checkpoint" in Postgres, tied to a specific user session.

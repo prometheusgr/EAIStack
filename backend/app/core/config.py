@@ -78,6 +78,15 @@ class Settings(BaseSettings):
     # hiding/showing a nav button has no "requires restart" constraint.
     audit_log_ui_enabled: bool = True
 
+    # End-user-facing retention notice (issue #49). Retention windows were
+    # already fully admin-configurable, but only visible to an admin via the
+    # Settings screen - this flag controls whether an ordinary chat user is
+    # shown the effective conversation-retention window too. Transparent by
+    # default (True): a fork with retention windows so long ("keep forever")
+    # that the notice is uninteresting, or another reason to hide it, can
+    # override this - but the default must stay visible, not opt-in.
+    retention_notice_enabled: bool = True
+
     # doc-search MCP server (mcp-servers/doc-search): a standalone Streamable
     # HTTP service exposing search_knowledge_base as an MCP tool, so it can
     # run as its own K8s pod. The backend forwards each caller's own Keycloak

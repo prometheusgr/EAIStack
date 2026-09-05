@@ -104,6 +104,7 @@ export function Settings() {
   const [rateLimitAuthCapacity, setRateLimitAuthCapacity] = useState<NumericSettingInput>('')
   const [rateLimitAuthRefillPerMinute, setRateLimitAuthRefillPerMinute] =
     useState<NumericSettingInput>('')
+  const [retentionNoticeEnabled, setRetentionNoticeEnabled] = useState(true)
   const [newPatternLabel, setNewPatternLabel] = useState('')
   const [newPatternPhrase, setNewPatternPhrase] = useState('')
   // Mirrors get.data.guardrail_patterns locally, patched in place by each
@@ -163,6 +164,7 @@ export function Settings() {
     setRateLimitChatRefillPerMinute(String(get.data.rate_limit_chat_refill_per_minute))
     setRateLimitAuthCapacity(String(get.data.rate_limit_auth_capacity))
     setRateLimitAuthRefillPerMinute(String(get.data.rate_limit_auth_refill_per_minute))
+    setRetentionNoticeEnabled(get.data.retention_notice_enabled)
     setClearedFields(new Set())
   }, [get.data])
 
@@ -255,6 +257,9 @@ export function Settings() {
       rate_limit_auth_refill_per_minute: clearedFields.has('rate_limit_auth_refill_per_minute')
         ? null
         : toNumericSettingPayloadValue(rateLimitAuthRefillPerMinute),
+      retention_notice_enabled: clearedFields.has('retention_notice_enabled')
+        ? null
+        : retentionNoticeEnabled,
     }
   }
 
@@ -813,6 +818,30 @@ export function Settings() {
               the retention window above. Enable for a shared-device or
               high-privacy deployment; leave off if users expect their chat
               history to still be there next time they log in.
+            </InfoTooltip>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            id="retention-notice-enabled"
+            type="checkbox"
+            checked={retentionNoticeEnabled}
+            onChange={(e) => {
+              setRetentionNoticeEnabled(e.target.checked)
+              markFieldEdited('retention_notice_enabled')
+            }}
+          />
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="retention-notice-enabled">
+              Show retention notice to users (
+              {overrideLabel(get.data.retention_notice_enabled_is_db_override)})
+            </label>
+            <InfoTooltip>
+              When enabled, any signed-in user sees a plain-language notice
+              in the chat UI stating how long their conversation history is
+              kept. Transparent by default. Turning this off hides the
+              notice but does not change the retention windows above.
             </InfoTooltip>
           </div>
         </div>

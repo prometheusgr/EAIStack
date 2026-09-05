@@ -343,6 +343,31 @@ class NavConfigResponse(BaseModel):
     keycloak_users_console_url: str | None
 
 
+class RetentionNoticeResponse(BaseModel):
+    """Response body for GET /api/settings/retention-notice (issue #49).
+
+    Carries the same *effective* (resolved) values GET /api/settings
+    reports for these fields, not the raw DB-nullable admin override --
+    every authenticated user, not just an admin, can read how long their
+    own data is kept.
+
+    conversation_retention_hours is None when conversations are kept
+    forever (see app.services.retention_service.RetentionConfig's
+    docstring) -- the frontend must render "kept indefinitely" rather than
+    treating null as "no data".
+
+    notice_enabled controls whether the chat UI should render the notice at
+    all (default True, transparent by default -- see
+    app.services.retention_notice_config_service); the resolved values are
+    still returned even when False, since honoring that flag is the
+    frontend's responsibility.
+    """
+
+    conversation_retention_hours: int | None
+    cleanup_on_logout: bool
+    notice_enabled: bool
+
+
 class GuardrailPatternResponse(BaseModel):
     """One row from GuardrailPatternRepository, as returned to the settings
     screen.
@@ -453,6 +478,11 @@ class SystemSettingsResponse(BaseModel):
     # audit consumption through an external SIEM instead.
     audit_log_ui_enabled: bool
     audit_log_ui_enabled_is_db_override: bool
+    # End-user-facing retention notice (issue #49). Transparent-by-default
+    # (True): whether the chat UI shows an ordinary user the effective
+    # retention windows governing their own data.
+    retention_notice_enabled: bool
+    retention_notice_enabled_is_db_override: bool
     available_providers: dict[str, list[ProviderOption]]
 
 
@@ -500,3 +530,6 @@ class UpdateSettingsRequest(BaseModel):
     # See SystemSettingsResponse.audit_log_ui_enabled: takes effect on the
     # next request, no restart required.
     audit_log_ui_enabled: Optional[bool] = None
+    # See SystemSettingsResponse.retention_notice_enabled: takes effect on
+    # the next request, no restart required.
+    retention_notice_enabled: Optional[bool] = None

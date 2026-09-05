@@ -420,6 +420,29 @@ describe('settingsClient', () => {
     })
   })
 
+  describe('getRetentionNotice', () => {
+    it('GETs /api/settings/retention-notice and returns the parsed policy', async () => {
+      const responseBody = {
+        conversation_retention_hours: 24,
+        cleanup_on_logout: true,
+        notice_enabled: true,
+      }
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: async () => responseBody,
+      })
+
+      const result = await settingsClient.getRetentionNotice(mockToken, mockRefresh)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/settings/retention-notice'),
+        expect.objectContaining({ method: 'GET' })
+      )
+      expect(result).toEqual(responseBody)
+    })
+  })
+
   describe('deleteGuardrailPattern', () => {
     it('DELETEs /api/settings/guardrail-patterns/{id}', async () => {
       mockFetch.mockResolvedValueOnce({

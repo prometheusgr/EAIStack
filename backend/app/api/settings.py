@@ -14,6 +14,7 @@ from app.api.schemas import (
     NavConfigResponse,
     ProviderOption,
     RateLimitStatusResponse,
+    RetentionNoticeResponse,
     SystemSettingsResponse,
     TestConnectionRequest,
     TestConnectionResponse,
@@ -21,7 +22,7 @@ from app.api.schemas import (
     UpdateGuardrailPatternRequest,
     UpdateSettingsRequest,
 )
-from app.core.auth import require_admin
+from app.core.auth import get_current_user, require_admin
 from app.core.config import settings as env_settings
 from app.db.database import get_db
 from app.db.models import SystemSettings, utc_now
@@ -40,6 +41,7 @@ from app.services import (
     resolve_nav_config,
     resolve_rate_limit_config,
     resolve_retention_config,
+    resolve_retention_notice_config,
     resolve_tracing_config,
 )
 from app.services.provider_probe_service import probe_provider
@@ -99,6 +101,7 @@ def _to_response(
     tracing_config = resolve_tracing_config(db, db_settings)
     rate_limit_config = resolve_rate_limit_config(db, db_settings)
     audit_log_ui_config = resolve_audit_log_ui_config(db, db_settings)
+    retention_notice_config = resolve_retention_notice_config(db, db_settings)
 
     return SystemSettingsResponse(
         llm_provider=llm_config.provider,
@@ -175,6 +178,10 @@ def _to_response(
         audit_log_ui_enabled=audit_log_ui_config.enabled,
         audit_log_ui_enabled_is_db_override=bool(
             db_settings and db_settings.audit_log_ui_enabled is not None
+        ),
+        retention_notice_enabled=retention_notice_config.enabled,
+        retention_notice_enabled_is_db_override=bool(
+            db_settings and db_settings.retention_notice_enabled is not None
         ),
         available_providers={
             category: [ProviderOption(**option) for option in options]
@@ -261,6 +268,7 @@ async def update_settings(
     previous_tracing = _tracing_override_values(db_settings)
     previous_rate_limit = _rate_limit_override_values(db_settings)
     previous_audit_log_ui = _audit_log_ui_override_values(db_settings)
+    previous_retention_notice = _retention_notice_override_values(db_settings)
 
     updated_settings = repo.upsert(
         llm_provider=payload.llm_provider,
@@ -283,6 +291,7 @@ async def update_settings(
         rate_limit_auth_capacity=payload.rate_limit_auth_capacity,
         rate_limit_auth_refill_per_minute=payload.rate_limit_auth_refill_per_minute,
         audit_log_ui_enabled=payload.audit_log_ui_enabled,
+        retention_notice_enabled=payload.retention_notice_enabled,
         updated_by=user["user_id"],
     )
 
@@ -315,6 +324,12 @@ async def update_settings(
         actor_user_id=user["user_id"],
         previous=previous_audit_log_ui,
         current=_audit_log_ui_override_values(updated_settings),
+    )
+    _record_retention_notice_changes(
+        db,
+        actor_user_id=user["user_id"],
+        previous=previous_retention_notice,
+        current=_retention_notice_override_values(updated_settings),
     )
 
     db.commit()
@@ -380,6 +395,34 @@ async def get_nav_config(
     config = resolve_nav_config()
     return NavConfigResponse(
         keycloak_users_console_url=config.keycloak_users_console_url,
+    )
+
+
+@router.get("/retention-notice", response_model=RetentionNoticeResponse)
+async def get_retention_notice(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the effective (resolved) retention policy for any authenticated
+    user (issue #49) -- transparency about how long a user's own data is
+    kept was previously reachable only through the admin-gated GET
+    /api/settings. Deliberately not admin-gated: these are the same
+    already-resolved values GET /api/settings reports, not the raw
+    DB-nullable admin override, so no elevated trust is needed to read them.
+
+    notice_enabled lets a fork hide the in-product notice entirely (see
+    app.services.retention_notice_config_service); the frontend still
+    receives the resolved values even when notice_enabled is False; it is
+    the caller's responsibility to honor that flag rather than render the
+    notice unconditionally.
+    """
+    db_settings = SystemSettingsRepository(db).get()
+    retention_config = resolve_retention_config(db, db_settings)
+    notice_config = resolve_retention_notice_config(db, db_settings)
+    return RetentionNoticeResponse(
+        conversation_retention_hours=retention_config.conversation_retention_hours,
+        cleanup_on_logout=retention_config.cleanup_on_logout,
+        notice_enabled=notice_config.enabled,
     )
 
 
@@ -620,6 +663,53 @@ def _record_rate_limit_changes(
         repo.record(
             actor_user_id=actor_user_id,
             action="rate_limit.config_update",
+            field_name=field,
+            old_value=previous[field],
+            new_value=new_value,
+            now=changed_at,
+        )
+
+
+def _retention_notice_override_values(db_settings: SystemSettings | None) -> dict[str, str | None]:
+    """Snapshot the retention_notice_enabled column's raw override value as
+    a string.
+
+    Mirrors _audit_log_ui_override_values exactly, for the same reason: the
+    audit trail must record what the admin set (including "cleared back to
+    the env default", as None), not what the value happened to resolve to.
+    """
+    fields = ("retention_notice_enabled",)
+    if db_settings is None:
+        return {field: None for field in fields}
+
+    return {
+        field: None if getattr(db_settings, field) is None else str(getattr(db_settings, field))
+        for field in fields
+    }
+
+
+def _record_retention_notice_changes(
+    db: Session,
+    *,
+    actor_user_id: str,
+    previous: dict[str, str | None],
+    current: dict[str, str | None],
+) -> None:
+    """Append a "retention_notice.config_update" audit entry if
+    retention_notice_enabled's override actually changed.
+
+    Mirrors _record_audit_log_ui_changes' shape exactly (only changed
+    fields recorded, one shared timestamp per request).
+    """
+    repo = AuditLogRepository(db)
+    changed_at = utc_now()
+
+    for field, new_value in current.items():
+        if previous[field] == new_value:
+            continue
+        repo.record(
+            actor_user_id=actor_user_id,
+            action="retention_notice.config_update",
             field_name=field,
             old_value=previous[field],
             new_value=new_value,

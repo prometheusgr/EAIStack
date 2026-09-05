@@ -45,6 +45,7 @@ One row per changed field, per change (`backend/app/db/models.py`, `AuditLog`):
 | `tracing.config_update` | An admin changes `tracing_enabled` via the Settings UI (takes effect on the next backend restart, not immediately — see `docs/OBSERVABILITY.md`) | `backend/app/api/settings.py`, `_record_tracing_changes()` |
 | `rate_limit.config_update` | An admin changes a rate-limit field (`rate_limit_enabled`, chat/auth capacity and refill rate) via the Settings UI | `backend/app/api/settings.py`, `_record_rate_limit_changes()` |
 | `audit_log_ui.config_update` | An admin changes `audit_log_ui_enabled` (whether the in-product Audit Log view is shown) via the Settings UI | `backend/app/api/settings.py`, `_record_audit_log_ui_changes()` |
+| `retention_notice.config_update` | An admin changes `retention_notice_enabled` (whether the end-user-facing retention notice is shown in the chat UI) via the Settings UI | `backend/app/api/settings.py`, `_record_retention_notice_changes()` |
 
 Only fields whose value actually changed produce an entry — re-saving the settings form without touching a given field writes zero rows for it. All entries from one request share a single `now` timestamp so a multi-field change is legible as one event.
 

@@ -5,6 +5,7 @@ import type {
   DashboardResponse,
   GuardrailPattern,
   NavConfigResponse,
+  RetentionNoticeResponse,
   SystemSettingsResponse,
   TestConnectionResult,
   UpdateSettingsRequest,
@@ -69,6 +70,15 @@ export function useSettingsService() {
     { immediate: false }
   )
 
+  const getRetentionNotice = useApiCall<RetentionNoticeResponse>(
+    async () => {
+      if (!token) throw new Error('No auth token available')
+      const service = new SettingsService(token, refreshAccessToken)
+      return service.getRetentionNotice()
+    },
+    { immediate: false }
+  )
+
   const testConnection = useApiMutation<string, TestConnectionResult>(async (url) => {
     if (!token) throw new Error('No auth token available')
     const service = new SettingsService(token, refreshAccessToken)
@@ -104,6 +114,7 @@ export function useSettingsService() {
     getAuditLog,
     getDashboard,
     getNavConfig,
+    getRetentionNotice,
     testConnection,
     createGuardrailPattern,
     setGuardrailPatternEnabled,

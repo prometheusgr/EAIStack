@@ -67,6 +67,21 @@ export interface NavConfigResponse {
   keycloak_users_console_url: string | null
 }
 
+/** Effective retention policy for any authenticated user (issue #49),
+ * deliberately separate from SystemSettingsResponse -- these are the same
+ * *resolved* values GET /api/settings reports, exposed without admin
+ * gating so an ordinary chat user can see how long their own data is kept.
+ */
+export interface RetentionNoticeResponse {
+  /** null means conversations are kept forever (no retention limit). */
+  conversation_retention_hours: number | null
+  cleanup_on_logout: boolean
+  /** Whether the chat UI should render the notice at all -- a fork can
+   * turn this off (e.g. via SystemSettingsResponse.retention_notice_enabled).
+   */
+  notice_enabled: boolean
+}
+
 export interface SystemSettingsResponse {
   llm_provider: string
   llm_url: string
@@ -118,6 +133,11 @@ export interface SystemSettingsResponse {
   // audit consumption through an external SIEM instead.
   audit_log_ui_enabled: boolean
   audit_log_ui_enabled_is_db_override: boolean
+  // End-user-facing retention notice (issue #49). Transparent-by-default
+  // (true): whether the chat UI shows an ordinary user the effective
+  // retention windows governing their own data.
+  retention_notice_enabled: boolean
+  retention_notice_enabled_is_db_override: boolean
   available_providers: {
     llm: ProviderOption[]
     embedding: ProviderOption[]
@@ -149,4 +169,7 @@ export interface UpdateSettingsRequest {
   // See SystemSettingsResponse.audit_log_ui_enabled: takes effect on the
   // next request, no restart required.
   audit_log_ui_enabled?: boolean | null
+  // See SystemSettingsResponse.retention_notice_enabled: takes effect on
+  // the next request, no restart required.
+  retention_notice_enabled?: boolean | null
 }

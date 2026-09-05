@@ -48,6 +48,7 @@ class SystemSettingsRepository:
         rate_limit_auth_capacity: int | None = None,
         rate_limit_auth_refill_per_minute: int | None = None,
         audit_log_ui_enabled: bool | None = None,
+        retention_notice_enabled: bool | None = None,
     ) -> SystemSettings:
         """Create or update the singleton settings row.
 
@@ -85,6 +86,7 @@ class SystemSettingsRepository:
         settings_row.rate_limit_auth_capacity = rate_limit_auth_capacity
         settings_row.rate_limit_auth_refill_per_minute = rate_limit_auth_refill_per_minute
         settings_row.audit_log_ui_enabled = audit_log_ui_enabled
+        settings_row.retention_notice_enabled = retention_notice_enabled
         settings_row.updated_by = updated_by
 
         self.db.flush()

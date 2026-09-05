@@ -71,6 +71,8 @@ const ENV_DEFAULT_SETTINGS = {
   rate_limit_auth_refill_per_minute_is_db_override: false,
   audit_log_ui_enabled: true,
   audit_log_ui_enabled_is_db_override: false,
+  retention_notice_enabled: true,
+  retention_notice_enabled_is_db_override: false,
   guardrail_patterns: [],
   available_providers: {
     llm: [
@@ -332,6 +334,22 @@ describe('Settings retention section', () => {
     })
     expect(vi.mocked(settingsClient.updateSettings).mock.calls[0][0]).toMatchObject({
       cleanup_on_logout: null,
+    })
+  })
+
+  it('toggling the retention notice off is saved', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForLoaded()
+
+    await user.click(screen.getByLabelText(/show retention notice to users/i))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+    expect(vi.mocked(settingsClient.updateSettings).mock.calls[0][0]).toMatchObject({
+      retention_notice_enabled: false,
     })
   })
 })
