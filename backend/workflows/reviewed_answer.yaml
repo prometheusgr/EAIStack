@@ -1,0 +1,58 @@
+# Built-in reference workflow: interpret -> work -> review loop
+# (issue #82, epic #80 slice 2/5).
+#
+# The evaluator-optimizer pattern: an interpreter restates the user's
+# request as a precise task spec, a worker drafts an answer (consulting the
+# knowledge base when useful), and a reviewer returns a structured verdict
+# ({approved, issues}) that either ends the loop or sends the worker back
+# for a revision -- up to max_iterations rounds. Only the final, approved
+# (or iteration-exhausted) draft ever reaches the visible conversation; see
+# docs/WORKFLOWS.md's "State shape decision" section for why intermediate
+# drafts and reviewer verdicts are never appended to `messages`.
+#
+# Not wired to any endpoint yet -- workflow selection in chat is issue #85's
+# scope. This file exists to be loaded, validated, and structurally tested
+# (tests/unit/test_reference_workflows.py), and to be a copyable example for
+# forkers building their own review-loop workflow.
+name: reviewed_answer
+version: 1
+entry: interpret
+steps:
+  interpret:
+    type: agent
+    prompt: >-
+      Restate the user's request as a precise, self-contained task
+      specification that someone could complete correctly without seeing
+      the original conversation. State exactly what is being asked and any
+      constraints implied by it. Do not answer the request yourself --
+      only restate it as a task.
+    output_field: task
+    next: draft_and_review
+  draft_and_review:
+    type: review_loop
+    worker_step: worker
+    reviewer_step: reviewer
+    worker_prompt: >-
+      Complete the following task as directly and accurately as possible.
+      Consult the knowledge base when it would help ground your answer in
+      real documents rather than guessing.
+
+      Task: {task}
+
+      If reviewer feedback is given below, revise your previous draft to
+      address every point raised. Otherwise, produce a first draft.
+
+      Reviewer feedback: {review_issues}
+    worker_tools:
+      - search_knowledge_base
+    reviewer_prompt: >-
+      You are reviewing a draft answer against the task it was meant to
+      complete. Return approved=true only if the draft directly and
+      correctly completes the task, with no unsupported or fabricated
+      claims. Otherwise return approved=false with specific, actionable
+      issues the worker can address in a revision.
+
+      Task: {task}
+
+      Draft: {draft}
+    max_iterations: 3

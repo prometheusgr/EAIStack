@@ -1,12 +1,14 @@
 """LLM client and fake implementation for testing."""
 
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Optional, Sequence, Type, Union
 
 import httpx
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable, RunnableLambda
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.tls import get_ssl_context
@@ -28,6 +30,16 @@ class FakeChatModel(BaseChatModel):
     responses: Optional[List[AIMessage]] = None
     call_count: int = 0
 
+    # A separate queue from `responses`: with_structured_output() callers
+    # (app.workflows.primitives's reviewer node) never go through
+    # _generate()/invoke() at all -- the real ChatOpenAI.with_structured_output
+    # returns a distinct Runnable that parses a JSON-schema-constrained
+    # completion into a pydantic instance, so this fake needs its own
+    # scripted queue of already-constructed pydantic instances, consumed by
+    # its own counter, rather than reusing the AIMessage queue above.
+    structured_responses: Optional[List[BaseModel]] = None
+    structured_call_count: int = 0
+
     @property
     def _llm_type(self) -> str:
         return "fake"
@@ -35,6 +47,34 @@ class FakeChatModel(BaseChatModel):
     def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> "FakeChatModel":
         """Accept tool bindings without altering scripted/canned behavior."""
         return self
+
+    def with_structured_output(
+        self, schema: Union[dict, Type[BaseModel]], *, include_raw: bool = False, **kwargs: Any
+    ) -> Runnable[Any, BaseModel]:
+        """Return the next scripted pydantic instance from structured_responses
+        (the last one repeats once exhausted, matching `responses`' own
+        repeat-last-on-exhaustion behavior) on every invocation, ignoring the
+        input messages -- a test scripts what the reviewer should decide, not
+        what it should read.
+
+        Tests that never set structured_responses get a clear error rather
+        than a silent None: a review-loop test that forgets to script the
+        reviewer's verdict is a test-authoring bug, not a runtime condition
+        this fake should paper over.
+        """
+
+        def _next_response(_input: Any) -> BaseModel:
+            if not self.structured_responses:
+                raise ValueError(
+                    "FakeChatModel.with_structured_output() called with no "
+                    "structured_responses scripted"
+                )
+            index = min(self.structured_call_count, len(self.structured_responses) - 1)
+            result = self.structured_responses[index]
+            self.structured_call_count += 1
+            return result
+
+        return RunnableLambda(_next_response)
 
     def _generate(
         self,

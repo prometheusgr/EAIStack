@@ -61,26 +61,46 @@ class AgentStepDef(BaseModel):
     list (the default) means this step calls the LLM with no tools bound.
     next, if set, chains to another step (the `sequence` primitive); a
     step with no next is a terminal step for its branch of the graph.
+
+    output_field, when set to "task", writes this step's response to
+    state["task"] instead of appending it to `messages` (see
+    app.workflows.primitives.build_agent_node's output_field param and
+    WorkflowState's docstring) — how an interpreter step feeds a
+    downstream review_loop's {task} prompt placeholder without the
+    restated task itself appearing in the visible conversation. Only
+    "task" is a valid value here: "draft"/"review" are written internally
+    by build_review_loop's own worker/reviewer nodes, never by a plain
+    `agent` step.
     """
 
     type: Literal["agent"]
     prompt: str
     tools: list[str] = Field(default_factory=list)
     next: str | None = None
+    output_field: Literal["task"] | None = None
 
 
 class ReviewLoopStepDef(BaseModel):
     """The evaluator-optimizer pattern: a worker step and a reviewer step,
-    looping until the reviewer's response contains approve_keyword or
-    max_iterations rounds have run.
+    looping until the reviewer's structured verdict (ReviewResult.approved,
+    see app.workflows.primitives) is true, or max_iterations rounds have
+    run.
+
+    No approve_keyword field (issue #82 replaces slice 1's illustrative-only
+    prose keyword match): the reviewer's approval is grammar-constrained
+    JSON output, not a substring match against free text.
+
+    worker_prompt/reviewer_prompt may reference {task}, {draft}, and (for
+    reviewer_prompt) {review_issues} — substituted from workflow state by
+    app.workflows.primitives.build_review_loop; see docs/WORKFLOWS.md.
     """
 
     type: Literal["review_loop"]
     worker_step: str
     reviewer_step: str
     worker_prompt: str
+    worker_tools: list[str] = Field(default_factory=list)
     reviewer_prompt: str
-    approve_keyword: str
     max_iterations: int
 
 
@@ -112,6 +132,23 @@ class WorkflowDef(BaseModel):
     entry: str
     steps: dict[str, StepDef]
 
+    def entry_prompt_or_none(self) -> str | None:
+        """entry_prompt(), or None for a workflow whose entry step isn't a
+        single `agent` step, instead of raising.
+
+        Used by app.agents.registry.register_workflow_definitions, which
+        registers every loaded workflow uniformly regardless of its entry
+        step's type (issue #82 ships reviewed_answer.yaml/triage.yaml,
+        whose entries are `agent`/`route` respectively — neither is wired
+        to an endpoint yet, so there's no guardrail leak-check that needs
+        their prompt text today; see AgentDefinition.system_prompt's
+        docstring).
+        """
+        entry_step = self.steps[self.entry]
+        if not isinstance(entry_step, AgentStepDef):
+            return None
+        return entry_step.prompt
+
     def entry_prompt(self) -> str:
         """The entry step's prompt text, for callers that need this
         workflow's system prompt outside the compiled graph itself (e.g.
@@ -123,6 +160,9 @@ class WorkflowDef(BaseModel):
         (true of chat.yaml, the only workflow this slice ships); a
         route/review_loop entry has no single "the" system prompt, so
         this raises rather than silently returning a wrong/empty string.
+        Callers that can tolerate a route/review_loop entry (e.g. the
+        registry, which must register every loaded workflow uniformly)
+        should use entry_prompt_or_none() instead.
         """
         entry_step = self.steps[self.entry]
         if not isinstance(entry_step, AgentStepDef):
@@ -179,6 +219,13 @@ def _validate_definition(definition: WorkflowDef, *, source_file: str) -> None:
                         f"of {REVIEW_LOOP_MAX_ITERATIONS_CEILING}"
                     ),
                 )
+            for tool_name in step.worker_tools:
+                if not is_registered_tool(tool_name):
+                    raise WorkflowValidationError(
+                        file=source_file,
+                        field=f"steps.{step_name}.worker_tools",
+                        message=f"unknown tool '{tool_name}' is not registered",
+                    )
 
         for target in _step_targets(step_name, step):
             if target not in step_names:
