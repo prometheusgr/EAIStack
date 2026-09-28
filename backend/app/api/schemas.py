@@ -37,7 +37,7 @@ class SourceReference(BaseModel):
 
     Mirrors app.mcp_client.doc_search_client.Source, the structured
     provenance ToolMessage.artifact carries out of search_knowledge_base
-    (see app.agents.chat_agent.extract_sources_from_messages) -- this is
+    (see app.workflows.primitives.extract_sources_from_messages) -- this is
     the API-facing copy of that shape, kept separate the same way every
     other internal/response schema pair in this file is (e.g.
     KnowledgeBaseResponse vs. the KnowledgeBase model).

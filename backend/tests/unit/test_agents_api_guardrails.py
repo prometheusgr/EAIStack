@@ -132,7 +132,7 @@ def test_chat_endpoint_records_audit_entry_on_output_redaction(client, db_sessio
     fake_llm = FakeChatModel(
         responses=[AIMessage(content="Here is an API key: sk-abcdefghijklmnopqrstuvwx1234567890")]
     )
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: fake_llm)
     _login_as("user-a")
 
     response = client.post("/api/agents/chat", json={"message": "What is our API key?"})
@@ -158,7 +158,7 @@ def test_chat_endpoint_does_not_record_audit_entry_for_unmodified_output(
     audit-logged -- only redactions are compliance-relevant events.
     """
     fake_llm = FakeChatModel(responses=[AIMessage(content="Employees get 15 days off per year.")])
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: fake_llm)
     _login_as("user-a")
 
     response = client.post("/api/agents/chat", json={"message": "What is our vacation policy?"})
@@ -193,7 +193,7 @@ def test_chat_endpoint_extracts_text_from_list_shaped_message_content(
             )
         ]
     )
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: fake_llm)
     _login_as("user-a")
 
     response = client.post("/api/agents/chat", json={"message": "What is our API key?"})
@@ -221,7 +221,7 @@ def test_thread_history_replays_redacted_text_not_the_original(client, monkeypat
     fake_llm = FakeChatModel(
         responses=[AIMessage(content="Here is an API key: sk-abcdefghijklmnopqrstuvwx1234567890")]
     )
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: fake_llm)
     _login_as("user-a")
 
     chat_response = client.post("/api/agents/chat", json={"message": "What is our API key?"})
@@ -258,7 +258,7 @@ def test_thread_history_does_not_filter_when_output_guardrail_is_disabled(
     fake_llm = FakeChatModel(
         responses=[AIMessage(content="Here is an API key: sk-abcdefghijklmnopqrstuvwx1234567890")]
     )
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: fake_llm)
     _login_as("user-a")
 
     chat_response = client.post("/api/agents/chat", json={"message": "What is our API key?"})

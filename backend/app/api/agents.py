@@ -6,8 +6,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.base import CheckpointTuple
 from sqlalchemy.orm import Session
 
-from app.agents.chat_agent import create_chat_agent, extract_sources_from_messages
 from app.agents.checkpointer import SqlAlchemyCheckpointSaver
+from app.agents.registry import get_agent_definition
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -23,13 +23,13 @@ from app.db.database import get_db
 from app.db.models import utc_now
 from app.guardrails.input_guardrail import GuardrailVerdict
 from app.guardrails.output_guardrail import filter_output
-from app.prompts.chat_prompts import CHAT_AGENT_SYSTEM_PROMPT
 from app.repositories import ThreadRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services import check_input_guardrail, filter_agent_response
 from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
 from app.services.rate_limit_config_service import resolve_rate_limit_config
 from app.services.rate_limiter_service import check_chat_rate_limit, rate_limit_exceeded_response
+from app.workflows.primitives import extract_sources_from_messages
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -116,15 +116,13 @@ async def chat(
     thread_repository = ThreadRepository(db)
     thread = thread_repository.get_or_create_owned(request.thread_id, user["user_id"])
 
-    agent = create_chat_agent(
-        db=db,
-        token=user["access_token"],
-        mcp_url=settings.doc_search_mcp_url,
-    )
+    chat_agent_definition = get_agent_definition("chat")
+    agent = chat_agent_definition.factory(db, user["access_token"], settings.doc_search_mcp_url)
     state = {
         "messages": [HumanMessage(content=request.message)],
         "thread_id": thread.id,
         "user_id": user["user_id"],
+        "step_outputs": {},
     }
 
     result = await agent.ainvoke(state, config={"configurable": {"thread_id": thread.id}})
@@ -133,7 +131,7 @@ async def chat(
     filtered = filter_agent_response(
         db,
         final_message=final_message,
-        system_prompt=CHAT_AGENT_SYSTEM_PROMPT.render().text,
+        system_prompt=chat_agent_definition.system_prompt,
         actor_user_id=user["user_id"],
         thread_id=thread.id,
         config=guardrail_config,
@@ -210,9 +208,10 @@ def _render_messages(
 
     Re-runs the output guardrail on every stored AI message before
     returning it. This is necessary, not defensive: LangGraph's
-    checkpointer persists call_agent's raw response during ainvoke() (see
-    app.agents.chat_agent), before app.api.agents.chat ever calls
-    filter_agent_response -- that redaction is applied only to the
+    checkpointer persists the agent step's raw response during ainvoke()
+    (see app.workflows.primitives.build_agent_node), before
+    app.api.agents.chat ever calls filter_agent_response -- that
+    redaction is applied only to the
     in-memory value used for the immediate HTTP response and is never
     written back into graph state. Without re-filtering here, reopening a
     thread would return the original, unredacted text for a message the
@@ -226,7 +225,7 @@ def _render_messages(
         return []
 
     stored_messages = checkpoint_tuple.checkpoint["channel_values"].get("messages", [])
-    system_prompt = CHAT_AGENT_SYSTEM_PROMPT.render().text
+    system_prompt = get_agent_definition("chat").system_prompt
     rendered: list[ThreadMessage] = []
     for message in stored_messages:
         if isinstance(message, HumanMessage):

@@ -369,7 +369,7 @@ def test_chat_endpoint_tool_call_does_not_hit_nested_asyncio_run_under_real_even
     )
     final_message = AIMessage(content="Here is what I found.")
     fake_llm = FakeChatModel(responses=[tool_call_message, final_message])
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: fake_llm)
 
     fake_user = {
         "user_id": "test-user-123",

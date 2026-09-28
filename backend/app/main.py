@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agents.registry import register_workflow_definitions
 from app.api import agents, apikeys, auth, embeddings, knowledge_base
 from app.api import settings as settings_api
 from app.core.auth import get_current_user
@@ -12,6 +13,7 @@ from app.core.config import settings
 from app.core.tracing import configure_tracing
 from app.db.database import SessionLocal
 from app.services.tracing_config_service import resolve_tracing_config
+from app.workflows.loader import load_workflow_definitions
 
 
 @asynccontextmanager
@@ -34,6 +36,15 @@ async def lifespan(app: FastAPI):
         db.close()
 
     configure_tracing(settings, enabled=tracing_config.enabled)
+
+    # Built-in workflow definitions (issue #81, epic #80) are loaded and
+    # validated once, here, not lazily on the first chat request — a
+    # broken YAML file (bad tool name, dangling step reference, etc.)
+    # must fail the container at boot with a clear error naming the file
+    # and field (see app.workflows.schema.WorkflowValidationError), not
+    # surface as an opaque 500 to the first user who happens to chat.
+    workflow_definitions = load_workflow_definitions(settings.workflow_definitions_dir)
+    register_workflow_definitions(workflow_definitions)
 
     yield
 
