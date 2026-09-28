@@ -161,7 +161,7 @@ def make_search_knowledge_base_tool(token: str, mcp_url: str) -> StructuredTool:
 
     Declared as an async-only tool (coroutine=, no func=): the whole call
     chain from the FastAPI endpoint down through LangGraph's ToolNode is
-    async (see app.agents.chat_agent.create_chat_agent and
+    async (see app.workflows.compiler.compile_workflow and
     app.api.agents.chat), so the tool can await the MCP client directly.
     There is no sync entry point to fall back to, and none is needed —
     a sync-only caller would be a bug in the caller, not something this

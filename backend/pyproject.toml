@@ -34,6 +34,7 @@ dependencies = [
     "python-docx==1.1.0",
     "arize-phoenix-otel==0.17.1",
     "openinference-instrumentation-langchain==0.1.73",
+    "PyYAML==6.0.3",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +48,7 @@ dev = [
     "ruff==0.1.8",
     "mypy==1.7.1",
     "pylint==3.0.3",
+    "types-PyYAML==6.0.12.20240917",
 ]
 
 [tool.setuptools]

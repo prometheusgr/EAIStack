@@ -1,0 +1,21 @@
+# Built-in workflow: the chat agent, re-expressed as a one-step workflow
+# through the engine (issue #81). Behavior is identical to the previous
+# hand-coded app.agents.chat_agent.create_chat_agent — this file proves
+# the engine covers today's chat behavior, not a new agent.
+#
+# The prompt text below is byte-identical to the old
+# app.prompts.chat_prompts.CHAT_AGENT_SYSTEM_PROMPT.template (that module
+# and app.agents.chat_agent are removed now that this file is the single
+# source of truth — see docs/WORKFLOWS.md).
+name: chat
+version: 1
+entry: respond
+steps:
+  respond:
+    type: agent
+    prompt: >-
+      You are a helpful assistant. Be brief and direct. When a tool returns results, use that
+      information directly to answer the user's question in plain language.
+      Do not describe the tool call itself.
+    tools:
+      - search_knowledge_base

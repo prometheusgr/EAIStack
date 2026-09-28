@@ -89,7 +89,7 @@ def test_chat_endpoint_returns_sources_grounding_the_answer(
     )
     final_message = AIMessage(content="You get 25 days of paid vacation per year.")
     fake_llm = FakeChatModel(responses=[tool_call_message, final_message])
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: fake_llm)
 
     token = make_signed_token("test-user-123", FAKE_KEYCLOAK_PRIVATE_KEY)
     fake_user = {
@@ -159,7 +159,7 @@ def test_chat_endpoint_second_turn_on_same_thread_does_not_leak_or_crash_on_prio
     turn_1_final = AIMessage(content="You get 25 days of paid vacation per year.")
     turn_2_final = AIMessage(content="I'm doing well, thanks for asking!")
     fake_llm = FakeChatModel(responses=[tool_call_message, turn_1_final, turn_2_final])
-    monkeypatch.setattr("app.agents.chat_agent.get_llm_client", lambda db: fake_llm)
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: fake_llm)
 
     token = make_signed_token("test-user-123", FAKE_KEYCLOAK_PRIVATE_KEY)
     fake_user = {

@@ -23,6 +23,7 @@ from starlette.testclient import TestClient
 
 from app.db.models import Base
 from app.main import app
+from app.workflows.schema import WorkflowValidationError
 
 
 @pytest.fixture
@@ -64,3 +65,32 @@ def test_lifespan_resolves_tracing_config_and_passes_it_to_configure_tracing(
     # is never set for the test suite) - not crash, and not silently skip
     # the call.
     assert kwargs["enabled"] is False
+
+
+@pytest.mark.unit
+def test_lifespan_fails_loudly_on_an_invalid_built_in_workflow_file(
+    lifespan_db_sessionmaker, tmp_path
+):
+    """A broken built-in workflow YAML file (issue #81's DoD: "Invalid
+    definitions fail loudly at startup with a clear error naming the file
+    and field") must abort app startup with a WorkflowValidationError, not
+    let the process come up and fail later on the first chat request.
+    """
+    workflows_dir = tmp_path / "workflows"
+    workflows_dir.mkdir()
+    (workflows_dir / "broken.yaml").write_text(
+        "name: broken\nversion: 1\nentry: does_not_exist\nsteps:\n"
+        "  respond:\n    type: agent\n    prompt: Hello.\n",
+        encoding="utf-8",
+    )
+
+    with (
+        patch("app.main.SessionLocal", lifespan_db_sessionmaker),
+        patch("app.main.settings.workflow_definitions_dir", str(workflows_dir)),
+        pytest.raises(WorkflowValidationError) as exc_info,
+    ):
+        with TestClient(app):
+            pass
+
+    assert exc_info.value.file == "broken.yaml"
+    assert "does_not_exist" in exc_info.value.message

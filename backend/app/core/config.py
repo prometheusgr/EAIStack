@@ -263,6 +263,19 @@ class Settings(BaseSettings):
     # before it reaches the LLM (mcp-servers/doc-search/app/search.py).
     rag_max_excerpt_chars: int = Field(default=2000, ge=1)
 
+    # Directory the workflow engine (issue #81, epic #80) loads built-in
+    # *.yaml workflow definitions from at process startup (see
+    # app.workflows.loader, called from app.main's lifespan hook). Env-only,
+    # deliberately not a SystemSettings/DB override: this is a deploy-time
+    # filesystem path (where a fork mounts its own workflow directory, e.g.
+    # a K8s ConfigMap/volume), restart-only by nature since the container's
+    # filesystem is what changes — a DB override would add nothing over
+    # setting the env var and restarting, the same reasoning
+    # rate_limit_trusted_proxy_count and tracing_otlp_endpoint use for
+    # staying env-only. Defaults to this repo's own backend/workflows/
+    # directory, which ships chat.yaml (the built-in chat workflow).
+    workflow_definitions_dir: str = "workflows"
+
     @model_validator(mode="after")
     def _rag_chunk_size_bounds_are_ordered(self) -> "Settings":
         """Fail loudly at startup if the env defaults alone would produce an

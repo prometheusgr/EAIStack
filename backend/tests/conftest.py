@@ -137,6 +137,31 @@ def mock_llm():
     return FakeChatModel()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _register_builtin_workflows():
+    """Populate app.agents.registry once per test session, the same
+    workflows app.main's lifespan hook loads at real process startup.
+
+    Unit tests build a FastAPI TestClient directly (see the client
+    fixture below) rather than running the app through a real ASGI
+    server, and TestClient does not invoke the lifespan context manager
+    unless entered as `with TestClient(app) as client:` -- these tests
+    don't do that (db_session/get_db overrides are set up per-test, not
+    once at app startup). Without this fixture, every test hitting
+    POST /api/agents/chat would fail with KeyError("chat") from
+    app.agents.registry.get_agent_definition, since nothing would have
+    ever registered the built-in chat workflow. Session-scoped and
+    autouse because, like _reset_rate_limit_state below, this is global
+    process state every chat-endpoint test implicitly depends on,
+    regardless of whether registration is what it's testing.
+    """
+    from app.agents.registry import register_workflow_definitions
+    from app.core.config import settings
+    from app.workflows.loader import load_workflow_definitions
+
+    register_workflow_definitions(load_workflow_definitions(settings.workflow_definitions_dir))
+
+
 @pytest.fixture(autouse=True)
 def _reset_rate_limit_state():
     """Clear the in-process rate-limit bucket store before and after every
