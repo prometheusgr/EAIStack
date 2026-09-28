@@ -115,3 +115,72 @@ def test_search_similar_excludes_soft_deleted_embeddings(db_session):
 
     assert len(results) == 1
     assert results[0][0].id == active.id
+
+
+# --- similarity_threshold (issue #68) ---
+
+
+@pytest.mark.integration
+def test_search_similar_with_no_threshold_returns_same_results_as_before(db_session):
+    """similarity_threshold=None (the default) preserves exact pre-#68
+    behavior: every top_k slot fills regardless of how dissimilar a match
+    is, since two orthogonal one-hot vectors are still returned.
+    """
+    kb = _make_knowledge_base("user-a")
+    db_session.add(kb)
+    db_session.commit()
+
+    near = _make_embedding(kb.id, _unit_vector(0))
+    far = _make_embedding(kb.id, _unit_vector(1))  # orthogonal: cosine distance == 1.0
+    db_session.add_all([near, far])
+    db_session.commit()
+
+    repo = EmbeddingRepository(db_session)
+    results = repo.search_similar("user-a", query_embedding=_unit_vector(0), top_k=10)
+
+    assert len(results) == 2
+
+
+@pytest.mark.integration
+def test_search_similar_threshold_excludes_matches_beyond_the_cutoff(db_session):
+    """A match whose distance is >= similarity_threshold is excluded, even
+    though it would otherwise have filled a top_k slot.
+    """
+    kb = _make_knowledge_base("user-a")
+    db_session.add(kb)
+    db_session.commit()
+
+    near = _make_embedding(kb.id, _unit_vector(0))
+    far = _make_embedding(kb.id, _unit_vector(1))  # orthogonal: cosine distance == 1.0
+    db_session.add_all([near, far])
+    db_session.commit()
+
+    repo = EmbeddingRepository(db_session)
+    results = repo.search_similar(
+        "user-a", query_embedding=_unit_vector(0), top_k=10, similarity_threshold=0.5
+    )
+
+    assert len(results) == 1
+    assert results[0][0].id == near.id
+
+
+@pytest.mark.integration
+def test_search_similar_threshold_excluding_everything_returns_empty_list(db_session):
+    """A threshold stricter than every candidate's distance returns an
+    empty list, not an error - the mechanism issue #68 exists to enable
+    ("nothing relevant was found" instead of the k least-bad chunks).
+    """
+    kb = _make_knowledge_base("user-a")
+    db_session.add(kb)
+    db_session.commit()
+
+    far = _make_embedding(kb.id, _unit_vector(1))  # orthogonal: cosine distance == 1.0
+    db_session.add(far)
+    db_session.commit()
+
+    repo = EmbeddingRepository(db_session)
+    results = repo.search_similar(
+        "user-a", query_embedding=_unit_vector(0), top_k=10, similarity_threshold=0.1
+    )
+
+    assert results == []

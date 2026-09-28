@@ -75,6 +75,18 @@ const ENV_DEFAULT_SETTINGS: SystemSettingsResponse = {
   audit_log_ui_enabled_is_db_override: false,
   retention_notice_enabled: true,
   retention_notice_enabled_is_db_override: false,
+  rag_similarity_threshold: null,
+  rag_similarity_threshold_is_db_override: false,
+  rag_max_results: 5,
+  rag_max_results_is_db_override: false,
+  rag_min_chunk_size: 500,
+  rag_min_chunk_size_is_db_override: false,
+  rag_chunk_size: 1000,
+  rag_chunk_size_is_db_override: false,
+  rag_chunk_overlap_ratio: 0.125,
+  rag_chunk_overlap_ratio_is_db_override: false,
+  rag_max_excerpt_chars: 2000,
+  rag_max_excerpt_chars_is_db_override: false,
   guardrail_patterns: [
     {
       id: 'built-in-1',
@@ -898,6 +910,112 @@ describe('Settings rate limiting section', () => {
   })
 })
 
+describe('Settings retrieval & chunking section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.setItem('access_token', ADMIN_TOKEN)
+    vi.mocked(settingsClient.getSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+    vi.mocked(settingsClient.updateSettings).mockResolvedValue(ENV_DEFAULT_SETTINGS)
+  })
+
+  async function waitForRetrievalSettingsLoaded() {
+    await waitFor(() => {
+      expect(settingsClient.getSettings).toHaveBeenCalled()
+    })
+    const input = await screen.findByLabelText(/maximum results/i)
+    await waitFor(() => {
+      expect(input).not.toHaveValue(null)
+    })
+    return input
+  }
+
+  it('renders the retrieval & chunking section with fetched values', async () => {
+    renderSettings()
+    await waitForRetrievalSettingsLoaded()
+
+    expect(screen.getByLabelText(/similarity threshold/i)).toHaveValue(null)
+    expect(screen.getByLabelText(/maximum results/i)).toHaveValue(5)
+    expect(screen.getByLabelText(/minimum chunk size/i)).toHaveValue(500)
+    expect(screen.getByLabelText(/maximum chunk size/i)).toHaveValue(1000)
+    expect(screen.getByLabelText(/chunk overlap ratio/i)).toHaveValue(0.125)
+    expect(screen.getByLabelText(/maximum excerpt length/i)).toHaveValue(2000)
+
+    const section = screen.getByRole('region', { name: /retrieval and chunking/i })
+    expect(section).toHaveTextContent(/env default/i)
+  })
+
+  it('shows "overridden" for RAG fields with a DB override', async () => {
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      rag_max_results: 3,
+      rag_max_results_is_db_override: true,
+    })
+
+    renderSettings()
+    await waitForRetrievalSettingsLoaded()
+
+    const section = screen.getByRole('region', { name: /retrieval and chunking/i })
+    expect(section).toHaveTextContent(/overridden/i)
+  })
+
+  it('editing the maximum results and saving sends the right payload', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForRetrievalSettingsLoaded()
+
+    const maxResultsInput = screen.getByLabelText(/maximum results/i)
+    await user.clear(maxResultsInput)
+    await user.type(maxResultsInput, '3')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({ rag_max_results: 3 })
+  })
+
+  it('setting a similarity threshold and saving sends the right payload', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForRetrievalSettingsLoaded()
+
+    const thresholdInput = screen.getByLabelText(/similarity threshold/i)
+    await user.type(thresholdInput, '0.4')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({ rag_similarity_threshold: 0.4 })
+  })
+
+  it('clicking "Reset retrieval/chunking to default" clears overrides back to env defaults', async () => {
+    const user = userEvent.setup()
+    vi.mocked(settingsClient.getSettings).mockResolvedValue({
+      ...ENV_DEFAULT_SETTINGS,
+      rag_max_results: 3,
+      rag_max_results_is_db_override: true,
+    })
+
+    renderSettings()
+    await waitForRetrievalSettingsLoaded()
+
+    await user.click(screen.getByRole('button', { name: /reset retrieval\/chunking to default/i }))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({ rag_max_results: null })
+  })
+})
+
 describe('Settings field help tooltips', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -950,5 +1068,20 @@ describe('Settings field help tooltips', () => {
     await user.hover(trigger)
 
     expect(await screen.findByText(/maximum number of chat requests/i)).toBeInTheDocument()
+  })
+
+  it('shows help text for the RAG similarity threshold field on hover', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    const thresholdLabel = (await screen.findByText(/similarity threshold/i, {
+      selector: 'label[for="rag-similarity-threshold"]',
+    })) as HTMLElement
+    const trigger = within(thresholdLabel.parentElement as HTMLElement).getByRole('button', {
+      name: 'Show help',
+    })
+    await user.hover(trigger)
+
+    expect(await screen.findByText(/cosine distance/i)).toBeInTheDocument()
   })
 })

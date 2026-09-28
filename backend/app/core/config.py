@@ -2,7 +2,7 @@
 
 from typing import Any, List
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -233,6 +233,51 @@ class Settings(BaseSettings):
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ]
+
+    # RAG retrieval/chunking tuning (env-level defaults; an admin can
+    # override each at runtime via the settings screen, which writes to
+    # SystemSettings — see app.services.rag_config_service.resolve_rag_config).
+    # See docs/RAG_CONFIGURATION.md for the full rationale behind each field.
+    #
+    # A cosine-distance cutoff, not a similarity score: pgvector's
+    # cosine_distance ranges 0 (identical) to 2 (opposite), so *smaller* is
+    # more similar and a match is kept when its distance is *below* this
+    # value. None (the default) preserves today's behavior — no cutoff,
+    # every top_k slot always fills, even with an irrelevant corpus.
+    rag_similarity_threshold: float | None = None
+    # The actual enforced ceiling on chunks returned per retrieval, not just
+    # a caller-suppliable default — doc-search clamps a tool-caller-supplied
+    # top_k to this value (see mcp-servers/doc-search/app/server.py).
+    rag_max_results: int = Field(default=5, ge=1)
+    # Chunk sizing for backend/app/services/chunking_service.py, read only
+    # at index time — changing these does not retroactively re-chunk
+    # documents already indexed (docs/RAG_CONFIGURATION.md). Bounded
+    # min < max at both this env layer (below) and the DB-override layer
+    # (app.api.settings's cross-field check), for the same reason the
+    # rate-limit fields above are bounded at both layers: a misconfigured
+    # env var should fail loudly at startup, not corrupt chunking silently.
+    rag_min_chunk_size: int = Field(default=500, ge=1)
+    rag_chunk_size: int = Field(default=1000, ge=1)
+    rag_chunk_overlap_ratio: float = Field(default=0.125, ge=0, le=0.9)
+    # Safety-net truncation on a single retrieved chunk's excerpt text
+    # before it reaches the LLM (mcp-servers/doc-search/app/search.py).
+    rag_max_excerpt_chars: int = Field(default=2000, ge=1)
+
+    @model_validator(mode="after")
+    def _rag_chunk_size_bounds_are_ordered(self) -> "Settings":
+        """Fail loudly at startup if the env defaults alone would produce an
+        inverted chunk-size range, rather than let chunking_service silently
+        misbehave the first time it runs. The DB-override path has its own,
+        equivalent check in app.api.settings, since a env-only validator
+        here cannot see a runtime SystemSettings override.
+        """
+        if self.rag_min_chunk_size >= self.rag_chunk_size:
+            raise ValueError(
+                "rag_min_chunk_size must be less than rag_chunk_size "
+                f"(got rag_min_chunk_size={self.rag_min_chunk_size}, "
+                f"rag_chunk_size={self.rag_chunk_size})"
+            )
+        return self
 
     @field_validator("*", mode="before")
     @classmethod

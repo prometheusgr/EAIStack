@@ -141,10 +141,10 @@ def _split_into_sections(content: str) -> list[_Section]:
     return sections
 
 
-def _split_into_atoms(body: str) -> list[str]:
+def _split_into_atoms(body: str, *, max_chunk_tokens: int) -> list[str]:
     """Split a section's body into atomic units for packing: fenced code
     blocks stay whole, everything else is split on blank-line paragraph
-    breaks (and, if a paragraph alone still exceeds MAX_CHUNK_TOKENS, further
+    breaks (and, if a paragraph alone still exceeds max_chunk_tokens, further
     into word-count-sized pieces — only a fenced code block is exempt from
     ever being split).
     """
@@ -153,20 +153,20 @@ def _split_into_atoms(body: str) -> list[str]:
     for match in _FENCED_CODE_BLOCK_PATTERN.finditer(body):
         before = body[cursor : match.start()].strip()
         if before:
-            atoms.extend(_split_oversized_paragraphs(before))
+            atoms.extend(_split_oversized_paragraphs(before, max_chunk_tokens=max_chunk_tokens))
         atoms.append(match.group(0))
         cursor = match.end()
 
     trailing = body[cursor:].strip()
     if trailing:
-        atoms.extend(_split_oversized_paragraphs(trailing))
+        atoms.extend(_split_oversized_paragraphs(trailing, max_chunk_tokens=max_chunk_tokens))
 
     return atoms
 
 
-def _split_oversized_paragraphs(text: str) -> list[str]:
+def _split_oversized_paragraphs(text: str, *, max_chunk_tokens: int) -> list[str]:
     """Split text on blank-line paragraph breaks, then further split any
-    single paragraph that alone exceeds MAX_CHUNK_TOKENS into word-count
+    single paragraph that alone exceeds max_chunk_tokens into word-count
     sized pieces (e.g. one long paragraph with no internal blank lines).
     Only a fenced code block is exempt from ever being split — plain text
     always has a word boundary to split on.
@@ -177,30 +177,32 @@ def _split_oversized_paragraphs(text: str) -> list[str]:
             continue
 
         words = paragraph.split()
-        if len(words) <= MAX_CHUNK_TOKENS:
+        if len(words) <= max_chunk_tokens:
             pieces.append(paragraph)
             continue
 
-        for start in range(0, len(words), MAX_CHUNK_TOKENS):
-            pieces.append(" ".join(words[start : start + MAX_CHUNK_TOKENS]))
+        for start in range(0, len(words), max_chunk_tokens):
+            pieces.append(" ".join(words[start : start + max_chunk_tokens]))
 
     return pieces
 
 
-def _pack_atoms_into_chunks(atoms: list[str]) -> list[str]:
+def _pack_atoms_into_chunks(
+    atoms: list[str], *, min_chunk_tokens: int, max_chunk_tokens: int, overlap_ratio: float
+) -> list[str]:
     """Greedily pack atoms (paragraphs / whole code blocks) into chunks
-    targeting MAX_CHUNK_TOKENS, applying overlap between consecutive
-    chunks. An atom that alone exceeds MAX_CHUNK_TOKENS (an oversized code
+    targeting max_chunk_tokens, applying overlap between consecutive
+    chunks. An atom that alone exceeds max_chunk_tokens (an oversized code
     block) becomes its own chunk rather than being split or merged.
 
-    A final chunk left below MIN_CHUNK_TOKENS by this packing (whatever
+    A final chunk left below min_chunk_tokens by this packing (whatever
     trails after the last full chunk) is merged into the previous chunk
     rather than kept as a tiny fragment on its own — see _merge_small_tail.
     """
     if not atoms:
         return []
 
-    overlap_tokens = int(MAX_CHUNK_TOKENS * CHUNK_OVERLAP_RATIO)
+    overlap_tokens = int(max_chunk_tokens * overlap_ratio)
 
     chunks: list[str] = []
     current_atoms: list[str] = []
@@ -209,7 +211,7 @@ def _pack_atoms_into_chunks(atoms: list[str]) -> list[str]:
     for atom in atoms:
         atom_tokens = _approximate_token_count(atom)
 
-        if current_atoms and current_tokens + atom_tokens > MAX_CHUNK_TOKENS:
+        if current_atoms and current_tokens + atom_tokens > max_chunk_tokens:
             flushed_text = "\n\n".join(current_atoms)
             chunks.append(flushed_text)
 
@@ -223,11 +225,11 @@ def _pack_atoms_into_chunks(atoms: list[str]) -> list[str]:
     if current_atoms:
         chunks.append("\n\n".join(current_atoms))
 
-    return _merge_small_tail(chunks)
+    return _merge_small_tail(chunks, min_chunk_tokens=min_chunk_tokens)
 
 
-def _merge_small_tail(chunks: list[str]) -> list[str]:
-    """If the last chunk is below MIN_CHUNK_TOKENS and there is a previous
+def _merge_small_tail(chunks: list[str], *, min_chunk_tokens: int) -> list[str]:
+    """If the last chunk is below min_chunk_tokens and there is a previous
     chunk to fold it into, merge the two rather than leaving a tiny
     fragment as its own chunk — the guarantee documented at the top of this
     module. A single chunk (nothing to merge into) is returned unchanged,
@@ -237,7 +239,7 @@ def _merge_small_tail(chunks: list[str]) -> list[str]:
     if len(chunks) < 2:
         return chunks
 
-    if _approximate_token_count(chunks[-1]) >= MIN_CHUNK_TOKENS:
+    if _approximate_token_count(chunks[-1]) >= min_chunk_tokens:
         return chunks
 
     merged_tail = f"{chunks[-2]}\n\n{chunks[-1]}"
@@ -252,15 +254,29 @@ def _tail_tokens(text: str, n: int) -> str:
     return " ".join(words[-n:])
 
 
-def chunk_document(content: str, *, title: str) -> list[Chunk]:
+def chunk_document(
+    content: str,
+    *,
+    title: str,
+    min_chunk_tokens: int = MIN_CHUNK_TOKENS,
+    max_chunk_tokens: int = MAX_CHUNK_TOKENS,
+    overlap_ratio: float = CHUNK_OVERLAP_RATIO,
+) -> list[Chunk]:
     """Split a document into structure-aware, passage-sized chunks.
 
     Splits on markdown heading boundaries first (never mixing text from two
     different sections into one chunk), then packs each section's
-    paragraphs/code-blocks into chunks targeting MIN_CHUNK_TOKENS to
-    MAX_CHUNK_TOKENS with overlap between consecutive chunks in the same
+    paragraphs/code-blocks into chunks targeting min_chunk_tokens to
+    max_chunk_tokens with overlap between consecutive chunks in the same
     section. A fenced code block is never split, even if that makes its
-    chunk exceed MAX_CHUNK_TOKENS.
+    chunk exceed max_chunk_tokens.
+
+    min_chunk_tokens/max_chunk_tokens/overlap_ratio default to this
+    module's constants but are admin-configurable (issue #68) - see
+    app.services.rag_config_service.resolve_rag_config. This function stays
+    pure/DB-free (no import of that resolver here); the caller
+    (app.services.embedding_service.generate_and_attach_embeddings)
+    resolves the config and passes the values through.
 
     A document with no headings, or shorter than one chunk, still returns a
     single Chunk (heading_path=None) rather than an empty list, so every
@@ -270,8 +286,13 @@ def chunk_document(content: str, *, title: str) -> list[Chunk]:
 
     chunk_texts: list[tuple[str | None, str]] = []
     for section in sections:
-        atoms = _split_into_atoms(section.body)
-        for chunk_text in _pack_atoms_into_chunks(atoms):
+        atoms = _split_into_atoms(section.body, max_chunk_tokens=max_chunk_tokens)
+        for chunk_text in _pack_atoms_into_chunks(
+            atoms,
+            min_chunk_tokens=min_chunk_tokens,
+            max_chunk_tokens=max_chunk_tokens,
+            overlap_ratio=overlap_ratio,
+        ):
             chunk_texts.append((section.heading_path, chunk_text))
 
     return [

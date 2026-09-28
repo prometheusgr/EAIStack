@@ -686,6 +686,24 @@ in this document); the Settings screen renders controls for all five under a
 tooltips added for every settings field — see the "Settings Screen Help
 Text" section below).
 
+### RAG Retrieval & Chunking Configuration (Issue #68)
+
+**Status**: implemented. Six retrieval/chunking knobs — similarity
+threshold, maximum results, minimum/maximum chunk size, chunk overlap
+ratio, and maximum excerpt length — follow the identical env-default +
+nullable-DB-override pattern documented above, resolved fresh on every
+call by `app.services.rag_config_service.resolve_rag_config` (and doc-search's
+own independent copy, `app.search.resolve_rag_config`, for the three
+query-time fields it needs). See **`docs/RAG_CONFIGURATION.md`** for the
+full reference: what each field does, the cosine-distance direction caveat
+on the similarity threshold (smaller distance = more similar, so this is a
+maximum-distance cutoff, not a similarity score), the retroactivity caveat
+on chunk sizing (only affects newly-indexed documents), and the cross-field
+`rag_min_chunk_size < rag_chunk_size` validation `app.api.settings` enforces
+on every write. Audit-logged via `action="rag_config.config_update"`,
+following the identical before/after-diff pattern as every other setting in
+this document.
+
 ## Settings Screen Help Text
 
 **Status**: implemented. The Settings screen (`frontend/src/components/Settings.tsx`)

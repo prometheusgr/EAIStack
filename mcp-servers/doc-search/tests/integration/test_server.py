@@ -22,7 +22,7 @@ from jwt.utils import to_base64url_uint
 from mcp import ClientSession
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
-from app.models import Embedding, KnowledgeBase
+from app.models import Embedding, KnowledgeBase, SystemSettings
 from app.search import generate_query_embedding
 
 TEST_PORT = 8199
@@ -217,6 +217,60 @@ async def test_search_via_real_http_returns_structured_sources(db_session, test_
         # The text content block is unchanged by adding structuredContent —
         # same prose the LLM has always read.
         assert "Vacation Policy" in result.content[0].text
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_search_via_real_http_clamps_top_k_to_configured_rag_max_results(
+    db_session, test_db_url, jwks_mock
+):
+    """rag_max_results (issue #68) is the actual enforced ceiling, not just
+    a suggested default - a tool-caller-supplied top_k larger than the
+    admin-configured ceiling is clamped down, never honored as-is.
+    """
+    for i in range(3):
+        kb = KnowledgeBase(
+            id=f"kb-{i}",
+            user_id="user-a",
+            title=f"Policy {i}",
+            content=f"Workplace policy number {i} about paid time off.",
+        )
+        db_session.add(kb)
+        db_session.commit()
+        db_session.add(
+            Embedding(
+                id=f"emb-{i}",
+                doc_id=kb.id,
+                embedding=generate_query_embedding(db_session, kb.content),
+                chunk_text=kb.content,
+            )
+        )
+        db_session.commit()
+
+    db_session.add(SystemSettings(id="default", rag_max_results=1, updated_by="admin-1"))
+    db_session.commit()
+
+    token, jwks = _make_signed_token(
+        {
+            "sub": "user-a",
+            "aud": "eaistack-web",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+        }
+    )
+    jwks_mock["jwks"] = jwks
+
+    with _running_server(jwks_mock, test_db_url) as url:
+        async with _mcp_streams(url, token) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "search_knowledge_base", {"query": "paid time off", "top_k": 10}
+                )
+
+        assert result.structuredContent is not None
+        sources = result.structuredContent["sources"]
+        assert len(sources) == 1
 
 
 @pytest.mark.integration

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.tls import get_ssl_context
 from app.db.models import Embedding, KnowledgeBase
 from app.services.chunking_service import chunk_document
+from app.services.rag_config_service import resolve_rag_config
 from app.services.system_settings_service import EmbeddingConfig, resolve_embedding_config
 
 EMBEDDING_DIMENSION = 768
@@ -155,8 +156,23 @@ def generate_and_attach_embeddings(db: Session, kb: KnowledgeBase, text: str) ->
     embedded in a single batch call rather than one call per chunk (see
     embed_documents), so a document with many chunks costs one round trip
     to the embedding server, not N.
+
+    Chunk sizing is resolved fresh on every call via resolve_rag_config(db)
+    (issue #68), the same DB-override-over-env-default pattern
+    resolve_embedding_config uses - an admin's change to the chunk size/
+    overlap settings takes effect on the very next document indexed, but
+    only that document: this only affects newly-(re)indexed content, not
+    documents chunked and stored under a previous setting (see
+    docs/RAG_CONFIGURATION.md's retroactivity caveat).
     """
-    chunks = chunk_document(text, title=kb.title)
+    rag_config = resolve_rag_config(db)
+    chunks = chunk_document(
+        text,
+        title=kb.title,
+        min_chunk_tokens=rag_config.min_chunk_size,
+        max_chunk_tokens=rag_config.chunk_size,
+        overlap_ratio=rag_config.chunk_overlap_ratio,
+    )
     embedding_results = embed_documents(db, [chunk.embed_text for chunk in chunks])
 
     for chunk, embedding_result in zip(chunks, embedding_results):

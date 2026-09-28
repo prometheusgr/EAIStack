@@ -14,9 +14,21 @@ from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.db.models import Embedding, KnowledgeBase
 from app.repositories import EmbeddingRepository
-from app.services import embed_query
+from app.services import embed_query, resolve_rag_config
 
 router = APIRouter(prefix="/api/embeddings", tags=["embeddings"])
+
+# Candidate pool fetched (as a multiple of the caller's requested top_k)
+# before per-document deduplication and truncation - a chunked document can
+# occupy several of search_similar's nearest rows, so more candidates than
+# the final result size must be fetched to still return top_k distinct
+# documents. Named per the RAG/embedding config audit
+# (docs/CONFIG_AUDIT_2026-09-04.md, Part 1, gap #6) but deliberately NOT
+# made admin-configurable, unlike the fields in app.services.rag_config_service
+# - it's internal retrieval-pool headroom, not an operator-facing tuning
+# knob (same judgment already applied to doc-search's own
+# _CANDIDATE_MULTIPLIER).
+_CANDIDATE_POOL_MULTIPLIER = 4
 
 
 def _deduplicate_by_document(
@@ -67,9 +79,15 @@ async def search_embeddings(
 ):
     """Perform semantic search using pgvector similarity."""
     query_embedding = embed_query(db, payload.query_text).vector
+    rag_config = resolve_rag_config(db)
 
     repo = EmbeddingRepository(db)
-    matches = repo.search_similar(user["user_id"], query_embedding, payload.top_k * 4)
+    matches = repo.search_similar(
+        user["user_id"],
+        query_embedding,
+        payload.top_k * _CANDIDATE_POOL_MULTIPLIER,
+        similarity_threshold=rag_config.similarity_threshold,
+    )
     matches = _deduplicate_by_document(matches)[: payload.top_k]
 
     results: list[SemanticSearchResult] = []

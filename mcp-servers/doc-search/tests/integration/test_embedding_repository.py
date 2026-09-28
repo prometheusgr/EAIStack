@@ -167,6 +167,111 @@ def test_search_similar_orders_nearest_first_and_respects_top_k(db_session):
     assert distances == sorted(distances)
 
 
+# similarity_threshold (issue #68): a cosine-distance cutoff on search_similar,
+# so a query with nothing relevant in the corpus can return fewer than top_k
+# results, or none at all, instead of always returning the k least-bad chunks.
+
+
+@pytest.mark.integration
+def test_search_similar_with_no_threshold_returns_same_results_as_before(db_session):
+    """similarity_threshold=None (the default) preserves exact pre-#68 behavior."""
+    _seed_document(
+        db_session,
+        user_id="user-a",
+        title="Near",
+        content="near",
+        embedding_vector=_unit_vector(dominant_index=0),
+    )
+    _seed_document(
+        db_session,
+        user_id="user-a",
+        title="Far",
+        content="far",
+        embedding_vector=_unit_vector(dominant_index=1),  # orthogonal: distance == 1.0
+    )
+
+    repo = EmbeddingRepository(db_session)
+    matches = repo.search_similar("user-a", _unit_vector(dominant_index=0), top_k=10)
+
+    assert len(matches) == 2
+
+
+@pytest.mark.integration
+def test_search_similar_threshold_excludes_matches_beyond_the_cutoff(db_session):
+    """A match whose distance is >= similarity_threshold is excluded."""
+    _seed_document(
+        db_session,
+        user_id="user-a",
+        title="Near",
+        content="near",
+        embedding_vector=_unit_vector(dominant_index=0),
+    )
+    _seed_document(
+        db_session,
+        user_id="user-a",
+        title="Far",
+        content="far",
+        embedding_vector=_unit_vector(dominant_index=1),  # orthogonal: distance == 1.0
+    )
+
+    repo = EmbeddingRepository(db_session)
+    matches = repo.search_similar(
+        "user-a", _unit_vector(dominant_index=0), top_k=10, similarity_threshold=0.5
+    )
+
+    assert len(matches) == 1
+    assert matches[0][1].title == "Near"
+
+
+@pytest.mark.integration
+def test_search_similar_threshold_excluding_everything_returns_empty_list(db_session):
+    """A threshold stricter than every candidate's distance returns an empty
+    list, not an error.
+    """
+    _seed_document(
+        db_session,
+        user_id="user-a",
+        title="Far",
+        content="far",
+        embedding_vector=_unit_vector(dominant_index=1),  # orthogonal: distance == 1.0
+    )
+
+    repo = EmbeddingRepository(db_session)
+    matches = repo.search_similar(
+        "user-a", _unit_vector(dominant_index=0), top_k=10, similarity_threshold=0.1
+    )
+
+    assert matches == []
+
+
+@pytest.mark.integration
+def test_search_hybrid_threshold_still_surfaces_a_lexical_only_match(db_session):
+    """similarity_threshold only filters the vector branch - a document with
+    no close vector match but a strong lexical (exact-token) match still
+    surfaces, since hybrid search's whole purpose is covering that case (see
+    the module docstring on search_hybrid).
+    """
+    _seed_document(
+        db_session,
+        user_id="user-a",
+        title="Error Doc",
+        content="Error code E-4021 indicates a network timeout.",
+        embedding_vector=_unit_vector(dominant_index=1),  # orthogonal to the query vector
+    )
+
+    repo = EmbeddingRepository(db_session)
+    matches = repo.search_hybrid(
+        "user-a",
+        _unit_vector(dominant_index=0),
+        query_text="E-4021",
+        top_k=5,
+        similarity_threshold=0.1,  # would exclude the vector branch's only candidate
+    )
+
+    assert len(matches) == 1
+    assert matches[0][1].title == "Error Doc"
+
+
 # search_hybrid: vector similarity + Postgres full-text search, fused via
 # Reciprocal Rank Fusion (see app.repositories.embedding_repository's
 # search_hybrid and its RRF_K constant). Motivated by issue #7 Prompt 3:

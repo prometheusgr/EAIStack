@@ -49,6 +49,12 @@ class SystemSettingsRepository:
         rate_limit_auth_refill_per_minute: int | None = None,
         audit_log_ui_enabled: bool | None = None,
         retention_notice_enabled: bool | None = None,
+        rag_similarity_threshold: float | None = None,
+        rag_max_results: int | None = None,
+        rag_min_chunk_size: int | None = None,
+        rag_chunk_size: int | None = None,
+        rag_chunk_overlap_ratio: float | None = None,
+        rag_max_excerpt_chars: int | None = None,
     ) -> SystemSettings:
         """Create or update the singleton settings row.
 
@@ -87,6 +93,12 @@ class SystemSettingsRepository:
         settings_row.rate_limit_auth_refill_per_minute = rate_limit_auth_refill_per_minute
         settings_row.audit_log_ui_enabled = audit_log_ui_enabled
         settings_row.retention_notice_enabled = retention_notice_enabled
+        settings_row.rag_similarity_threshold = rag_similarity_threshold
+        settings_row.rag_max_results = rag_max_results
+        settings_row.rag_min_chunk_size = rag_min_chunk_size
+        settings_row.rag_chunk_size = rag_chunk_size
+        settings_row.rag_chunk_overlap_ratio = rag_chunk_overlap_ratio
+        settings_row.rag_max_excerpt_chars = rag_max_excerpt_chars
         settings_row.updated_by = updated_by
 
         self.db.flush()

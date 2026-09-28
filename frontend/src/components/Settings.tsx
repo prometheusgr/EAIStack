@@ -105,6 +105,12 @@ export function Settings() {
   const [rateLimitAuthRefillPerMinute, setRateLimitAuthRefillPerMinute] =
     useState<NumericSettingInput>('')
   const [retentionNoticeEnabled, setRetentionNoticeEnabled] = useState(true)
+  const [ragSimilarityThreshold, setRagSimilarityThreshold] = useState<NumericSettingInput>('')
+  const [ragMaxResults, setRagMaxResults] = useState<NumericSettingInput>('')
+  const [ragMinChunkSize, setRagMinChunkSize] = useState<NumericSettingInput>('')
+  const [ragChunkSize, setRagChunkSize] = useState<NumericSettingInput>('')
+  const [ragChunkOverlapRatio, setRagChunkOverlapRatio] = useState<NumericSettingInput>('')
+  const [ragMaxExcerptChars, setRagMaxExcerptChars] = useState<NumericSettingInput>('')
   const [newPatternLabel, setNewPatternLabel] = useState('')
   const [newPatternPhrase, setNewPatternPhrase] = useState('')
   // Mirrors get.data.guardrail_patterns locally, patched in place by each
@@ -165,6 +171,12 @@ export function Settings() {
     setRateLimitAuthCapacity(String(get.data.rate_limit_auth_capacity))
     setRateLimitAuthRefillPerMinute(String(get.data.rate_limit_auth_refill_per_minute))
     setRetentionNoticeEnabled(get.data.retention_notice_enabled)
+    setRagSimilarityThreshold(String(get.data.rag_similarity_threshold ?? ''))
+    setRagMaxResults(String(get.data.rag_max_results))
+    setRagMinChunkSize(String(get.data.rag_min_chunk_size))
+    setRagChunkSize(String(get.data.rag_chunk_size))
+    setRagChunkOverlapRatio(String(get.data.rag_chunk_overlap_ratio))
+    setRagMaxExcerptChars(String(get.data.rag_max_excerpt_chars))
     setClearedFields(new Set())
   }, [get.data])
 
@@ -260,6 +272,24 @@ export function Settings() {
       retention_notice_enabled: clearedFields.has('retention_notice_enabled')
         ? null
         : retentionNoticeEnabled,
+      rag_similarity_threshold: clearedFields.has('rag_similarity_threshold')
+        ? null
+        : toNumericSettingPayloadValue(ragSimilarityThreshold),
+      rag_max_results: clearedFields.has('rag_max_results')
+        ? null
+        : toNumericSettingPayloadValue(ragMaxResults),
+      rag_min_chunk_size: clearedFields.has('rag_min_chunk_size')
+        ? null
+        : toNumericSettingPayloadValue(ragMinChunkSize),
+      rag_chunk_size: clearedFields.has('rag_chunk_size')
+        ? null
+        : toNumericSettingPayloadValue(ragChunkSize),
+      rag_chunk_overlap_ratio: clearedFields.has('rag_chunk_overlap_ratio')
+        ? null
+        : toNumericSettingPayloadValue(ragChunkOverlapRatio),
+      rag_max_excerpt_chars: clearedFields.has('rag_max_excerpt_chars')
+        ? null
+        : toNumericSettingPayloadValue(ragMaxExcerptChars),
     }
   }
 
@@ -1250,6 +1280,193 @@ export function Settings() {
           }}
         >
           Reset capacity/refill to default
+        </Button>
+      </section>
+
+      <section
+        className="space-y-4 rounded-lg border border-border p-4"
+        aria-label="Retrieval and chunking"
+      >
+        <h3 className="text-lg font-semibold">Retrieval &amp; Chunking</h3>
+        <p className="text-sm text-muted-foreground">
+          Tunes how the knowledge base is searched (similarity threshold, result count) and how
+          new documents are split into passages before indexing. Chunk size and overlap only
+          affect documents indexed after a change — existing documents are not re-chunked
+          retroactively.
+        </p>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rag-similarity-threshold">
+              Similarity threshold (
+              {overrideLabel(get.data.rag_similarity_threshold_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How close a document must be to a query to count as a match, measured as a
+              cosine distance where 0 means identical and 2 means unrelated — so a{' '}
+              <em>lower</em> number is a stricter cutoff, not a looser one. Leave blank for no
+              cutoff (today&apos;s default): every search always returns its top results, even
+              if none of them are actually relevant. Set it (e.g. 0.4) so a query with nothing
+              relevant in the knowledge base can report no match instead of returning the
+              least-bad guesses.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rag-similarity-threshold"
+            type="number"
+            min={0}
+            max={2}
+            step={0.05}
+            placeholder="No cutoff"
+            value={ragSimilarityThreshold}
+            onChange={(e) => {
+              setRagSimilarityThreshold(e.target.value)
+              markFieldEdited('rag_similarity_threshold')
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rag-max-results">
+              Maximum results ({overrideLabel(get.data.rag_max_results_is_db_override)})
+            </label>
+            <InfoTooltip>
+              The most documents a single search can return, enforced as a hard ceiling —
+              unlike before, a chat request can no longer ask for more than this. A common
+              default is 5.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rag-max-results"
+            type="number"
+            min={1}
+            value={ragMaxResults}
+            onChange={(e) => {
+              setRagMaxResults(e.target.value)
+              markFieldEdited('rag_max_results')
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rag-min-chunk-size">
+              Minimum chunk size (tokens, {overrideLabel(get.data.rag_min_chunk_size_is_db_override)})
+            </label>
+            <InfoTooltip>
+              A newly-indexed passage smaller than this is merged into a neighboring passage
+              rather than kept as its own tiny chunk. Must stay below the maximum chunk size
+              below. A common default is 500. Only affects documents indexed after this
+              change — existing documents are not re-chunked.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rag-min-chunk-size"
+            type="number"
+            min={1}
+            value={ragMinChunkSize}
+            onChange={(e) => {
+              setRagMinChunkSize(e.target.value)
+              markFieldEdited('rag_min_chunk_size')
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rag-chunk-size">
+              Maximum chunk size (tokens, {overrideLabel(get.data.rag_chunk_size_is_db_override)})
+            </label>
+            <InfoTooltip>
+              The target size of a newly-indexed passage before it is split further. Must stay
+              above the minimum chunk size above. A common default is 1000. Only affects
+              documents indexed after this change — existing documents are not re-chunked.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rag-chunk-size"
+            type="number"
+            min={1}
+            value={ragChunkSize}
+            onChange={(e) => {
+              setRagChunkSize(e.target.value)
+              markFieldEdited('rag_chunk_size')
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rag-chunk-overlap-ratio">
+              Chunk overlap ratio (
+              {overrideLabel(get.data.rag_chunk_overlap_ratio_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How much of one newly-indexed chunk&apos;s trailing text is repeated at the start
+              of the next chunk, as a fraction of the maximum chunk size (0 to 0.9). Prevents a
+              fact that happens to fall on a chunk boundary from being lost to one side of the
+              split. A common default is 0.125. Only affects documents indexed after this
+              change.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rag-chunk-overlap-ratio"
+            type="number"
+            min={0}
+            max={0.9}
+            step={0.025}
+            value={ragChunkOverlapRatio}
+            onChange={(e) => {
+              setRagChunkOverlapRatio(e.target.value)
+              markFieldEdited('rag_chunk_overlap_ratio')
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="rag-max-excerpt-chars">
+              Maximum excerpt length (characters, {overrideLabel(get.data.rag_max_excerpt_chars_is_db_override)})
+            </label>
+            <InfoTooltip>
+              A safety cap on how much of a single matched passage&apos;s text is sent to the
+              model — chunking already keeps passages a reasonable size, so this only trims an
+              unusually large individual chunk. A common default is 2000.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="rag-max-excerpt-chars"
+            type="number"
+            min={1}
+            value={ragMaxExcerptChars}
+            onChange={(e) => {
+              setRagMaxExcerptChars(e.target.value)
+              markFieldEdited('rag_max_excerpt_chars')
+            }}
+          />
+        </div>
+
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto p-0 text-sm"
+          onClick={() => {
+            setRagSimilarityThreshold(String(get.data?.rag_similarity_threshold ?? ''))
+            setRagMaxResults(String(get.data?.rag_max_results ?? ''))
+            setRagMinChunkSize(String(get.data?.rag_min_chunk_size ?? ''))
+            setRagChunkSize(String(get.data?.rag_chunk_size ?? ''))
+            setRagChunkOverlapRatio(String(get.data?.rag_chunk_overlap_ratio ?? ''))
+            setRagMaxExcerptChars(String(get.data?.rag_max_excerpt_chars ?? ''))
+            markFieldCleared('rag_similarity_threshold')
+            markFieldCleared('rag_max_results')
+            markFieldCleared('rag_min_chunk_size')
+            markFieldCleared('rag_chunk_size')
+            markFieldCleared('rag_chunk_overlap_ratio')
+            markFieldCleared('rag_max_excerpt_chars')
+          }}
+        >
+          Reset retrieval/chunking to default
         </Button>
       </section>
 

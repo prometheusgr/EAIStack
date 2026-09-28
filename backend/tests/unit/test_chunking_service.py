@@ -325,3 +325,90 @@ def test_min_and_max_chunk_token_constants_are_sane():
     """
     assert MIN_CHUNK_TOKENS == 500
     assert MAX_CHUNK_TOKENS == 1000
+
+
+# --- Admin-configurable chunk sizing (issue #68) ---
+#
+# chunk_document's default parameter values equal the module constants, so
+# every test above (calling chunk_document with no sizing kwargs) exercises
+# today's exact behavior unmodified - these tests are the only ones that
+# pass custom values, proving the parameters actually change behavior
+# rather than being resolved-and-ignored.
+
+
+@pytest.mark.unit
+def test_chunk_document_custom_max_chunk_tokens_produces_smaller_chunks():
+    """A smaller max_chunk_tokens than the module default should split a
+    document into more, smaller chunks than the default would.
+    """
+    content = "# Section\n\n" + "\n\n".join(_words(80, prefix=f"p{i}_w") for i in range(20))
+
+    default_chunks = chunk_document(content, title="Doc")
+    small_chunks = chunk_document(content, title="Doc", max_chunk_tokens=200, min_chunk_tokens=100)
+
+    assert len(small_chunks) > len(default_chunks)
+    for chunk in small_chunks:
+        assert chunk.token_count <= 200
+
+
+@pytest.mark.unit
+def test_chunk_document_custom_min_chunk_tokens_controls_tail_merge_threshold():
+    """A custom min_chunk_tokens changes the threshold below which a small
+    trailing chunk gets merged into its predecessor, per _merge_small_tail.
+    """
+    paragraph_one = _words(180, prefix="p1_w")
+    short_trailing_paragraph = _words(30, prefix="tail_w")
+    content = f"# Section\n\n{paragraph_one}\n\n{short_trailing_paragraph}\n"
+
+    # With a low max/min, the trailing paragraph is big enough to stand alone.
+    unmerged = chunk_document(
+        content, title="Doc", max_chunk_tokens=150, min_chunk_tokens=10, overlap_ratio=0.0
+    )
+    # With a high min_chunk_tokens, that same trailing paragraph must be merged.
+    merged = chunk_document(
+        content, title="Doc", max_chunk_tokens=150, min_chunk_tokens=100, overlap_ratio=0.0
+    )
+
+    assert len(merged) < len(unmerged)
+
+
+@pytest.mark.unit
+def test_chunk_document_custom_overlap_ratio_changes_repeated_tail_length():
+    """A larger overlap_ratio repeats more of a flushed chunk's trailing
+    tokens at the start of the next chunk.
+    """
+    content = "# Section\n\n" + "\n\n".join(_words(50, prefix=f"p{i}_w") for i in range(20))
+
+    no_overlap_chunks = chunk_document(
+        content, title="Doc", max_chunk_tokens=200, min_chunk_tokens=1, overlap_ratio=0.0
+    )
+    high_overlap_chunks = chunk_document(
+        content, title="Doc", max_chunk_tokens=200, min_chunk_tokens=1, overlap_ratio=0.5
+    )
+
+    assert len(high_overlap_chunks) >= 2
+    assert len(no_overlap_chunks) >= 2
+    # The last word of the first chunk (its overlap-candidate tail token)
+    # must reappear at the start of the second chunk under high overlap,
+    # and must NOT reappear under no overlap.
+    first_chunk_tail_word = no_overlap_chunks[0].text.split()[-1]
+    assert first_chunk_tail_word not in no_overlap_chunks[1].text.split()
+    overlap_tail_word = high_overlap_chunks[0].text.split()[-1]
+    assert overlap_tail_word in high_overlap_chunks[1].text.split()
+
+
+@pytest.mark.unit
+def test_chunk_document_default_params_equal_module_constants():
+    """chunk_document's default keyword values are the module constants
+    themselves, not independent copies - a future edit to MIN_CHUNK_TOKENS/
+    MAX_CHUNK_TOKENS/CHUNK_OVERLAP_RATIO automatically changes the
+    unconfigured default behavior too, keeping one source of truth.
+    """
+    import inspect
+
+    from app.services.chunking_service import CHUNK_OVERLAP_RATIO
+
+    signature = inspect.signature(chunk_document)
+    assert signature.parameters["min_chunk_tokens"].default == MIN_CHUNK_TOKENS
+    assert signature.parameters["max_chunk_tokens"].default == MAX_CHUNK_TOKENS
+    assert signature.parameters["overlap_ratio"].default == CHUNK_OVERLAP_RATIO
