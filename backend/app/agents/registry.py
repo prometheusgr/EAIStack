@@ -37,11 +37,20 @@ class AgentDefinition:
     needs for the output guardrail's leak detector, so that check compares
     against the exact text actually given to the model rather than a
     second, potentially-drifted copy.
+
+    system_prompt is None for a workflow whose entry step isn't a single
+    `agent` step (a route or review_loop entry — e.g. issue #82's
+    reviewed_answer/triage reference workflows, per WorkflowDef.
+    entry_prompt's own documented scope). No endpoint resolves one of
+    these by name yet (workflow selection in chat is issue #85's scope),
+    so there's nothing to guardrail-check today; a future endpoint wiring
+    one of these up will need its own answer for what "the" prompt means
+    for a multi-entry-point workflow, not a single string.
     """
 
     name: str
     factory: AgentFactory
-    system_prompt: str
+    system_prompt: str | None
 
 
 _REGISTRY: dict[str, AgentDefinition] = {}
@@ -73,7 +82,7 @@ def register_workflow_definitions(definitions: dict[str, WorkflowDef]) -> None:
         _REGISTRY[name] = AgentDefinition(
             name=name,
             factory=_make_factory(definition),
-            system_prompt=definition.entry_prompt(),
+            system_prompt=definition.entry_prompt_or_none(),
         )
 
 

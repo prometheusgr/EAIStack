@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from app.core.llm_client import FakeChatModel
 from app.repositories import ThreadRepository
 from app.workflows.compiler import compile_workflow
+from app.workflows.primitives import ReviewResult
 from app.workflows.schema import parse_workflow_definition
 
 _UNUSED_TOKEN = "unused-token"
@@ -107,18 +108,26 @@ def test_compile_sequence_workflow_chains_two_agent_steps(db_session, monkeypatc
     assert result["step_outputs"]["polish"] == "polished text"
 
 
-def test_compile_review_loop_workflow_reaches_approval(db_session, monkeypatch):
+async def test_compile_review_loop_workflow_reaches_approval(db_session, monkeypatch):
     """A YAML-defined review_loop step compiles and runs the same
     reject-then-approve cycle app.workflows.primitives.build_review_loop
-    is unit-tested against directly.
+    is unit-tested against directly, with the reviewer's structured
+    ReviewResult driving the loop instead of a keyword match.
+
+    ainvoke, not invoke: a review_loop's worker node is async (see
+    build_review_loop's docstring).
     """
+    # get_llm_client is called once for the worker, once for the reviewer
+    # (app.workflows.compiler._attach_review_loop_step); both resolve to
+    # this one shared FakeChatModel here, so its prose `responses` queue
+    # (worker) and structured_responses queue (reviewer) are consumed
+    # independently, each in the order its own primitive invokes it.
     llm = FakeChatModel(
-        responses=[
-            AIMessage(content="draft v1"),
-            AIMessage(content="reject: needs more detail"),
-            AIMessage(content="draft v2"),
-            AIMessage(content="approve"),
-        ]
+        responses=[AIMessage(content="draft v1"), AIMessage(content="draft v2")],
+        structured_responses=[
+            ReviewResult(approved=False, issues=["needs more detail"]),
+            ReviewResult(approved=True, issues=[]),
+        ],
     )
     monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: llm)
 
@@ -131,9 +140,8 @@ def test_compile_review_loop_workflow_reaches_approval(db_session, monkeypatch):
                 "type": "review_loop",
                 "worker_step": "worker_agent",
                 "reviewer_step": "reviewer_agent",
-                "worker_prompt": "Draft an answer.",
-                "reviewer_prompt": "Review the answer; reply 'approve' or 'reject: <why>'.",
-                "approve_keyword": "approve",
+                "worker_prompt": "Draft an answer to: {task}",
+                "reviewer_prompt": "Review the draft: {draft}",
                 "max_iterations": 3,
             }
         },
@@ -144,7 +152,7 @@ def test_compile_review_loop_workflow_reaches_approval(db_session, monkeypatch):
     )
 
     thread_id = _new_thread(db_session)
-    result = graph.invoke(
+    result = await graph.ainvoke(
         {
             "messages": [HumanMessage(content="Explain X.")],
             "thread_id": thread_id,
@@ -154,8 +162,10 @@ def test_compile_review_loop_workflow_reaches_approval(db_session, monkeypatch):
         config={"configurable": {"thread_id": thread_id}},
     )
 
-    assert result["step_outputs"]["reviewer_agent"] == "approve"
-    assert llm.call_count == 4
+    assert result["review"].approved is True
+    assert llm.call_count == 2
+    assert llm.structured_call_count == 2
+    assert result["messages"][-1].content == "draft v2"
 
 
 def test_compile_route_workflow_dispatches_to_matching_branch(db_session, monkeypatch):
@@ -204,3 +214,60 @@ def test_compile_route_workflow_dispatches_to_matching_branch(db_session, monkey
 
     assert result["step_outputs"]["classify"] == "billing"
     assert result["messages"][-1].content == "billing reply"
+
+
+async def test_compile_agent_next_into_review_loop_resolves_to_worker_node(db_session, monkeypatch):
+    """An `agent` step's `next` pointing at a review_loop step's top-level
+    name (as reviewed_answer.yaml's `interpret` -> `draft_and_review`
+    does) must wire the edge to that review_loop's *worker* node, not a
+    nonexistent node named after the top-level step -- the compiler's
+    entry_nodes resolution must apply to a `next` edge, not just
+    set_entry_point. Also exercises output_field="task": the interpreter's
+    response lands in state["task"], not `messages`.
+    """
+    llm = FakeChatModel(
+        responses=[AIMessage(content="Restated task."), AIMessage(content="draft answer")],
+        structured_responses=[ReviewResult(approved=True, issues=[])],
+    )
+    monkeypatch.setattr("app.workflows.compiler.get_llm_client", lambda db: llm)
+
+    raw = {
+        "name": "reviewed_answer",
+        "version": 1,
+        "entry": "interpret",
+        "steps": {
+            "interpret": {
+                "type": "agent",
+                "prompt": "Restate the request as a task.",
+                "output_field": "task",
+                "next": "draft_and_review",
+            },
+            "draft_and_review": {
+                "type": "review_loop",
+                "worker_step": "worker_agent",
+                "reviewer_step": "reviewer_agent",
+                "worker_prompt": "Complete: {task}",
+                "reviewer_prompt": "Review: {draft}",
+                "max_iterations": 3,
+            },
+        },
+    }
+    definition = parse_workflow_definition(raw, source_file="reviewed_answer.yaml")
+    graph = compile_workflow(
+        definition, db=db_session, token=_UNUSED_TOKEN, mcp_url=_UNREACHABLE_MCP_URL
+    )
+
+    thread_id = _new_thread(db_session)
+    result = await graph.ainvoke(
+        {
+            "messages": [HumanMessage(content="Explain X.")],
+            "thread_id": thread_id,
+            "user_id": "test-user",
+            "step_outputs": {},
+        },
+        config={"configurable": {"thread_id": thread_id}},
+    )
+
+    assert result["task"] == "Restated task."
+    assert result["messages"][-1].content == "draft answer"
+    assert all(m.content != "Restated task." for m in result["messages"])

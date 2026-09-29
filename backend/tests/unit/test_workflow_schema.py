@@ -62,15 +62,39 @@ def test_valid_review_loop_definition_parses():
                 "type": "review_loop",
                 "worker_step": "worker_agent",
                 "reviewer_step": "reviewer_agent",
-                "worker_prompt": "Draft an answer.",
-                "reviewer_prompt": "Review the answer; reply 'approve' or 'reject: <why>'.",
-                "approve_keyword": "approve",
+                "worker_prompt": "Draft an answer to: {task}",
+                "worker_tools": ["search_knowledge_base"],
+                "reviewer_prompt": "Review the draft: {draft}",
                 "max_iterations": 3,
             }
         },
     }
     definition = parse_workflow_definition(raw, source_file="reviewed_answer.yaml")
     assert definition.steps["worker"].max_iterations == 3
+    assert definition.steps["worker"].worker_tools == ["search_knowledge_base"]
+
+
+def test_review_loop_unknown_worker_tool_is_rejected():
+    raw = {
+        "name": "reviewed_answer",
+        "version": 1,
+        "entry": "worker",
+        "steps": {
+            "worker": {
+                "type": "review_loop",
+                "worker_step": "worker_agent",
+                "reviewer_step": "reviewer_agent",
+                "worker_prompt": "Draft an answer.",
+                "worker_tools": ["not_a_real_tool"],
+                "reviewer_prompt": "Review it.",
+                "max_iterations": 3,
+            }
+        },
+    }
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        parse_workflow_definition(raw, source_file="reviewed_answer.yaml")
+
+    assert "not_a_real_tool" in exc_info.value.message
 
 
 def test_unknown_tool_name_is_rejected():
@@ -137,7 +161,6 @@ def test_review_loop_without_max_iterations_is_rejected():
                 "reviewer_step": "reviewer_agent",
                 "worker_prompt": "Draft an answer.",
                 "reviewer_prompt": "Review it.",
-                "approve_keyword": "approve",
             }
         },
     }
@@ -159,7 +182,6 @@ def test_review_loop_max_iterations_above_ceiling_is_rejected():
                 "reviewer_step": "reviewer_agent",
                 "worker_prompt": "Draft an answer.",
                 "reviewer_prompt": "Review it.",
-                "approve_keyword": "approve",
                 "max_iterations": REVIEW_LOOP_MAX_ITERATIONS_CEILING + 1,
             }
         },
@@ -183,7 +205,6 @@ def test_review_loop_at_ceiling_is_accepted():
                 "reviewer_step": "reviewer_agent",
                 "worker_prompt": "Draft an answer.",
                 "reviewer_prompt": "Review it.",
-                "approve_keyword": "approve",
                 "max_iterations": REVIEW_LOOP_MAX_ITERATIONS_CEILING,
             }
         },
@@ -210,3 +231,48 @@ def test_route_referencing_undefined_branch_step_is_rejected():
         parse_workflow_definition(raw, source_file="triage.yaml")
 
     assert "does_not_exist" in exc_info.value.message
+
+
+def test_entry_prompt_returns_agent_entry_step_prompt_text():
+    definition = parse_workflow_definition(_valid_single_agent_def(), source_file="chat.yaml")
+    assert definition.entry_prompt() == "You are a helpful assistant."
+    assert definition.entry_prompt_or_none() == "You are a helpful assistant."
+
+
+def test_entry_prompt_raises_for_a_route_entry_step():
+    raw = {
+        "name": "triage",
+        "version": 1,
+        "entry": "classify",
+        "steps": {
+            "classify": {
+                "type": "route",
+                "prompt": "Classify as billing or support.",
+                "branches": {"billing": "billing_agent", "support": "billing_agent"},
+            },
+            "billing_agent": {"type": "agent", "prompt": "Handle billing."},
+        },
+    }
+    definition = parse_workflow_definition(raw, source_file="triage.yaml")
+
+    with pytest.raises(ValueError, match="only defined for an `agent`-type entry step"):
+        definition.entry_prompt()
+
+
+def test_entry_prompt_or_none_returns_none_for_a_route_entry_step():
+    raw = {
+        "name": "triage",
+        "version": 1,
+        "entry": "classify",
+        "steps": {
+            "classify": {
+                "type": "route",
+                "prompt": "Classify as billing or support.",
+                "branches": {"billing": "billing_agent", "support": "billing_agent"},
+            },
+            "billing_agent": {"type": "agent", "prompt": "Handle billing."},
+        },
+    }
+    definition = parse_workflow_definition(raw, source_file="triage.yaml")
+
+    assert definition.entry_prompt_or_none() is None

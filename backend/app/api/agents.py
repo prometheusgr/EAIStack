@@ -117,6 +117,11 @@ async def chat(
     thread = thread_repository.get_or_create_owned(request.thread_id, user["user_id"])
 
     chat_agent_definition = get_agent_definition("chat")
+    # chat.yaml's entry step is an `agent` step (see WorkflowDef.entry_prompt),
+    # so this is always populated for "chat" specifically -- AgentDefinition.
+    # system_prompt is only None for a route/review_loop-entry workflow (see
+    # its docstring), neither of which any endpoint resolves by name today.
+    assert chat_agent_definition.system_prompt is not None
     agent = chat_agent_definition.factory(db, user["access_token"], settings.doc_search_mcp_url)
     state = {
         "messages": [HumanMessage(content=request.message)],

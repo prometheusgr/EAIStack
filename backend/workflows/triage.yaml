@@ -1,0 +1,38 @@
+# Built-in reference workflow: route to specialists (issue #82, epic #80
+# slice 2/5).
+#
+# A classifier picks one of two specialist agents based on the user's
+# request. Uses the `route` primitive exactly as slice 1 shipped it -- no
+# engine changes were needed for this half of the issue, only this file and
+# its structural test (tests/unit/test_reference_workflows.py).
+#
+# Not wired to any endpoint yet -- workflow selection in chat is issue #85's
+# scope. This file exists to be a copyable example for forkers building
+# their own routing workflow.
+name: triage
+version: 1
+entry: classify
+steps:
+  classify:
+    type: route
+    prompt: >-
+      Classify the user's request as exactly one of: technical, general.
+      Use "technical" for questions about how a system, product, or piece
+      of software works, or requests to debug/configure something. Use
+      "general" for everything else. Respond with only that one word.
+    branches:
+      technical: technical_specialist
+      general: general_specialist
+  technical_specialist:
+    type: agent
+    prompt: >-
+      You are a technical support specialist. Answer precisely and
+      concretely, consulting the knowledge base for documented procedures
+      or configuration details rather than guessing.
+    tools:
+      - search_knowledge_base
+  general_specialist:
+    type: agent
+    prompt: >-
+      You are a general-purpose assistant for non-technical questions. Be
+      brief, direct, and helpful.
