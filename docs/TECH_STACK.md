@@ -83,7 +83,7 @@ Components never call `services/` or `api/` directly — only through a hook. Th
 | `services/` | Business logic used by 2+ endpoints — see [BACKEND_SERVICES.md](BACKEND_SERVICES.md) |
 | `guardrails/` | Input/output validation middleware |
 | `mcp_client/` | Client calling the doc-search MCP server over Streamable HTTP |
-| `storage/` | MinIO client, document text extraction, object-key scheme |
+| `storage/` | Object-storage (S3) client, document text extraction, object-key scheme |
 | `prompts/` | Prompt templates for the chat agent |
 | `cli/` | `retention_sweep.py` — the retention CronJob's entry point |
 
@@ -95,7 +95,7 @@ Components never call `services/` or `api/` directly — only through a hook. Th
 
 **Known gaps:**
 - Chat streaming is deferred — `agents.py`'s endpoint docstring states this explicitly; llama.cpp's tool-calling + streaming combination has known rough edges.
-- `storage/minio_client.py` has an open TODO: local docker-compose MinIO is still plaintext HTTP, unlike the TLS-hardened Helm/production path ([#17](../../../issues/17)).
+- `storage/object_storage_client.py` has an open TODO: local docker-compose object storage (SeaweedFS) is still plaintext HTTP, unlike the TLS-hardened Helm/production path ([#17](../../../issues/17)).
 - The custom LangGraph checkpointer stores only the latest checkpoint per thread by design (conversation resume, not time-travel/replay); `put_writes` is a documented no-op and `filter`/`before`/`limit` raise `NotImplementedError`.
 
 ## Auth
@@ -133,10 +133,10 @@ Alembic history: initial schema → embedding dimension fix (768) → system set
 
 | Concern | Technology | Status |
 |---|---|---|
-| Store | MinIO (S3-compatible, official upstream image — no Bitnami) | ✅ |
-| Client | `minio` Python SDK, wrapped in `MinioClient` | ✅ |
+| Store | SeaweedFS S3 gateway (`chrislusf/seaweedfs`, official upstream image — no Bitnami; replaced MinIO in [#94](../../../issues/94) after MinIO retired its free images) | ✅ |
+| Client | `minio` Python SDK (speaks generic S3), built by `build_object_storage_client()` and wrapped in `DocumentStore` | ✅ |
 | Flow | Upload → text extraction (`pypdf`/`python-docx`) → chunk → embed → pgvector row, all scoped per user | ✅ |
-| Retention | Purge order fixed to delete DB rows before MinIO objects (avoids orphaned DB references to deleted objects) | ✅ |
+| Retention | Purge order fixed to delete DB rows before stored objects (avoids orphaned DB references to deleted objects) | ✅ |
 | TLS | Production (Helm) uses cert-manager mTLS; local docker-compose is still plaintext | 🚧 ([#17](../../../issues/17)) |
 
 ## LLM inference & embeddings
@@ -204,7 +204,7 @@ Adding a second MCP server (a second tool, or a different backing store) should 
 | Concern | Technology | Status |
 |---|---|---|
 | Target platform | K3s (production-grade, minimal-footprint K8s) | ✅ Helm charts validated in CI; 🚧 not yet proven on a live cluster ([#9](../../../issues/9)) |
-| Package format | Helm — `eaistack-umbrella` parent chart + 8 subcharts (postgres, keycloak, minio, backend, doc-search, frontend, llama-server, embedding-server) | ✅ all charts have real templates, not stubs |
+| Package format | Helm — `eaistack-umbrella` parent chart + 8 subcharts (postgres, keycloak, seaweedfs, backend, doc-search, frontend, llama-server, embedding-server) | ✅ all charts have real templates, not stubs |
 | TLS | cert-manager-issued mTLS between services (`certificate.yaml` in every chart), `sslmode=verify-full` to Postgres | ✅ in Helm/production path; 🚧 local docker-compose still plaintext ([#17](../../../issues/17)) |
 | Secrets | K8s Secrets per chart (no plaintext in manifests) | ✅ |
 | k3s raw manifests | `infra/k3s/` — only 2 files (`doc-search-deployment.yaml`, `retention-cronjob.yaml`); Helm is the primary deployment path, not raw manifests | 🚧 sparse by design |
@@ -212,7 +212,7 @@ Adding a second MCP server (a second tool, or a different backing store) should 
 | Manifest validation | `infra/scripts/validate-rendered-manifests.py`, tested and CI-gated | ✅ |
 | Backup strategy | — | ❌ no backup path exists anywhere in the repo yet ([#12](../../../issues/12)) |
 
-**No Bitnami charts anywhere** — official upstream images only (`pgvector/pgvector`, `keycloak`, `minio`). This is a hard constraint, not a preference (deprecated Bitnami free tier).
+**No Bitnami charts anywhere** — official upstream images only (`pgvector/pgvector`, `keycloak`, `chrislusf/seaweedfs`). This is a hard constraint, not a preference (deprecated Bitnami free tier).
 
 ## CI/CD
 

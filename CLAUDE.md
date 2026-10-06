@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Enterprise AI Stack**: a forkable Kubernetes-native template for building offline/air-gapped enterprise AI applications.
 
-**Core stack**: React/TypeScript frontend, FastAPI backend, LangGraph agent orchestration, Keycloak auth, PostgreSQL + pgvector, MinIO object storage, llama.cpp (llama-server) for local LLM inference, MCP servers for tool integration.
+**Core stack**: React/TypeScript frontend, FastAPI backend, LangGraph agent orchestration, Keycloak auth, PostgreSQL + pgvector, SeaweedFS object storage (S3 API), llama.cpp (llama-server) for local LLM inference, MCP servers for tool integration.
 
 **Key constraints**:
 - Fully air-gapped (no internet at runtime; all dependencies vendored)
@@ -65,7 +65,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Verified end-to-end against a real llama-server + embedding-server + doc-search stack (`docker-compose up --profile llm`), extending `knowledge-base-search-grounding.spec.ts` — same `requires-profile-llm` exclusion from CI as the rest of that spec, since the fake LLM provider never emits a tool call at all.
 
 **Phase 4e Complete ✓**: LLM Observability — Base Tracing (issue #4)
-- Self-hosted Arize Phoenix (`arizephoenix/phoenix`, prebuilt upstream image, no Dockerfile of our own — same pattern as postgres/minio/keycloak) traces every chat agent run: LangGraph run → LLM call(s) → tool call(s), with latency, token counts, and the exact prompt/response content per span. Instrumentation is `arize-phoenix-otel` + `openinference-instrumentation-langchain`, which auto-instruments LangChain's callback machinery — LangGraph runs through it since a compiled graph is itself a `Runnable`, so `app.agents.chat_agent` needed zero code changes.
+- Self-hosted Arize Phoenix (`arizephoenix/phoenix`, prebuilt upstream image, no Dockerfile of our own — same pattern as postgres/seaweedfs/keycloak) traces every chat agent run: LangGraph run → LLM call(s) → tool call(s), with latency, token counts, and the exact prompt/response content per span. Instrumentation is `arize-phoenix-otel` + `openinference-instrumentation-langchain`, which auto-instruments LangChain's callback machinery — LangGraph runs through it since a compiled graph is itself a `Runnable`, so `app.agents.chat_agent` needed zero code changes.
 - Verified by hand, not assumed: node names in the captured trace tree are legible (`call_agent`, `call_tool`, the tool's own name), not generic `RunnableSequence` spans; the default `SimpleSpanProcessor` measurably blocked the request path for several seconds per span when Phoenix was unreachable, so `app.core.tracing.configure_tracing` explicitly uses `batch=True` (`BatchSpanProcessor`) instead — confirmed span creation drops to sub-millisecond even with Phoenix down. See `docs/OBSERVABILITY.md` for the full write-up including this verification.
 - Config-gated (`tracing_enabled`, default `False`) and registered once at process start (`app.main`'s lifespan hook), never at import time of any agent/LLM module — unit tests using `FakeChatModel` never construct a real OTel exporter. Unlike the initial cut of this slice, `tracing_enabled` **is** a DB-backed admin override now (`app.services.tracing_config_service`, same nullable-override-over-env-default pattern as `llm_provider`, visible/auditable in the Settings UI) — but it is resolved once, at startup, not per-request like `llm_provider`, since there's no supported way to re-instrument a running process's OTel tracer provider. A change via the Settings UI therefore requires a backend restart to take effect, which the UI states explicitly. A related fix landed alongside this: a blank bool env var (e.g. `TRACING_ENABLED=` left empty) used to crash `Settings()` construction outright; it now falls back to the field's default, the same as an unset var.
 - Trace storage is Phoenix's own SQLite on a dedicated volume, not the shared `eaistack` Postgres — this repo's Postgres has no multi-database provisioning mechanism, and Phoenix's trace schema isn't part of Alembic's owned application schema.
@@ -162,6 +162,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Configuration**: no new `SystemSettings` field. Per-workflow `max_iterations` lives in YAML, already bounded by slice 1's `REVIEW_LOOP_MAX_ITERATIONS_CEILING`.
 - **Out of scope** (later slices of epic #80, unchanged from slice 1): versioned Postgres store, admin UI — #83; iteration loop — #84; workflow selection in chat — #85; export to YAML/git promotion — #86; configurable change management — #87. `parallel` (fan-out/fan-in) remains unimplemented, per `AGENTS.md`'s no-premature-abstraction guidance.
 
+**Object Storage Migration Complete ✓**: MinIO → SeaweedFS (issue #94, unblocks #93's e2e gate)
+- MinIO retired its free container images in Sept 2026 (`minio/minio` removed from Docker Hub, `quay.io/minio/minio` gated behind authentication even for pinned historical tags, `dl.min.io` returning 410, and the last free release carrying a known auth-bypass CVE) — which made `docker compose up` itself fail, blocking every PR's e2e job. Replaced by **SeaweedFS** (`chrislusf/seaweedfs:4.48`, Apache-2.0, official image, pinned — never `latest`) run as a single `server` process (master + volume + filer + S3 gateway), reached through its S3 API.
+- **No change to the client code path**: the `minio` Python SDK is retained — it speaks the generic S3 API and `DocumentStore` needed no logic change. Verified by hand against a real SeaweedFS 4.48 container (not assumed from the issue's compatibility claim): every operation `DocumentStore` uses (bucket create + the `BucketAlreadyOwnedByYou` race code, put/get/remove, idempotent `NoSuchKey` delete, batched `remove_objects` including a 1500-key multi-batch call, unicode/space object keys, a 20 MiB multipart upload, wrong-credential rejection) behaves identically, and the real TLS+CA-bundle client path works against SeaweedFS's native HTTPS. `backend/tests/integration/test_document_store.py` now runs against a real SeaweedFS container via testcontainers (5/5 green).
+- **Naming made neutral rather than left saying "MinIO"**: `minio_*` settings → `object_storage_*` (`OBJECT_STORAGE_URL`/`_ACCESS_KEY`/`_SECRET_KEY`/`_BUCKET`), `app/storage/minio_client.py` → `object_storage_client.py` (`build_object_storage_client`), Helm chart `minio` → `seaweedfs`, compose service `minio` → `seaweedfs`, Helm `global.miniRootUser/Password` → `global.objectStorageAccessKey/SecretKey`, validator credential prefix `MINIO_` → `OBJECT_STORAGE_`. The S3 port is now 8333 (was 9000); there is no console port.
+- **Security-relevant finding while verifying**: the SeaweedFS image reports anonymous cluster statistics to `telemetry.seaweedfs.com` by default. Compose and the Helm chart both pass `-master.telemetry=false` (documented in `docs/SECURITY.md`) — an air-gapped product must never attempt that connection.
+- Helm chart: TLS via `-s3.cert.file`/`-s3.key.file` pointed at the cert-manager Secret's own `tls.crt`/`tls.key` (no more MinIO-style `public.crt`/`private.key` renaming); once a cert is set the S3 port is TLS-only (verified). Runs as non-root UID 1000 (verified). Probes hit `/healthz` over HTTPS. `-volume.max=0` because SeaweedFS pre-allocates several volumes per bucket and the default slot cap is easy to exhaust.
+- **Upgrade note for existing local stacks**: object data is *not* migrated — greenfield template, and the volume is renamed `seaweedfs_data`. A dev stack with uploaded documents should `docker compose down -v` (the DB rows' `storage_key`s would otherwise point at objects that no longer exist).
+- Not verified in this change's environment: the full Playwright e2e against real Keycloak (the sandbox's egress policy blocks `quay.io`); that spec runs in CI.
+- **RBAC**: none — no new endpoints. **Configuration**: no new tunables; the bucket name stays an env value, and the pinned image tag lives in `docker-compose.yml`, `infra/helm/charts/seaweedfs/values.yaml`, `infra/helm/values-*.yaml`, `bootstrap-airgap.sh`, and the integration test (a deliberate duplication — each is a separate deploy path).
+- Out of scope: swapping the `minio` Python SDK for a vendor-neutral client such as `boto3` (works today; a defensible follow-up since the SDK is still published by the vendor that retired its images), and the WORM/object-lock archive (#89) — which must now be designed against SeaweedFS's object-lock support rather than MinIO's.
+
 ## Common Development Commands
 
 ### Backend (Python)
@@ -240,7 +251,7 @@ alembic history --verbose
 ### Full Stack (Docker Compose)
 
 ```bash
-# Start all services (postgres, keycloak, minio, backend, frontend)
+# Start all services (postgres, keycloak, seaweedfs, backend, frontend)
 docker-compose up
 
 # With LLM service (requires model in ./models/)
@@ -261,7 +272,7 @@ docker-compose down -v  # Also remove volumes
 - **Greenfield project**: No legacy code to preserve. Decisions made early shape the codebase for years.
 - **User familiarity**: The user is less familiar with Kubernetes; infrastructure docs should assume minimal prior K8s knowledge.
 - **Hard requirements**: Encryption and session/context lifecycle are non-negotiable (not bolt-on later). Security and session isolation are baked in from Phase 1.
-- **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, minio). Deprecated free tier is off-limits.
+- **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, chrislusf/seaweedfs). Deprecated free tier is off-limits.
 - **MCP transport**: Must be Streamable HTTP (not stdio) for service-to-service K8s deployment. Implemented in Phase 3 (doc-search).
 
 ## Architecture Overview
@@ -279,7 +290,7 @@ backend/
     guardrails/     Input/output validation middleware
     prompts/        Prompt library (Phase 4+)
     mcp_client/     MCP server integration (doc-search MCP client, Phase 3)
-    storage/        MinIO client wrapper
+    storage/        Object-storage (S3) client wrapper
     main.py         FastAPI app definition
   tests/
     unit/           Fast, mocked tests (gates CI)
@@ -343,14 +354,14 @@ LangGraph Agent (state in Postgres checkpoint)
   ↓
 LLM Service (llama-server, mocked in unit tests)
   ↓
-MCP Tools: pgvector search (doc-search, Phase 3), MinIO retrieval (planned)
+MCP Tools: pgvector search (doc-search, Phase 3), object-storage retrieval (planned)
   ↓
 Response → Frontend
 ```
 
 ## Constraints & Gotchas
 
-- **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, minio)
+- **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, chrislusf/seaweedfs)
 - **llama.cpp tool-calling**: Streaming + tool_calls has known rough edges. Test this combo early (Phase 2).
 - **Keycloak secrets**: Currently hardcoded in `app/core/config.py`; move to K8s secrets before production (Phase 5).
 - **LLM model vendoring**: All models must be downloaded during air-gap setup; no internet at runtime.

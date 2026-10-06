@@ -21,7 +21,7 @@ IMAGES=(
   # Infrastructure
   "pgvector/pgvector:0.5.1"
   "quay.io/keycloak/keycloak:22.0.0"
-  "minio/minio:latest"
+  "chrislusf/seaweedfs:4.48"
   "ghcr.io/ggml-org/llama.cpp:server-latest"
   "arizephoenix/phoenix:latest"
   "jetstack/cert-manager-controller:v1.13.0"

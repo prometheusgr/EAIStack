@@ -152,15 +152,15 @@ embedding-server/templates/_helpers.tpl's own embedding-server.fullname.
 {{- end }}
 
 {{/*
-minio fullname helper (for cross-chart reference). See the
+seaweedfs fullname helper (for cross-chart reference). See the
 postgres.fullname comment above for why this must stay in lock-step with
-minio/templates/_helpers.tpl's own minio.fullname.
+seaweedfs/templates/_helpers.tpl's own seaweedfs.fullname.
 */}}
-{{- define "minio.fullname" -}}
-{{- if dig "fullnameOverrides" "minio" "" (.Values.global | default dict) }}
-{{- dig "fullnameOverrides" "minio" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
+{{- define "seaweedfs.fullname" -}}
+{{- if dig "fullnameOverrides" "seaweedfs" "" (.Values.global | default dict) }}
+{{- dig "fullnameOverrides" "seaweedfs" "" (.Values.global | default dict) | trunc 63 | trimSuffix "-" }}
 {{- else }}
-{{- $name := "minio" }}
+{{- $name := "seaweedfs" }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- else }}

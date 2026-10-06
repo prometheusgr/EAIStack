@@ -293,13 +293,13 @@ spec:
         assert "KEYCLOAK_CLIENT_SECRET" in message
         assert "secretKeyRef" in message
 
-    def test_flags_hardcoded_minio_secret_key(self):
-        """MINIO_* is matched by prefix so new MinIO credentials are covered automatically."""
+    def test_flags_hardcoded_object_storage_secret_key(self):
+        """OBJECT_STORAGE_* is matched by prefix so new object-storage credentials are covered automatically."""
         rendered = """
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: eaistack-minio
+  name: eaistack-seaweedfs
   namespace: eaistack
 spec:
   template:
@@ -307,18 +307,18 @@ spec:
       securityContext:
         runAsNonRoot: true
       containers:
-        - name: minio
-          image: minio/minio:latest
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:4.48
           env:
-            - name: MINIO_SECRET_KEY
-              value: "minioadmin"
+            - name: OBJECT_STORAGE_SECRET_KEY
+              value: "eaistack-dev-secret"
 """
-        assert "MINIO_SECRET_KEY" in violation_messages(rendered)
+        assert "OBJECT_STORAGE_SECRET_KEY" in violation_messages(rendered)
 
     def test_accepts_non_credential_env_vars_under_a_credential_prefix(self):
-        """MINIO_*/POSTGRES_* prefix matching must not sweep up the hostnames,
+        """OBJECT_STORAGE_*/POSTGRES_* prefix matching must not sweep up the hostnames,
         resource names, and config strings that share those prefixes with real
-        credentials (MINIO_URL, MINIO_BUCKET, POSTGRES_DB,
+        credentials (OBJECT_STORAGE_URL, OBJECT_STORAGE_BUCKET, POSTGRES_DB,
         POSTGRES_INITDB_ARGS) — found by running the validator end-to-end
         against the actual rendered umbrella chart, where the broad prefix
         match produced false positives the hand-picked fixtures above never
@@ -338,9 +338,9 @@ spec:
         - name: backend
           image: eaistack/backend:latest
           env:
-            - name: MINIO_URL
-              value: "eaistack-minio:9000"
-            - name: MINIO_BUCKET
+            - name: OBJECT_STORAGE_URL
+              value: "eaistack-seaweedfs:8333"
+            - name: OBJECT_STORAGE_BUCKET
               value: "documents"
             - name: POSTGRES_DB
               value: "eaistack"
@@ -973,14 +973,14 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: eaistack-minio-data
+  name: eaistack-seaweedfs-data
   namespace: eaistack
 spec:
   storageClassName: ""
   accessModes:
     - ReadWriteOnce
 """
-        assert "eaistack-minio-data" in violation_messages(rendered)
+        assert "eaistack-seaweedfs-data" in violation_messages(rendered)
 
     def test_storage_class_violation_names_the_compliance_requirement(self):
         """The message must say this is a hard compliance gate, not a style preference."""
@@ -1160,7 +1160,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: eaistack-minio-data
+  name: eaistack-seaweedfs-data
   namespace: eaistack
 spec:
   accessModes:
@@ -1168,7 +1168,7 @@ spec:
 """
         message = violation_messages(rendered)
         assert "eaistack-backend" in message
-        assert "eaistack-minio-data" in message
+        assert "eaistack-seaweedfs-data" in message
 
     def test_ignores_empty_documents_from_helm_conditionals(self):
         """A false `{{ if }}` renders an empty doc; that's normal, not a parse failure."""

@@ -16,8 +16,8 @@ global:
   # needed by both postgres and backend, keycloak secrets by keycloak and
   # backend's realm templating, etc.). Each must be overridden at install time.
   postgresPassword: ""  # Required: password for postgres user
-  miniRootUser: ""      # Required: root-user for MinIO
-  miniRootPassword: ""  # Required: root-password for MinIO
+  objectStorageAccessKey: ""  # Required: S3 access key for SeaweedFS (and the backend)
+  objectStorageSecretKey: ""  # Required: S3 secret key for SeaweedFS (and the backend)
   keycloakAdminPassword: ""  # Required: admin password for Keycloak
   keycloakClientSecret: ""   # Required: OIDC client secret for eaistack-backend
 
@@ -37,7 +37,7 @@ global:
   fullnameOverrides: {}
   #   postgres: my-custom-pg
   #   keycloak: my-custom-keycloak
-  #   minio: my-custom-minio
+  #   seaweedfs: my-custom-seaweedfs
   #   llama-server: my-custom-llama-server
   #   embedding-server: my-custom-embedding-server
   #   doc-search: my-custom-doc-search
@@ -66,19 +66,17 @@ keycloak:
   # External hostname for Keycloak's SANs (only used if set; in-cluster DNS names are always included)
   externalHostname: ""  # e.g., "keycloak.example.com" for production
 
-minio:
+seaweedfs:
   enabled: true
   image:
-    repository: minio/minio
-    tag: latest
+    repository: chrislusf/seaweedfs
+    tag: "4.48"
     pullPolicy: IfNotPresent
 
   storage:
     size: 50Gi
     storageClassName: ""  # Must be overridden with an encrypted StorageClass name (Decision 6)
 
-  # MinIO console port (typically 9001)
-  consolePort: 9001
 
 llama-server:
   enabled: true

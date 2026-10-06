@@ -1,8 +1,8 @@
-"""MinIO client construction.
+"""Object-storage client construction.
 
-Phase 5 stood MinIO up with TLS deliberately ahead of any client that talks
+Phase 5 stood the object store up with TLS deliberately ahead of any client that talks
 to it, so that the default, easiest-to-write client is also the compliant
-one (see docs/SECURITY.md and issue #13). build_minio_client() is the one
+one (see docs/SECURITY.md and issue #13). build_object_storage_client() is the one
 place that constructs the SDK client - every caller in this codebase must
 go through it rather than instantiating `minio.Minio` directly, so this
 guarantee can't be quietly bypassed at a second call site.
@@ -16,21 +16,21 @@ from minio import Minio
 from app.core.config import settings
 
 
-def build_minio_client() -> Minio:
-    """Build the MinIO client used for all object storage.
+def build_object_storage_client() -> Minio:
+    """Build the S3 client used for all object storage.
 
-    secure is derived from settings.minio_url's scheme (https:// vs
+    secure is derived from settings.object_storage_url's scheme (https:// vs
     http://) - the same "let the URL decide" rule every other outbound
     client in this codebase follows (see app.core.tls: httpx respects a
     client's http(s):// scheme with no separate flag). The Helm-deployed
-    production MinIO (Phase 5) is configured with an https:// URL, so the
+    production object storage (Phase 5) is configured with an https:// URL, so the
     default path there is TLS with the internal CA bundle - exactly the
     compliant behaviour issue #13 requires. Local dev / docker-compose,
-    which run MinIO over plaintext like every other service in that stack,
+    which run object storage over plaintext like every other service in that stack,
     configure http:// and get an unencrypted client, matching how the LLM
     and doc-search clients already behave in the same environment.
 
-    TODO(#<follow-up>): docker-compose's MinIO (and the rest of the local
+    TODO(#<follow-up>): docker-compose's object storage (and the rest of the local
     stack) is planned to move to TLS-by-default; when that lands, the
     http:// fallback here becomes dead code for every environment, not
     just production.
@@ -41,8 +41,8 @@ def build_minio_client() -> Minio:
     explicit http_client is passed and the SDK falls back to its own
     default trust store (or is irrelevant, for a plaintext connection).
     """
-    secure = settings.minio_url.startswith("https://")
-    endpoint = _strip_scheme(settings.minio_url)
+    secure = settings.object_storage_url.startswith("https://")
+    endpoint = _strip_scheme(settings.object_storage_url)
 
     http_client = None
     if secure and settings.ca_bundle_path:
@@ -50,8 +50,8 @@ def build_minio_client() -> Minio:
 
     return Minio(
         endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
+        access_key=settings.object_storage_access_key,
+        secret_key=settings.object_storage_secret_key,
         secure=secure,
         http_client=http_client,
     )

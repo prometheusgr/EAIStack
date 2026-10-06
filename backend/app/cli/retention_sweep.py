@@ -28,7 +28,7 @@ from app.db.database import SessionLocal
 from app.db.models import utc_now
 from app.services import run_retention_sweep
 from app.storage.document_store import DocumentStore
-from app.storage.minio_client import build_minio_client
+from app.storage.object_storage_client import build_object_storage_client
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +40,16 @@ def main() -> int:
     whatever an admin last set in the settings screen without this job
     needing a redeploy.
 
-    Always runs with a real DocumentStore so a purged document's MinIO
+    Always runs with a real DocumentStore so a purged document's object storage
     object is deleted alongside its DB row - the object store is expected
     to be reachable in every deployment where this CronJob runs (see
     docker-compose.yml / infra/k3s/retention-cronjob.yaml).
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    document_store = DocumentStore(client=build_minio_client(), bucket=settings.minio_bucket)
+    document_store = DocumentStore(
+        client=build_object_storage_client(), bucket=settings.object_storage_bucket
+    )
 
     db = SessionLocal()
     try:

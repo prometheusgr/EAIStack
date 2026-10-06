@@ -16,10 +16,10 @@ dependencies:
   repository: "file://../keycloak"
   condition: keycloak.enabled
 
-- name: minio
+- name: seaweedfs
   version: "1.0.0"
-  repository: "file://../minio"
-  condition: minio.enabled
+  repository: "file://../seaweedfs"
+  condition: seaweedfs.enabled
 
 - name: llama-server
   version: "1.0.0"

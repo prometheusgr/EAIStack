@@ -4,9 +4,9 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 // Validates issue #13's file-upload flow through the real UI, backend, and
-// MinIO -- not a mocked service layer. Unit tests already cover the upload
+// object storage -- not a mocked service layer. Unit tests already cover the upload
 // endpoint's logic (content-type/size validation, text extraction,
-// MinIO storage) with a fake DocumentStore; this is the "does it actually
+// object storage) with a fake DocumentStore; this is the "does it actually
 // work end to end" check per AGENTS.md's e2e-after-green process.
 //
 // Runs in the 'chromium' project, pre-authenticated via storageState (see
@@ -23,7 +23,7 @@ test.describe('Knowledge base file upload', () => {
     await page.getByRole('tab', { name: /upload file/i }).click()
 
     // Unique per run: the seeded testuser's documents persist across e2e
-    // runs (same Postgres/MinIO), so a fixed filename could already be in
+    // runs (same Postgres/object store), so a fixed filename could already be in
     // the list from a previous run.
     const uniqueName = `e2e-upload-${Date.now()}.txt`
     const dir = mkdtempSync(join(tmpdir(), 'eaistack-e2e-'))

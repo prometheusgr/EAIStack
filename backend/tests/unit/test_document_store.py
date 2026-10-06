@@ -1,11 +1,11 @@
-"""Unit tests for DocumentStore - the service wrapping MinIO for uploaded
+"""Unit tests for DocumentStore - the service wrapping object storage for uploaded
 knowledge-base documents.
 
-MinIO itself is an external boundary (per AGENTS.md: mock only at the
+object storage itself is an external boundary (per AGENTS.md: mock only at the
 service boundary, not business logic), so these tests mock the Minio
 client instance and verify DocumentStore's own logic - bucket
 ensure-exists-once behavior, key construction delegation, and how it
-translates SDK calls - not MinIO's behavior itself. Real MinIO
+translates SDK calls - not object storage's behavior itself. Real object storage
 interaction is covered by tests/integration (testcontainers).
 """
 
@@ -75,7 +75,7 @@ def test_upload_skips_bucket_creation_if_it_exists():
 @pytest.mark.unit
 def test_upload_succeeds_when_bucket_is_created_concurrently_by_another_request():
     """Test: under concurrent first-uploads, two requests can both observe
-    bucket_exists() == False and both call make_bucket() - MinIO's SDK
+    bucket_exists() == False and both call make_bucket() - object storage's SDK
     raises S3Error(BucketAlreadyOwnedByYou) for the loser of that race.
     upload() must treat that specific error as "the bucket now exists,
     proceed" rather than letting it propagate and fail an otherwise-valid
@@ -140,7 +140,7 @@ def test_delete_removes_the_object():
 
 @pytest.mark.unit
 def test_delete_is_idempotent_when_object_already_gone():
-    """Test: deleting an object that MinIO reports as already-gone does not
+    """Test: deleting an object that object storage reports as already-gone does not
     raise - retention sweeps must tolerate a prior partial failure (DB row
     purged, object delete retried) without erroring on the second attempt.
     """
@@ -170,7 +170,7 @@ def test_delete_rejects_a_storage_key_not_owned_by_the_given_user():
     the SDK, when the storage_key's embedded user segment (see
     app.storage.object_keys) doesn't match the given user_id - the
     structural ownership guarantee from docs/REPOSITORY_PATTERN.md applied
-    to MinIO object paths.
+    to stored object paths.
     """
     client = MagicMock()
     store = DocumentStore(client=client, bucket="documents")

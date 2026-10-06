@@ -1,9 +1,9 @@
 """Unit tests for POST /api/knowledge-base/upload - TDD discipline.
 
-MinIO is an external boundary (per AGENTS.md), so these tests override the
+object storage is an external boundary (per AGENTS.md), so these tests override the
 app's DocumentStore dependency with a stand-in that records calls rather
 than talking to a real server - the same pattern the LLM boundary uses
-(FakeChatModel). Real MinIO interaction is covered separately by
+(FakeChatModel). Real object storage interaction is covered separately by
 tests/integration (testcontainers).
 """
 
@@ -19,7 +19,7 @@ from app.storage.object_keys import build_object_key
 
 
 class FakeDocumentStore:
-    """Records uploads in memory instead of talking to MinIO.
+    """Records uploads in memory instead of talking to object storage.
 
     upload() delegates key construction to the real build_object_key, the
     same as DocumentStore.upload does - so a filename that build_object_key
@@ -73,7 +73,7 @@ def test_upload_plain_text_file_creates_knowledge_base_entry(
     client, db_session, fake_document_store
 ):
     """Test: uploading a .txt file creates a KnowledgeBase row with extracted
-    text as content, stores the object in MinIO, and generates an embedding.
+    text as content, stores the object in object storage, and generates an embedding.
     """
     _authed()
     try:
@@ -172,7 +172,7 @@ def test_upload_rejects_file_exceeding_size_limit(client, fake_document_store):
 def test_upload_scopes_object_key_to_caller_user_id(client, db_session, fake_document_store):
     """Test: the storage key is built from the authenticated caller's
     user_id, never from anything client-supplied - the structural
-    isolation guarantee from docs/REPOSITORY_PATTERN.md applied to MinIO
+    isolation guarantee from docs/REPOSITORY_PATTERN.md applied to object storage
     object paths.
     """
     _authed(client_user_id="user-a")
@@ -289,7 +289,7 @@ def test_upload_rejects_path_traversal_filename_with_clean_4xx(
 def test_upload_deletes_orphaned_object_when_embedding_generation_fails(
     client, db_session, fake_document_store, monkeypatch
 ):
-    """Test: if the MinIO upload succeeds but a later step (embedding
+    """Test: if the object storage upload succeeds but a later step (embedding
     generation) fails, the just-uploaded object is deleted rather than left
     as a permanent orphan with no KnowledgeBase row ever pointing at it -
     the retention sweep can only ever purge objects it can reach via a
@@ -333,7 +333,7 @@ def test_upload_cleanup_failure_does_not_mask_the_original_exception(
     exception must still be what propagates - not the cleanup failure. A
     cleanup exception replacing the real root cause would hide why the
     request actually failed (e.g. "embedding service unavailable") behind
-    an unrelated MinIO error, making the failure much harder to diagnose.
+    an unrelated object storage error, making the failure much harder to diagnose.
     """
     import app.api.knowledge_base as knowledge_base_module
 
@@ -341,7 +341,7 @@ def test_upload_cleanup_failure_does_not_mask_the_original_exception(
         raise RuntimeError("embedding service unavailable")
 
     def _cleanup_boom(storage_key, *, user_id):
-        raise ConnectionError("MinIO transiently unreachable")
+        raise ConnectionError("object storage transiently unreachable")
 
     monkeypatch.setattr(knowledge_base_module, "generate_and_attach_embeddings", _embedding_boom)
     monkeypatch.setattr(fake_document_store, "delete", _cleanup_boom)

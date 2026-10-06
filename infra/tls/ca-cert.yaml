@@ -4,7 +4,7 @@
 # asking Let's Encrypt over the internet (ACME) — is not available. Instead the
 # cluster runs its own certificate authority (CA): one root certificate that
 # EAIStack itself creates, and which every EAIStack pod is told to trust. Every
-# per-service certificate (backend, postgres, minio, ...) is then signed by that
+# per-service certificate (backend, postgres, seaweedfs, ...) is then signed by that
 # root, so services can verify each other's identity without ever leaving the
 # cluster.
 #

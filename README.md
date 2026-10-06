@@ -22,7 +22,7 @@ Most "build your own ChatGPT" tutorials assume you can call OpenAI's API and sto
 | Backend          | FastAPI + LangGraph        | REST API, agent orchestration, guardrails                                                           |
 | Auth             | Keycloak (OIDC)            | Login, JWT issuance/validation, RBAC (admin vs. user)                                               |
 | Database         | PostgreSQL + pgvector      | Relational data, conversation checkpoints, vector search                                            |
-| Object storage   | MinIO                      | Uploaded knowledge-base documents                                                                   |
+| Object storage   | SeaweedFS (S3 gateway)     | Uploaded knowledge-base documents                                                                   |
 | LLM inference    | llama.cpp (`llama-server`) | Local chat completion, OpenAI-compatible API                                                        |
 | Embeddings       | nomic-embed (768-dim)      | Local embedding generation for retrieval                                                            |
 | Tool integration | MCP (Streamable HTTP)      | `doc-search` server exposes `search_knowledge_base` to the agent as a separately deployable service |
@@ -44,7 +44,7 @@ User (browser)
     → Response → Frontend
 ```
 
-Documents uploaded through the knowledge base are stored in MinIO, text-extracted, chunked, embedded, and made searchable by the agent — scoped per user, with retention and audit logging enforced end to end.
+Documents uploaded through the knowledge base are stored in object storage (SeaweedFS), text-extracted, chunked, embedded, and made searchable by the agent — scoped per user, with retention and audit logging enforced end to end.
 
 ## Current status
 
@@ -55,9 +55,9 @@ The vertical slice — **login → chat → agent-with-tool → grounded respons
 - **Phase 3 — MCP server integration**: `search_knowledge_base` extracted into a standalone `doc-search` MCP server reached over Streamable HTTP, with independent JWT verification against Keycloak (doc-search never trusts a bare `user_id` from the backend).
 - **Phase 4a — Conversation persistence & session isolation**: LangGraph state persists to Postgres via a custom checkpointer; `(user_id, thread_id)` ownership enforced structurally by `ThreadRepository`.
 - **Phase 4b — Data retention & admin configuration**: every persisted store known at the time has a documented, enforced retention window (env default + DB override), a K8s CronJob sweep, and an append-only audit log. (LLM traces, added in Phase 4e below, are the one store this doesn't yet cover — see [#32](../../issues/32).)
-- **Phase 4 (guardrails/prompts/agent scaffolding)** and **document storage (MinIO upload/extraction)** — both closed; see [Roadmap](#roadmap--whats-next) for what's still open around them.
+- **Phase 4 (guardrails/prompts/agent scaffolding)** and **document storage (object-storage upload/extraction)** — both closed; see [Roadmap](#roadmap--whats-next) for what's still open around them.
 - **Phase 4e — LLM observability (base tracing)**: self-hosted Arize Phoenix traces every chat agent run (LLM calls, tool calls, latency, token counts, full prompt/response content), off by default. See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
-- **Phase 5 — TLS, secrets, and K8s deployment**: Helm charts (postgres, minio, keycloak, backend, doc-search, frontend, llama-server, embedding-server, umbrella), cert-manager-issued mTLS between services, `sslmode=verify-full` to Postgres, no plaintext secrets — see [docs/SECURITY.md](docs/SECURITY.md) for the full decision log.
+- **Phase 5 — TLS, secrets, and K8s deployment**: Helm charts (postgres, seaweedfs, keycloak, backend, doc-search, frontend, llama-server, embedding-server, umbrella), cert-manager-issued mTLS between services, `sslmode=verify-full` to Postgres, no plaintext secrets — see [docs/SECURITY.md](docs/SECURITY.md) for the full decision log.
 
 Streaming chat responses are deliberately deferred — tool-calling + streaming has known rough edges in llama.cpp.
 
@@ -128,11 +128,11 @@ Inferred from the repository's open GitHub issues, roughly in the order they'd u
 
 - **[#9](../../issues/9) — K3s deployment walkthrough + encryption-at-rest verification.** The Helm charts exist and are validated in CI, but no one has deployed to a live cluster yet. This issue is where TLS and at-rest encryption get _proven_, not just implemented — cert SANs, LUKS-encrypted volumes, `sslmode=verify-full` actually rejecting plaintext, an auditor-facing verification script.
 - **[#10](../../issues/10) — Air-gap bootstrap and image mirroring.** `infra/scripts/bootstrap-airgap.sh` is currently a stub. Needs to build/pull/tarball every image the Helm charts reference (the current hardcoded list is already stale — missing `doc-search` and `embedding-server` entirely), plus a CI assertion that no chart can silently reference an unmirrored image.
-- **[#17](../../issues/17) — TLS-by-default in docker-compose.** Local dev still talks plaintext HTTP between services (MinIO included), unlike the TLS-hardened production Helm deployment. Needs dev-only certs so local dev exercises the same code paths as production.
+- **[#17](../../issues/17) — TLS-by-default in docker-compose.** Local dev still talks plaintext HTTP between services (object storage included), unlike the TLS-hardened production Helm deployment. Needs dev-only certs so local dev exercises the same code paths as production.
 
 ### Compliance gaps (explicitly deferred, not forgotten)
 
-- **[#12](../../issues/12) — Backup strategy, encryption, and retention reconciliation.** There is currently no backup path in the repo at all. Needs a documented mechanism (pg_dump vs. snapshots vs. replication), encrypted backups, MinIO object backups, restore verification, and reconciliation with the existing data-retention policy so purged data doesn't quietly survive in a backup.
+- **[#12](../../issues/12) — Backup strategy, encryption, and retention reconciliation.** There is currently no backup path in the repo at all. Needs a documented mechanism (pg_dump vs. snapshots vs. replication), encrypted backups, stored object backups, restore verification, and reconciliation with the existing data-retention policy so purged data doesn't quietly survive in a backup.
 - **[#16](../../issues/16) — Configurable guardrail thresholds.** Guardrail behavior (input length limits, prompt-injection heuristics) is currently hardcoded with no admin override, unlike every other tunable setting in the system (retention windows, LLM provider). Needs the same env-default + DB-override pattern, surfaced in the Settings UI, and audit-logged.
 - **[#32](../../issues/32) — Configurable trace retention.** LLM traces (Phase 4e, above) capture the exact prompt/response content for every chat turn — the same sensitivity class as `conversation_threads` — but currently accumulate indefinitely with no purge mechanism, unlike every other content-bearing store in the system. Needs the same retention pattern (own independent window, `None`=forever/`0`=immediate), but purging means calling Phoenix's own deletion surface rather than a direct DB `DELETE`, since trace data lives outside the `eaistack` database the existing retention sweep owns. Prioritized to land immediately after Phase 4e.
 - **[#33](../../issues/33) — TLS for the Phoenix Helm chart.** Phoenix (Phase 4e) is the one chart in `infra/helm/charts/` that doesn't terminate TLS itself yet — it's a prebuilt upstream image, not one this repo builds and controls the entrypoint of, so this needed verification against the real image before implementing rather than a guess.

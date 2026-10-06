@@ -12,8 +12,8 @@ namespace: eaistack
 
 global:
   postgresPassword: "CHANGEME-ci-only-postgres"
-  miniRootUser: "CHANGEME-ci-only-minio-user"
-  miniRootPassword: "CHANGEME-ci-only-minio-password"
+  objectStorageAccessKey: "CHANGEME-ci-only-object-storage-access-key"
+  objectStorageSecretKey: "CHANGEME-ci-only-object-storage-secret-key"
   keycloakAdminPassword: "CHANGEME-ci-only-keycloak-admin"
   keycloakClientSecret: "CHANGEME-ci-only-client-secret"
   # See values-airgap.yaml for what this controls. Left empty here so CI
@@ -38,16 +38,15 @@ keycloak:
     pullPolicy: IfNotPresent
   externalHostname: ""
 
-minio:
+seaweedfs:
   enabled: true
   image:
-    repository: minio/minio
-    tag: latest
+    repository: chrislusf/seaweedfs
+    tag: "4.48"
     pullPolicy: IfNotPresent
   storage:
     size: 50Gi
     storageClassName: "standard"  # CI placeholder
-  consolePort: 9001
 
 llama-server:
   enabled: true

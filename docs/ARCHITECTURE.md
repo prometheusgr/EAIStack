@@ -9,7 +9,7 @@ EAIStack is a forkable template for building offline/air-gapped enterprise AI ap
 - Backend: FastAPI + LangGraph
 - Auth: Keycloak (OIDC)
 - Storage: PostgreSQL + pgvector (structured data + embeddings)
-- Object storage: MinIO (documents)
+- Object storage: SeaweedFS, via its S3 gateway (documents)
 - LLM: llama.cpp (llama-server) for local inference
 - MCP: Custom Streamable HTTP servers for tool integration
 - Deployment: K3s (production-grade, minimal Kubernetes)
@@ -81,7 +81,7 @@ organization/tenant concept anywhere in the schema, auth flow, or Keycloak realm
 config.
 
 **The supported deployment pattern is one Keycloak realm + one EAIStack
-deployment per organization** — separate Postgres, separate MinIO bucket,
+deployment per organization** — separate Postgres, separate object-storage bucket,
 separate K8s namespace (or cluster) per customer, exactly the isolation
 boundary the rest of this document already assumes. This is correct for that
 shape and shouldn't be casually extended: a single deployment serving multiple
@@ -134,7 +134,7 @@ Custom MCP tool servers (e.g., document search) expose **Streamable HTTP** (stat
 As of Aug 2025, Bitnami free tier moved to deprecated unmaintained images. Using instead:
 - PostgreSQL: official `pgvector/pgvector` image
 - Keycloak: Keycloak's official chart
-- MinIO: MinIO's official chart
+- SeaweedFS: custom chart around the official `chrislusf/seaweedfs` image
 
 ## Data Flow
 
@@ -148,7 +148,7 @@ User (browser)
         ↓
         MCP tool server (Streamable HTTP, separate pod — doc-search)
           → pgvector (document search)
-          → MinIO (document retrieval, planned)
+          → Object storage (document retrieval, planned)
       → Response to frontend (streaming)
 ```
 

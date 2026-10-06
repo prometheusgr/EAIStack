@@ -200,7 +200,7 @@ def purge_expired_knowledge_base(
     document_store: "DocumentStore | None" = None,
 ) -> int:
     """Hard-delete documents soft-deleted before the purge cutoff, along with
-    their embeddings and (for file-backed documents) their MinIO objects.
+    their embeddings and (for file-backed documents) their stored objects.
     Returns the number of documents purged.
 
     Only soft-deleted rows are eligible: a live document has no purge
@@ -210,7 +210,7 @@ def purge_expired_knowledge_base(
     document_store is optional so callers without object storage configured
     (or that don't care about it) keep today's DB-only purge behavior. When
     given, every expired document's storage_key (NULL for pasted-text
-    entries, which are skipped) is deleted from MinIO in the same batches as
+    entries, which are skipped) is deleted from object storage in the same batches as
     the DB rows - the retention policy promises the underlying object is
     gone too, not just the row that pointed at it (see issue #13).
     """
@@ -239,10 +239,10 @@ def purge_expired_knowledge_base(
         db.flush()
 
     # The DB-side delete is flushed (and thus would already have surfaced any
-    # constraint error) before the irreversible MinIO delete runs - never the
+    # constraint error) before the irreversible object storage delete runs - never the
     # other way around. A full sweep (see run_retention_sweep /
     # app.cli.retention_sweep.main) runs every purge under one transaction
-    # that commits once at the end; if MinIO objects were deleted first and a
+    # that commits once at the end; if stored objects were deleted first and a
     # later step in that same sweep then failed, db.rollback() would
     # resurrect these KnowledgeBase rows while their objects stayed gone
     # forever - a permanently orphaned, undetectable dangling storage_key.
@@ -304,7 +304,7 @@ def run_retention_sweep(
     what was actually deleted rather than purging silently.
 
     document_store is forwarded to the knowledge-base purge so a purged
-    document's MinIO object is deleted in the same sweep as its DB row
+    document's stored object is deleted in the same sweep as its DB row
     (see purge_expired_knowledge_base) - omit it only when object storage
     isn't configured for this deployment.
 

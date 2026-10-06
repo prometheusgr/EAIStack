@@ -64,7 +64,7 @@ CLUSTER_SCOPED_KINDS = (
 )
 
 # Exact names and prefixes that identify an env var as carrying a credential.
-# Prefix matching keeps new MINIO_*/POSTGRES_* credentials covered without an
+# Prefix matching keeps new OBJECT_STORAGE_*/POSTGRES_* credentials covered without an
 # edit here — a rule that only fires on an enumerated list silently misses the
 # next secret someone adds.
 CREDENTIAL_ENV_NAMES = (
@@ -74,7 +74,7 @@ CREDENTIAL_ENV_NAMES = (
     "OPENAI_API_KEY",
 )
 CREDENTIAL_ENV_PREFIXES = (
-    "MINIO_",
+    "OBJECT_STORAGE_",
     "POSTGRES_",
     "KEYCLOAK_ADMIN_",
 )
@@ -85,13 +85,13 @@ CREDENTIAL_ENV_SUBSTRINGS = ("PASSWORD", "SECRET", "_API_KEY", "ACCESS_KEY", "TO
 # prefix, but are not themselves credentials — they name where a secret lives,
 # a hostname, a resource name, or a config string, rather than carrying a
 # secret value. Prefix matching (below) is deliberately broad so a *new*
-# MINIO_*/POSTGRES_* credential is covered without an edit here; each name
+# OBJECT_STORAGE_*/POSTGRES_* credential is covered without an edit here; each name
 # added to this tuple is a specific, reviewed case where that broad match is
 # wrong, not a way to quietly narrow the rule back down.
 CREDENTIAL_ENV_EXEMPTIONS = (
     "KEYCLOAK_CLIENT_SECRET_KEY_REF",
-    "MINIO_URL",
-    "MINIO_BUCKET",
+    "OBJECT_STORAGE_URL",
+    "OBJECT_STORAGE_BUCKET",
     "POSTGRES_DB",
     "POSTGRES_INITDB_ARGS",
 )

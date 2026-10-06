@@ -1,0 +1,49 @@
+# SeaweedFS chart values (S3-compatible object storage; replaced MinIO in issue #94)
+
+image:
+  repository: chrislusf/seaweedfs
+  # Pinned, never `latest`: this is an air-gapped deployment, so the exact
+  # image vendored by infra/scripts/bootstrap-airgap.sh must be the one this
+  # chart asks for. Keep in sync with docker-compose.yml.
+  tag: "4.48"
+  pullPolicy: IfNotPresent
+
+# S3 API port. The server speaks HTTPS here because the TLS cert/key below
+# are always mounted (Decision 10) - SeaweedFS serves TLS-only on this port
+# once -s3.cert.file is set.
+port: 8333
+
+# Storage configuration: PVC backing the seaweedfs Deployment
+storage:
+  size: 50Gi
+  storageClassName: ""  # Must be set to an encrypted StorageClass at install time (Decision 6)
+  mountPath: /data
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Readiness/liveness probe timings. SeaweedFS runs master + volume server +
+# filer + S3 gateway in one process and needs a little longer to elect its
+# internal master and register the volume server than a single-binary store.
+probe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Pod security context: the image runs fine as an arbitrary non-root UID as
+# long as the data volume is writable (verified by hand against 4.48; fsGroup
+# makes the PVC writable).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# External hostname for SeaweedFS's SANs (if exposed outside the cluster)
+externalHostname: ""

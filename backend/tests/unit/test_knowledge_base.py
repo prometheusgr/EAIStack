@@ -455,7 +455,7 @@ def test_update_knowledge_base_clears_stale_file_metadata_and_deletes_object(cli
     """Test: PUT on a file-backed entry (non-null storage_key) clears
     storage_key/original_filename/content_type, since the row's content is
     now hand-edited text disconnected from the originally uploaded file,
-    and deletes the now-orphaned MinIO object - otherwise the row would
+    and deletes the now-orphaned stored object - otherwise the row would
     keep claiming to be backed by a file whose bytes no longer match the
     DB content.
     """

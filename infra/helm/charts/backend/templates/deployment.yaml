@@ -70,20 +70,21 @@ spec:
           value: "http://{{ include "embedding-server.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8000/v1"
         - name: EMBEDDING_MODEL
           value: "nomic-embed-text-v1.5.Q4_K_M.gguf"
-        # MinIO configuration
-        - name: MINIO_URL
-          value: "https://{{ include "minio.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:9000"
-        - name: MINIO_ACCESS_KEY
+        # Object storage configuration (SeaweedFS S3 gateway). Env var names must
+        # match Settings.object_storage_* in backend/app/core/config.py.
+        - name: OBJECT_STORAGE_URL
+          value: "https://{{ include "seaweedfs.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8333"
+        - name: OBJECT_STORAGE_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: {{ include "backend.secretName" . }}
-              key: minio-access-key
-        - name: MINIO_SECRET_KEY
+              key: object-storage-access-key
+        - name: OBJECT_STORAGE_SECRET_KEY
           valueFrom:
             secretKeyRef:
               name: {{ include "backend.secretName" . }}
-              key: minio-secret-key
-        - name: MINIO_BUCKET
+              key: object-storage-secret-key
+        - name: OBJECT_STORAGE_BUCKET
           value: "documents"
         # MCP doc-search endpoint. Env var name must match Settings.doc_search_mcp_url
         # in backend/app/core/config.py (pydantic-settings resolves the field name to

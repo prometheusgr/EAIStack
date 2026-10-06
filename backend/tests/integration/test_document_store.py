@@ -1,61 +1,84 @@
-"""Integration tests for DocumentStore against a real MinIO server.
+"""Integration tests for DocumentStore against a real SeaweedFS S3 gateway.
 
-MinIO is an external boundary (per AGENTS.md): these tests run against a
-real MinIO container via testcontainers, not a mock, so they actually
-exercise the wire protocol the SDK speaks - bucket creation, object
+Object storage is an external boundary (per AGENTS.md): these tests run
+against a real SeaweedFS container via testcontainers, not a mock, so they
+actually exercise the wire protocol the SDK speaks - bucket creation, object
 upload/download/delete, and batch delete. Unit tests
 (tests/unit/test_document_store.py) cover DocumentStore's own logic with a
-mocked client; this file is the "does it actually work against MinIO"
-check.
+mocked client; this file is the "does it actually work against the real
+S3 server" check (issue #94 swapped MinIO for SeaweedFS; the SDK is still
+the MinIO Python client, which speaks the generic S3 API).
 
 Runs over plaintext (secure=False), matching how every other local/CI
-service in this stack talks - see app.storage.minio_client's
+service in this stack talks - see app.storage.object_storage_client's
 scheme-derived secure flag and issue #17 (tracked follow-up to make local
 dev TLS-by-default).
 """
 
+import urllib.request
 from io import BytesIO
 
 import pytest
 from minio import Minio
 from testcontainers.core.container import DockerContainer
-from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.core.waiting_utils import wait_container_is_ready
 
 from app.storage.document_store import DocumentStore
 
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
+ACCESS_KEY = "test-access-key"
+SECRET_KEY = "test-secret-key"
+S3_PORT = 8333
+
+# Keep in sync with docker-compose.yml's seaweedfs service and
+# infra/helm/charts/seaweedfs/values.yaml: one pinned tag, never `latest`.
+SEAWEEDFS_IMAGE = "chrislusf/seaweedfs:4.48"
+
+
+@wait_container_is_ready()
+def _wait_for_s3_gateway(container: DockerContainer) -> None:
+    """Poll the gateway's /healthz until it answers 200 (raises until then)."""
+    host = container.get_container_host_ip()
+    port = container.get_exposed_port(S3_PORT)
+    with urllib.request.urlopen(f"http://{host}:{port}/healthz", timeout=2) as response:
+        assert response.status == 200
 
 
 @pytest.fixture(scope="module")
-def minio_container():
-    """Start a real MinIO server for the duration of this test module."""
+def object_storage_container():
+    """Start a real SeaweedFS server (master + volume + filer + S3 gateway
+    in one process) for the duration of this test module.
+
+    -volume.max=0 lets the volume server size its slot count from free disk
+    instead of the default cap: SeaweedFS pre-allocates several volumes per
+    bucket, and the fresh-bucket-per-test fixture below would otherwise
+    exhaust the default slots partway through the module.
+    """
     container = (
-        DockerContainer("minio/minio:latest")
-        .with_env("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
-        .with_env("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
-        .with_exposed_ports(9000)
-        .with_command("server /data")
+        DockerContainer(SEAWEEDFS_IMAGE)
+        .with_env("AWS_ACCESS_KEY_ID", ACCESS_KEY)
+        .with_env("AWS_SECRET_ACCESS_KEY", SECRET_KEY)
+        .with_exposed_ports(S3_PORT)
+        .with_command(f"server -dir=/data -volume.max=0 -s3 -s3.port={S3_PORT}")
     )
     container.start()
-    wait_for_logs(container, "API:", timeout=30)
+    _wait_for_s3_gateway(container)
     yield container
     container.stop()
 
 
 @pytest.fixture
-def document_store(minio_container):
-    """A DocumentStore backed by the real MinIO container, with a fresh
+def document_store(object_storage_container):
+    """A DocumentStore backed by the real SeaweedFS container, with a fresh
     per-test bucket so tests don't see each other's objects.
     """
     import uuid
 
-    host = minio_container.get_container_host_ip()
-    port = minio_container.get_exposed_port(9000)
+    host = object_storage_container.get_container_host_ip()
+    port = object_storage_container.get_exposed_port(S3_PORT)
     client = Minio(
         f"{host}:{port}",
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
+        access_key=ACCESS_KEY,
+        secret_key=SECRET_KEY,
         secure=False,
     )
     bucket = f"test-{uuid.uuid4().hex[:12]}"
