@@ -10,6 +10,7 @@ export type MainLayoutView =
   | 'settings'
   | 'audit'
   | 'dashboard'
+  | 'workflows'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -113,6 +114,16 @@ export function MainLayout({
               data-active={currentView === 'settings'}
             >
               Settings
+            </Button>
+          )}
+          {isAdmin && (
+            <Button
+              variant={currentView === 'workflows' ? 'default' : 'ghost'}
+              onClick={() => onViewChange('workflows')}
+              className="rounded-none border-b-2 border-transparent data-[active=true]:border-primary text-xs md:text-sm"
+              data-active={currentView === 'workflows'}
+            >
+              Workflows
             </Button>
           )}
           {isAdmin && auditLogUiEnabled && (

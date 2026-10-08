@@ -36,10 +36,16 @@ router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
 
 def _rejected(exc: WorkflowDraftRejected) -> JSONResponse:
-    """422 naming the offending field, so the editor can show it inline."""
+    """422 naming the offending field, so the editor can show it inline.
+
+    message always leads with the field: the frontend's error object only
+    carries `message` (see frontend/src/api/authorizedFetch.ts), and an
+    admin needs to know where in the YAML the problem is.
+    """
+    message = exc.message if exc.message.startswith(exc.field) else f"{exc.field}: {exc.message}"
     return JSONResponse(
         status_code=422,
-        content={"detail": "workflow_draft_rejected", "field": exc.field, "message": exc.message},
+        content={"detail": "workflow_draft_rejected", "field": exc.field, "message": message},
     )
 
 

@@ -93,6 +93,8 @@ export function Settings() {
   const [cleanupOnLogout, setCleanupOnLogout] = useState(true)
   const [knowledgeBasePurgeDays, setKnowledgeBasePurgeDays] = useState<RetentionInput>('')
   const [apiKeyPurgeDays, setApiKeyPurgeDays] = useState<RetentionInput>('')
+  const [chatTurnVersionRetentionDays, setChatTurnVersionRetentionDays] =
+    useState<RetentionInput>('')
   const [maxInputLength, setMaxInputLength] = useState<NumericSettingInput>('')
   const [guardrailsInputEnabled, setGuardrailsInputEnabled] = useState(true)
   const [guardrailsOutputEnabled, setGuardrailsOutputEnabled] = useState(true)
@@ -160,6 +162,7 @@ export function Settings() {
     setCleanupOnLogout(get.data.cleanup_on_logout)
     setKnowledgeBasePurgeDays(String(get.data.knowledge_base_purge_days ?? ''))
     setApiKeyPurgeDays(String(get.data.api_key_purge_days ?? ''))
+    setChatTurnVersionRetentionDays(String(get.data.chat_turn_version_retention_days ?? ''))
     setMaxInputLength(String(get.data.max_input_length))
     setGuardrailsInputEnabled(get.data.guardrails_input_enabled)
     setGuardrailsOutputEnabled(get.data.guardrails_output_enabled)
@@ -246,6 +249,9 @@ export function Settings() {
       api_key_purge_days: clearedFields.has('api_key_purge_days')
         ? null
         : toRetentionPayloadValue(apiKeyPurgeDays),
+      chat_turn_version_retention_days: clearedFields.has('chat_turn_version_retention_days')
+        ? null
+        : toRetentionPayloadValue(chatTurnVersionRetentionDays),
       max_input_length: clearedFields.has('max_input_length')
         ? null
         : toNumericSettingPayloadValue(maxInputLength),
@@ -319,6 +325,12 @@ export function Settings() {
           unit: 'days',
           current: get.data.api_key_purge_days,
           next: payload.api_key_purge_days ?? null,
+        },
+        {
+          label: 'Chat-turn workflow versions',
+          unit: 'days',
+          current: get.data.chat_turn_version_retention_days,
+          next: payload.chat_turn_version_retention_days ?? null,
         },
       ]
 
@@ -827,6 +839,32 @@ export function Settings() {
           />
         </div>
 
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="chat-turn-version-retention-days">
+              Chat-turn workflow versions (days) (
+              {overrideLabel(get.data.chat_turn_version_retention_days_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How long EAIStack remembers which workflow version (which prompt) answered each
+              chat turn. It stores no message text, so it is kept independently of conversations
+              and logout cleanup — useful for answering &quot;which prompt produced this
+              answer?&quot; after a later edit. Leave empty to keep forever. Default 365 days.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="chat-turn-version-retention-days"
+            type="number"
+            min={0}
+            value={chatTurnVersionRetentionDays}
+            onChange={(e) => {
+              setChatTurnVersionRetentionDays(e.target.value)
+              markFieldEdited('chat_turn_version_retention_days')
+            }}
+            placeholder="Leave empty to keep forever"
+          />
+        </div>
+
         <div className="flex items-center gap-2">
           <input
             id="cleanup-on-logout"
@@ -884,10 +922,12 @@ export function Settings() {
             setConversationRetentionHours('')
             setKnowledgeBasePurgeDays('')
             setApiKeyPurgeDays('')
+            setChatTurnVersionRetentionDays('')
             setCleanupOnLogout(true)
             markFieldCleared('conversation_retention_hours')
             markFieldCleared('knowledge_base_purge_days')
             markFieldCleared('api_key_purge_days')
+            markFieldCleared('chat_turn_version_retention_days')
             markFieldCleared('cleanup_on_logout')
           }}
         >

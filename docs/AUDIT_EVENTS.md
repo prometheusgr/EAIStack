@@ -37,7 +37,7 @@ One row per changed field, per change (`backend/app/db/models.py`, `AuditLog`):
 
 | Action | Trigger | Where |
 |---|---|---|
-| `retention.update` | An admin changes a retention field (`conversation_retention_hours`, `cleanup_on_logout`, `knowledge_base_purge_days`, `api_key_purge_days`) via the Settings UI | `backend/app/api/settings.py`, `_record_retention_changes()` |
+| `retention.update` | An admin changes a retention field (`conversation_retention_hours`, `cleanup_on_logout`, `knowledge_base_purge_days`, `api_key_purge_days`, `chat_turn_version_retention_days`) via the Settings UI | `backend/app/api/settings.py`, `_record_retention_changes()` |
 | `guardrail.config_update` | An admin changes a guardrail scalar field (`max_input_length`, `guardrails_input_enabled`, `guardrails_output_enabled`) via the Settings UI | `backend/app/api/settings.py`, `_record_guardrail_changes()` |
 | `guardrail.pattern_update` | An admin adds, toggles, or deletes a guardrail pattern (built-in or custom) | `backend/app/api/settings.py`, `create_guardrail_pattern()` / `update_guardrail_pattern()` / `delete_guardrail_pattern()` |
 | `guardrail.input_rejected` | The input guardrail rejects a chat message at request time (a runtime event, not an admin config change) | `backend/app/services/chat_guardrail_service.py` |
@@ -46,6 +46,11 @@ One row per changed field, per change (`backend/app/db/models.py`, `AuditLog`):
 | `rate_limit.config_update` | An admin changes a rate-limit field (`rate_limit_enabled`, chat/auth capacity and refill rate) via the Settings UI | `backend/app/api/settings.py`, `_record_rate_limit_changes()` |
 | `audit_log_ui.config_update` | An admin changes `audit_log_ui_enabled` (whether the in-product Audit Log view is shown) via the Settings UI | `backend/app/api/settings.py`, `_record_audit_log_ui_changes()` |
 | `retention_notice.config_update` | An admin changes `retention_notice_enabled` (whether the end-user-facing retention notice is shown in the chat UI) via the Settings UI | `backend/app/api/settings.py`, `_record_retention_notice_changes()` |
+| `workflow.created` | An admin creates a new workflow on the Workflows screen. `field_name` = workflow name, `new_value` = its first version ID | `backend/app/services/workflow_service.py`, `create_workflow()` |
+| `workflow.draft_saved` | An admin saves a new (unpublished) version. `old_value` = the version that was active, `new_value` = the draft's ID | `backend/app/services/workflow_service.py`, `save_draft()` |
+| `workflow.published` | An admin makes a version live. `old_value`/`new_value` = previous/new active version ID, written in the same transaction as the pointer move | `backend/app/services/workflow_service.py`, `_apply_publish()` |
+| `workflow.rolled_back` | An admin re-publishes an older version (recorded separately from a forward publish) | `backend/app/services/workflow_service.py`, `_apply_publish()` |
+| `workflow.builtin_synced` | Startup records a changed built-in YAML file and makes it active, because no admin version was published (actor `system`). A changed built-in never replaces a published admin version | `backend/app/services/workflow_service.py`, `sync_builtin_versions()` |
 | `rag_config.config_update` | An admin changes a RAG retrieval/chunking field (`rag_similarity_threshold`, `rag_max_results`, `rag_min_chunk_size`, `rag_chunk_size`, `rag_chunk_overlap_ratio`, `rag_max_excerpt_chars`) via the Settings UI — see `docs/RAG_CONFIGURATION.md` | `backend/app/api/settings.py`, `_record_rag_config_changes()` |
 
 Only fields whose value actually changed produce an entry — re-saving the settings form without touching a given field writes zero rows for it. All entries from one request share a single `now` timestamp so a multi-field change is legible as one event.
