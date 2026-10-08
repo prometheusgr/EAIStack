@@ -107,4 +107,4 @@ See `pyproject.toml` for locked versions. Key libraries:
 - **LangGraph**: agent orchestration and state management
 - **SQLAlchemy**: ORM for Postgres + pgvector
 - **Pydantic**: request/response validation
-- **minio (Python SDK)**: S3-compatible object storage client (talks to SeaweedFS; see docs/ARCHITECTURE.md)
+- **boto3**: generic S3 client for object storage (talks to SeaweedFS; see docs/ARCHITECTURE.md)

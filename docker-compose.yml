@@ -27,15 +27,20 @@ services:
       # in backend/app/core/config.py's defaults, which the backend uses here.
       AWS_ACCESS_KEY_ID: eaistack-dev-access
       AWS_SECRET_ACCESS_KEY: eaistack-dev-secret
+      # One new volume per bucket instead of SeaweedFS's default 7: that
+      # default spreads writes across a multi-server cluster, and on this
+      # single node it only pre-allocates volume slots until none are left.
+      WEED_MASTER_VOLUME_GROWTH_COPY_1: "1"
     ports:
       - "8333:8333"
     volumes:
       - seaweedfs_data:/data
-    # -volume.max=0: SeaweedFS pre-allocates several volumes per bucket; let
-    #   the volume server size its slot count from free disk, not a low cap.
+    # -volume.max=0 + -master.volumeSizeLimitMB=1024: size the volume-slot
+    #   count from free disk in 1 GiB volumes. The 30 GB default would leave a
+    #   small disk with zero slots, and nothing could be written at all.
     # -master.telemetry=false: the image reports anonymous usage stats to
     #   telemetry.seaweedfs.com by default, which this stack never allows.
-    command: server -dir=/data -volume.max=0 -master.telemetry=false -s3 -s3.port=8333
+    command: server -dir=/data -volume.max=0 -master.volumeSizeLimitMB=1024 -master.telemetry=false -s3 -s3.port=8333
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8333/healthz"]
       interval: 10s

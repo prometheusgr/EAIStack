@@ -64,7 +64,7 @@ Components never call `services/` or `api/` directly — only through a hook. Th
 | ORM / migrations | SQLAlchemy 2.0.23, Alembic 1.13.0, `psycopg2-binary` | ✅ |
 | Agent orchestration | LangGraph 1.0+, `langchain-core`, `langchain-openai` (chat model client) | ✅ |
 | Vector search | `pgvector` 0.2.4 (Python bindings) | ✅ |
-| Object storage client | `minio` 7.2.0 | ✅ |
+| Object storage client | `boto3` 1.43.109 (generic S3 API) | ✅ |
 | Auth / JWT | `pyjwt` 2.13.0 (the library actually used) — `python-jose` is also a declared dependency but unused in `auth.py` | ✅ (jose dep is dead weight, same category of issue as frontend's axios) |
 | MCP client | `mcp` SDK 1.29.0 | ✅ |
 | Document parsing | `pypdf`, `python-docx` | ✅ |
@@ -134,7 +134,7 @@ Alembic history: initial schema → embedding dimension fix (768) → system set
 | Concern | Technology | Status |
 |---|---|---|
 | Store | SeaweedFS S3 gateway (`chrislusf/seaweedfs`, official upstream image — no Bitnami; replaced MinIO in [#94](../../../issues/94) after MinIO retired its free images) | ✅ |
-| Client | `minio` Python SDK (speaks generic S3), built by `build_object_storage_client()` and wrapped in `DocumentStore` | ✅ |
+| Client | `boto3` (vendor-neutral S3; path-style addressing, internal-CA verification), built by `build_object_storage_client()` and wrapped in `DocumentStore` | ✅ |
 | Flow | Upload → text extraction (`pypdf`/`python-docx`) → chunk → embed → pgvector row, all scoped per user | ✅ |
 | Retention | Purge order fixed to delete DB rows before stored objects (avoids orphaned DB references to deleted objects) | ✅ |
 | TLS | Production (Helm) uses cert-manager mTLS; local docker-compose is still plaintext | 🚧 ([#17](../../../issues/17)) |

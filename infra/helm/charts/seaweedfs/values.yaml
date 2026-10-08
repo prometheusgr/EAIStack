@@ -13,6 +13,10 @@ image:
 # once -s3.cert.file is set.
 port: 8333
 
+# Size of each SeaweedFS volume (MB). Volume slots = free disk / this, so it
+# must stay well below storage.size; 1 GiB gives a 50Gi PVC ~50 slots.
+volumeSizeLimitMB: 1024
+
 # Storage configuration: PVC backing the seaweedfs Deployment
 storage:
   size: 50Gi

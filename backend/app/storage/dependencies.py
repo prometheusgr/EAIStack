@@ -17,7 +17,7 @@ from app.storage.object_storage_client import build_object_storage_client
 def _document_store() -> DocumentStore:
     """Build the process-wide DocumentStore once.
 
-    The underlying Minio client holds a connection pool, so it is built
+    The underlying S3 client holds a connection pool, so it is built
     once per process and reused - the same rationale as
     app.core.tls.get_ssl_context caching the parsed CA bundle.
     """
