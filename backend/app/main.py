@@ -8,12 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.agents.registry import register_workflow_definitions
 from app.api import agents, apikeys, auth, embeddings, knowledge_base
 from app.api import settings as settings_api
+from app.api import workflows as workflows_api
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.tracing import configure_tracing
 from app.db.database import SessionLocal
+from app.db.models import utc_now
 from app.services.tracing_config_service import resolve_tracing_config
-from app.workflows.loader import load_workflow_definitions
+from app.services.workflow_service import sync_builtin_versions
+from app.workflows.loader import load_workflow_definitions, load_workflow_sources
 
 
 @asynccontextmanager
@@ -46,6 +49,19 @@ async def lifespan(app: FastAPI):
     workflow_definitions = load_workflow_definitions(settings.workflow_definitions_dir)
     register_workflow_definitions(workflow_definitions)
 
+    # Record the shipped built-ins in the versioned store (issue #83), so
+    # each has a real version the Workflows screen can show and every chat
+    # turn can be attributed to. A changed built-in becomes active unless
+    # an admin has published their own version - see sync_builtin_versions.
+    db = SessionLocal()
+    try:
+        sync_builtin_versions(
+            db, load_workflow_sources(settings.workflow_definitions_dir), now=utc_now()
+        )
+        db.commit()
+    finally:
+        db.close()
+
     yield
 
 
@@ -74,6 +90,7 @@ app.include_router(apikeys.router)
 app.include_router(embeddings.router)
 app.include_router(knowledge_base.router)
 app.include_router(settings_api.router)
+app.include_router(workflows_api.router)
 
 
 @app.get("/health")

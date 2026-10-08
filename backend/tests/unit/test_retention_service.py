@@ -12,6 +12,7 @@ import pytest
 from app.db.models import (
     APIKey,
     AuditLog,
+    ChatTurnVersion,
     ConversationCheckpoint,
     ConversationThread,
     Embedding,
@@ -20,6 +21,7 @@ from app.db.models import (
 )
 from app.services.retention_service import (
     purge_expired_api_keys,
+    purge_expired_chat_turn_versions,
     purge_expired_conversations,
     purge_expired_knowledge_base,
     purge_user_conversations,
@@ -632,3 +634,77 @@ def test_sweep_reports_what_it_purged_per_store(db_session):
     assert result["conversations"] == 1
     assert result["knowledge_base"] == 1
     assert result["api_keys"] == 0
+
+
+# --- chat-turn version records (issue #83) -------------------------------
+
+
+def _chat_turn(db_session, *, created_at, user_id="user-a"):
+    from app.repositories import WorkflowVersionRepository
+
+    version = WorkflowVersionRepository(db_session).latest_for_workflow("chat")
+    if version is None:
+        version = WorkflowVersionRepository(db_session).add(
+            workflow_name="chat",
+            yaml_text="name: chat\n",
+            source="builtin",
+            author_user_id="system",
+            change_note="seed",
+            parent_version_id=None,
+            now=NOW,
+        )
+    turn = ChatTurnVersion(
+        user_id=user_id,
+        thread_id="thread-1",
+        workflow_name="chat",
+        workflow_version_id=version.id,
+        created_at=created_at.replace(tzinfo=None),
+    )
+    db_session.add(turn)
+    db_session.commit()
+    return turn
+
+
+@pytest.mark.unit
+def test_resolve_retention_reports_the_chat_turn_version_window(db_session):
+    assert resolve_retention_config(db_session).chat_turn_version_retention_days == 365
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "retention_days,expect_purged",
+    [(None, False), (0, True), (1, True), (24, False)],
+)
+def test_chat_turn_version_purge_honours_each_window_shape(
+    db_session, retention_days, expect_purged
+):
+    """None keeps forever; 0 purges immediately; otherwise a record older
+    than the window goes. The record under test is two days old."""
+    _chat_turn(db_session, created_at=NOW - timedelta(days=2))
+
+    purged = purge_expired_chat_turn_versions(db_session, retention_days, NOW)
+
+    assert purged == (1 if expect_purged else 0)
+    assert db_session.query(ChatTurnVersion).count() == (0 if expect_purged else 1)
+
+
+@pytest.mark.unit
+def test_logout_cleanup_does_not_purge_chat_turn_versions(db_session):
+    """These records are kept for traceability on their own window; a user
+    logging out purges their conversations, not this record."""
+    _chat_turn(db_session, created_at=NOW)
+
+    purge_user_conversations(db_session, "user-a")
+
+    assert db_session.query(ChatTurnVersion).count() == 1
+
+
+@pytest.mark.unit
+def test_sweep_purges_expired_chat_turn_versions(db_session):
+    db_session.add(SystemSettings(id="default", chat_turn_version_retention_days=1, updated_by="a"))
+    db_session.commit()
+    _chat_turn(db_session, created_at=NOW - timedelta(days=3))
+
+    result = run_retention_sweep(db_session, NOW)
+
+    assert result["chat_turn_versions"] == 1

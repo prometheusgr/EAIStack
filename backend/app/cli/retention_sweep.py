@@ -63,10 +63,12 @@ def main() -> int:
         db.close()
 
     logger.info(
-        "Retention sweep purged: conversations=%d knowledge_base=%d api_keys=%d",
+        "Retention sweep purged: conversations=%d knowledge_base=%d api_keys=%d "
+        "chat_turn_versions=%d",
         result["conversations"],
         result["knowledge_base"],
         result["api_keys"],
+        result["chat_turn_versions"],
     )
     return 0
 

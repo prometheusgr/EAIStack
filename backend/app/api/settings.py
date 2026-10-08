@@ -138,6 +138,10 @@ def _to_response(
         api_key_purge_days_is_db_override=bool(
             db_settings and db_settings.api_key_purge_days is not None
         ),
+        chat_turn_version_retention_days=retention_config.chat_turn_version_retention_days,
+        chat_turn_version_retention_days_is_db_override=bool(
+            db_settings and db_settings.chat_turn_version_retention_days is not None
+        ),
         max_input_length=guardrail_config.max_input_length,
         max_input_length_is_db_override=bool(
             db_settings and db_settings.max_input_length is not None
@@ -332,6 +336,7 @@ async def update_settings(
         cleanup_on_logout=payload.cleanup_on_logout,
         knowledge_base_purge_days=payload.knowledge_base_purge_days,
         api_key_purge_days=payload.api_key_purge_days,
+        chat_turn_version_retention_days=payload.chat_turn_version_retention_days,
         max_input_length=payload.max_input_length,
         guardrails_input_enabled=payload.guardrails_input_enabled,
         guardrails_output_enabled=payload.guardrails_output_enabled,
@@ -533,6 +538,7 @@ def _retention_override_values(db_settings: SystemSettings | None) -> dict[str, 
         "cleanup_on_logout",
         "knowledge_base_purge_days",
         "api_key_purge_days",
+        "chat_turn_version_retention_days",
     )
     if db_settings is None:
         return {field: None for field in fields}
