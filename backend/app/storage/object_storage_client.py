@@ -1,71 +1,65 @@
-"""Object-storage client construction.
+"""Object-storage (S3) client construction.
 
-Phase 5 stood the object store up with TLS deliberately ahead of any client that talks
-to it, so that the default, easiest-to-write client is also the compliant
-one (see docs/SECURITY.md and issue #13). build_object_storage_client() is the one
-place that constructs the SDK client - every caller in this codebase must
-go through it rather than instantiating `minio.Minio` directly, so this
-guarantee can't be quietly bypassed at a second call site.
+Phase 5 stood the object store up with TLS deliberately ahead of any client
+that talks to it, so that the default, easiest-to-write client is also the
+compliant one (see docs/SECURITY.md and issue #13).
+build_object_storage_client() is the one place that constructs the S3
+client - every caller in this codebase must go through it rather than
+calling boto3.client directly, so this guarantee can't be quietly bypassed
+at a second call site.
+
+boto3 (the vendor-neutral AWS SDK) rather than a storage vendor's own SDK:
+the backend speaks only the generic S3 API, so the server behind it
+(SeaweedFS today, see issue #94) can change without a client change.
 """
 
-from urllib.parse import urlsplit
-
-import urllib3
-from minio import Minio
+import boto3
+from botocore.client import BaseClient
+from botocore.config import Config
 
 from app.core.config import settings
 
+# SigV4 needs a region name even though an in-cluster S3 server has no
+# regions; every S3-compatible server accepts the AWS default. A fixed
+# constant, not a setting: nothing an operator configures depends on it.
+_SIGNING_REGION = "us-east-1"
 
-def build_object_storage_client() -> Minio:
+
+def build_object_storage_client() -> BaseClient:
     """Build the S3 client used for all object storage.
 
-    secure is derived from settings.object_storage_url's scheme (https:// vs
-    http://) - the same "let the URL decide" rule every other outbound
-    client in this codebase follows (see app.core.tls: httpx respects a
-    client's http(s):// scheme with no separate flag). The Helm-deployed
-    production object storage (Phase 5) is configured with an https:// URL, so the
-    default path there is TLS with the internal CA bundle - exactly the
-    compliant behaviour issue #13 requires. Local dev / docker-compose,
-    which run object storage over plaintext like every other service in that stack,
-    configure http:// and get an unencrypted client, matching how the LLM
-    and doc-search clients already behave in the same environment.
+    TLS is decided by object_storage_url's scheme (https:// vs http://), the
+    same "let the URL decide" rule every other outbound client in this
+    codebase follows (see app.core.tls). The Helm-deployed SeaweedFS (Phase 5)
+    is configured with an https:// URL, so the default path there is TLS
+    verified against the internal CA bundle - exactly the compliant behaviour
+    issue #13 requires. Local dev / docker-compose run object storage over
+    plaintext like every other service in that stack and configure http://.
+    A bare host:port with no scheme is treated as http://, as it was before.
 
-    TODO(#<follow-up>): docker-compose's object storage (and the rest of the local
+    TODO(#17): docker-compose's object storage (and the rest of the local
     stack) is planned to move to TLS-by-default; when that lands, the
-    http:// fallback here becomes dead code for every environment, not
-    just production.
+    http:// case becomes dead code for every environment, not just
+    production.
 
-    When secure and settings.ca_bundle_path are both set, an explicit
-    urllib3 PoolManager is built that trusts that CA bundle - the same
-    internal CA every other outbound client verifies against. Otherwise no
-    explicit http_client is passed and the SDK falls back to its own
-    default trust store (or is irrelevant, for a plaintext connection).
+    verify is the internal CA bundle when settings.ca_bundle_path is set,
+    otherwise True (the default trust store) - never False: verification
+    is only ever narrowed to a specific CA, not disabled.
+
+    Path-style addressing (https://host/bucket/key) is required: an
+    in-cluster S3 server reached by a Service name has no per-bucket DNS,
+    so virtual-host style (https://bucket.host/key) would never resolve.
     """
-    secure = settings.object_storage_url.startswith("https://")
-    endpoint = _strip_scheme(settings.object_storage_url)
+    endpoint_url = settings.object_storage_url
+    if "//" not in endpoint_url:
+        endpoint_url = f"http://{endpoint_url}"
 
-    http_client = None
-    if secure and settings.ca_bundle_path:
-        http_client = urllib3.PoolManager(ca_certs=settings.ca_bundle_path)
-
-    return Minio(
-        endpoint,
-        access_key=settings.object_storage_access_key,
-        secret_key=settings.object_storage_secret_key,
-        secure=secure,
-        http_client=http_client,
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=settings.object_storage_access_key,
+        aws_secret_access_key=settings.object_storage_secret_key,
+        region_name=_SIGNING_REGION,
+        verify=settings.ca_bundle_path or True,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
     )
-
-
-def _strip_scheme(url: str) -> str:
-    """Reduce a possibly-schemed URL to the bare host:port the SDK expects.
-
-    urlsplit only populates `.netloc` when the input has a "//" authority
-    section, so a bare "host:port" (no scheme) parses its host into
-    `.scheme` and port into `.path` instead - a naive `.netloc or .path`
-    fallback would return just the port. Guarding on "//" in the input
-    keeps a schemeless host:port passed through unchanged.
-    """
-    if "//" not in url:
-        return url
-    return urlsplit(url).netloc

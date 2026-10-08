@@ -37,13 +37,19 @@ spec:
             secretKeyRef:
               name: {{ include "seaweedfs.secretName" . }}
               key: secret-key
+        # One new volume per bucket instead of SeaweedFS's default 7, which
+        # spreads writes across a multi-server cluster; on this single-node
+        # deployment it only pre-allocates slots until none are left.
+        - name: WEED_MASTER_VOLUME_GROWTH_COPY_1
+          value: "1"
         args:
         - server
         - -dir={{ .Values.storage.mountPath }}
-        # Lets the volume server size its slot count from free disk: SeaweedFS
-        # pre-allocates several volumes per bucket, and the default cap is easy
-        # to exhaust.
+        # Size the volume-slot count from free disk, in volumes of
+        # volumeSizeLimitMB. The 30 GB upstream default would leave a PVC under
+        # 30 GiB with zero slots - nothing could be written at all.
         - -volume.max=0
+        - -master.volumeSizeLimitMB={{ .Values.volumeSizeLimitMB }}
         # The image reports anonymous cluster statistics to
         # telemetry.seaweedfs.com by default. Never in an air-gapped
         # deployment, and not appropriate for an enterprise one either.
