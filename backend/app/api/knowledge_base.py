@@ -85,7 +85,7 @@ async def upload_knowledge_base_document(
       stores it as `content`, exactly as the paste-text flow does - the
       rest of the ingestion/search pipeline (embedding, semantic search)
       doesn't need to know a document came from a file upload.
-    - Stores the original file bytes in MinIO under a key scoped to the
+    - Stores the original file bytes in object storage under a key scoped to the
       caller's own user_id (see app.storage.object_keys), never a
       client-supplied path.
     """
@@ -112,7 +112,7 @@ async def upload_knowledge_base_document(
     try:
         # extract_text is CPU-bound (PDF/DOCX parsing); running it inline
         # would block the event loop for its full duration under concurrent
-        # load, so it runs in the threadpool like the MinIO upload below.
+        # load, so it runs in the threadpool like the object storage upload below.
         extracted_text = await run_in_threadpool(extract_text, data, content_type=file.content_type)
     except UnsupportedContentTypeError as e:
         return JSONResponse(
@@ -129,7 +129,7 @@ async def upload_knowledge_base_document(
     repo = KnowledgeBaseRepository(db)
     kb_id = str(uuid4())
     try:
-        # document_store.upload is blocking MinIO network I/O; run it in the
+        # document_store.upload is blocking object storage network I/O; run it in the
         # threadpool for the same reason extract_text is above - inline, it
         # would block the event loop for the full duration of the upload.
         storage_key = await run_in_threadpool(
@@ -144,7 +144,7 @@ async def upload_knowledge_base_document(
     except ValueError as e:
         # Raised by build_object_key (see app.storage.object_keys) for a
         # filename it cannot safely turn into an object key - e.g. a
-        # path-traversal attempt, or an empty filename. No MinIO object was
+        # path-traversal attempt, or an empty filename. No stored object was
         # written in this case, so there is nothing to clean up, unlike the
         # try/except below.
         return JSONResponse(
@@ -152,10 +152,10 @@ async def upload_knowledge_base_document(
             content={"detail": "invalid_filename", "message": str(e)},
         )
 
-    # From here on, the MinIO object already exists. If anything below
+    # From here on, the stored object already exists. If anything below
     # fails, no KnowledgeBase row is ever created to reference it, and the
     # retention sweep only ever finds objects via a row's storage_key - so
-    # a failure here would otherwise leak the object in MinIO forever.
+    # a failure here would otherwise leak the object in object storage forever.
     # Delete it and let the original exception propagate as a 500.
     try:
         kb = KnowledgeBase(
@@ -175,7 +175,7 @@ async def upload_knowledge_base_document(
         db.commit()
     except Exception:
         db.rollback()
-        # The compensating delete must never let its own failure (e.g. MinIO
+        # The compensating delete must never let its own failure (e.g. object storage
         # transiently unreachable) replace the exception actually being
         # handled - that would mask the real root cause of the request
         # failure behind an unrelated cleanup error. Log the cleanup failure
@@ -185,7 +185,7 @@ async def upload_knowledge_base_document(
             document_store.delete(storage_key, user_id=user["user_id"])
         except Exception:
             logger.exception(
-                "Failed to clean up orphaned MinIO object %r after upload failure", storage_key
+                "Failed to clean up orphaned stored object %r after upload failure", storage_key
             )
         raise
 
@@ -234,7 +234,7 @@ async def update_knowledge_base(
     A file-backed entry (non-null storage_key) that gets its content
     hand-edited here is no longer backed by the originally uploaded file -
     KnowledgeBaseRepository.update clears storage_key/original_filename/
-    content_type on the row for exactly this reason. The now-orphaned MinIO
+    content_type on the row for exactly this reason. The now-orphaned stored
     object is deleted after that DB change is committed (see the ordering
     rationale on the upload endpoint's own compensating delete above): if
     the DB commit were to fail, the object must still exist to match the

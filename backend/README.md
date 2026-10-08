@@ -72,7 +72,7 @@ pytest --cov
 - `app/mcp_client/` — MCP tool client wiring
 - `app/prompts/` — Prompt library and loader
 - `app/db/` — SQLAlchemy models, migrations, session cleanup
-- `app/storage/` — MinIO client wrapper
+- `app/storage/` — object-storage client wrapper
 - `app/core/` — Configuration, auth middleware
 - `tests/unit/` — Fast, mocked tests
 - `tests/integration/` — End-to-end tests (slow)
@@ -107,4 +107,4 @@ See `pyproject.toml` for locked versions. Key libraries:
 - **LangGraph**: agent orchestration and state management
 - **SQLAlchemy**: ORM for Postgres + pgvector
 - **Pydantic**: request/response validation
-- **MiniO**: S3-compatible object storage client
+- **boto3**: generic S3 client for object storage (talks to SeaweedFS; see docs/ARCHITECTURE.md)

@@ -1,150 +1,125 @@
-"""Unit tests for the MinIO client wrapper - TDD discipline.
+"""Unit tests for the object-storage client wrapper - TDD discipline.
 
-MinIO itself is an external boundary (per AGENTS.md, integration tests for
-it need a real MinIO via testcontainers, not mocks) - these unit tests only
-cover the deterministic logic that doesn't require a live server: how the
-client is constructed (secure=True, CA bundle wiring) and how object keys
-are built for user isolation.
+Object storage itself is an external boundary (per AGENTS.md, integration
+tests for it need a real server via testcontainers, not mocks) - these unit
+tests only cover the deterministic logic that doesn't require a live server:
+how the boto3 S3 client is constructed (endpoint, TLS verification, path-style
+addressing) and how object keys are built for user isolation.
 """
 
 from unittest.mock import patch
 
 import pytest
 
-from app.storage.minio_client import build_minio_client
 from app.storage.object_keys import build_object_key
+from app.storage.object_storage_client import build_object_storage_client
+
+
+def _settings(mock_settings, *, url, ca_bundle_path=None):
+    mock_settings.object_storage_url = url
+    mock_settings.object_storage_access_key = "access-123"
+    mock_settings.object_storage_secret_key = "secret-456"
+    mock_settings.ca_bundle_path = ca_bundle_path
 
 
 @pytest.mark.unit
-def test_build_minio_client_uses_secure_true_for_an_https_url():
-    """Test: an https:// minio_url (the Helm-deployed production MinIO,
-    Phase 5) produces a client with secure=True - the compliant default
-    for every real deployment, matching how the Helm chart already fronts
-    MinIO with TLS ahead of any client that talks to it (issue #13).
+def test_client_targets_the_configured_endpoint_with_its_scheme():
+    """Test: the https:// URL (the Helm-deployed SeaweedFS, which serves TLS
+    only) reaches boto3 unchanged - the scheme decides TLS, the same "let the
+    URL decide" rule every other outbound client here follows (issue #13).
     """
-    with patch("app.storage.minio_client.Minio") as mock_minio, patch(
-        "app.storage.minio_client.settings"
-    ) as mock_settings:
-        mock_settings.minio_url = "https://minio.internal:9000"
-        mock_settings.minio_access_key = "access-123"
-        mock_settings.minio_secret_key = "secret-456"
-        mock_settings.ca_bundle_path = None
+    with patch("app.storage.object_storage_client.settings") as mock_settings:
+        _settings(mock_settings, url="https://storage.internal:8333")
 
-        build_minio_client()
+        client = build_object_storage_client()
 
-        _, kwargs = mock_minio.call_args
-        assert kwargs["secure"] is True
+    assert client.meta.endpoint_url == "https://storage.internal:8333"
 
 
 @pytest.mark.unit
-def test_build_minio_client_uses_secure_false_for_a_plaintext_url():
-    """Test: an http:// minio_url (docker-compose's local MinIO, which runs
-    plaintext like every other service in that stack) produces a client
-    with secure=False - the same "let the URL decide" rule httpx-based
-    clients in this codebase already follow (see app.core.tls), applied to
-    the MinIO SDK's separate secure= flag since its `endpoint` has no
-    scheme of its own to sniff.
+def test_client_uses_path_style_addressing():
+    """Test: buckets are addressed as https://host/bucket/key, not
+    https://bucket.host/key. SeaweedFS (and any in-cluster S3 server reached
+    by a Service name) has no per-bucket DNS, so virtual-host addressing
+    would send every request to a hostname that doesn't resolve.
     """
-    with patch("app.storage.minio_client.Minio") as mock_minio, patch(
-        "app.storage.minio_client.settings"
-    ) as mock_settings:
-        mock_settings.minio_url = "http://minio:9000"
-        mock_settings.minio_access_key = "access-123"
-        mock_settings.minio_secret_key = "secret-456"
-        mock_settings.ca_bundle_path = None
+    with patch("app.storage.object_storage_client.settings") as mock_settings:
+        _settings(mock_settings, url="http://seaweedfs:8333")
 
-        build_minio_client()
+        client = build_object_storage_client()
 
-        _, kwargs = mock_minio.call_args
-        assert kwargs["secure"] is False
+    assert client.meta.config.s3["addressing_style"] == "path"
 
 
 @pytest.mark.unit
-def test_build_minio_client_passes_endpoint_and_credentials():
-    """Test: the client is constructed from settings, not hardcoded values."""
-    with patch("app.storage.minio_client.Minio") as mock_minio, patch(
-        "app.storage.minio_client.settings"
-    ) as mock_settings:
-        mock_settings.minio_url = "https://minio.internal:9000"
-        mock_settings.minio_access_key = "access-123"
-        mock_settings.minio_secret_key = "secret-456"
-        mock_settings.ca_bundle_path = None
+def test_client_passes_credentials():
+    with (
+        patch("app.storage.object_storage_client.boto3.client") as mock_client,
+        patch("app.storage.object_storage_client.settings") as mock_settings,
+    ):
+        _settings(mock_settings, url="https://storage.internal:8333")
 
-        build_minio_client()
+        build_object_storage_client()
 
-        args, kwargs = mock_minio.call_args
-        assert args[0] == "minio.internal:9000"
-        assert kwargs["access_key"] == "access-123"
-        assert kwargs["secret_key"] == "secret-456"
+    _, kwargs = mock_client.call_args
+    assert kwargs["aws_access_key_id"] == "access-123"
+    assert kwargs["aws_secret_access_key"] == "secret-456"
 
 
 @pytest.mark.unit
-def test_build_minio_client_strips_scheme_from_endpoint():
-    """Test: a configured https:// URL is reduced to a bare host:port.
-
-    The Minio SDK's `endpoint` argument is host:port, not a full URL - if
-    settings.minio_url ever carries a scheme (matching the pattern of
-    llm_url/embedding_url elsewhere in Settings), passing it through
-    unstripped would fail at connection time.
+def test_client_verifies_tls_against_the_internal_ca_bundle_when_configured():
+    """Test: with ca_bundle_path set, the client verifies the server against
+    that bundle - the same internal CA every other outbound client trusts.
+    A client on the default trust store would reject the cluster's
+    cert-manager-issued certificate, or worse, tempt someone to turn
+    verification off (issue #13).
     """
-    with patch("app.storage.minio_client.Minio") as mock_minio, patch(
-        "app.storage.minio_client.settings"
-    ) as mock_settings:
-        mock_settings.minio_url = "https://minio.internal:9000"
-        mock_settings.minio_access_key = "access-123"
-        mock_settings.minio_secret_key = "secret-456"
-        mock_settings.ca_bundle_path = None
+    with (
+        patch("app.storage.object_storage_client.boto3.client") as mock_client,
+        patch("app.storage.object_storage_client.settings") as mock_settings,
+    ):
+        _settings(
+            mock_settings,
+            url="https://storage.internal:8333",
+            ca_bundle_path="/etc/ssl/certs/internal-ca.crt",
+        )
 
-        build_minio_client()
+        build_object_storage_client()
 
-        args, _ = mock_minio.call_args
-        assert args[0] == "minio.internal:9000"
-
-
-@pytest.mark.unit
-def test_build_minio_client_wires_ca_bundle_when_configured():
-    """Test: when ca_bundle_path is set, the client's http_client trusts it.
-
-    A client written against plaintext or the default trust store would
-    silently undo Phase 5's deliberate TLS-ahead-of-client rollout - see
-    issue #13. This asserts the CA bundle path actually reaches the
-    underlying PoolManager's ca_certs, not just that some http_client is
-    passed.
-    """
-    with patch("app.storage.minio_client.Minio") as mock_minio, patch(
-        "app.storage.minio_client.settings"
-    ) as mock_settings:
-        mock_settings.minio_url = "https://minio.internal:9000"
-        mock_settings.minio_access_key = "access-123"
-        mock_settings.minio_secret_key = "secret-456"
-        mock_settings.ca_bundle_path = "/etc/ssl/certs/internal-ca.crt"
-
-        build_minio_client()
-
-        _, kwargs = mock_minio.call_args
-        http_client = kwargs["http_client"]
-        assert http_client.connection_pool_kw["ca_certs"] == "/etc/ssl/certs/internal-ca.crt"
+    _, kwargs = mock_client.call_args
+    assert kwargs["verify"] == "/etc/ssl/certs/internal-ca.crt"
 
 
 @pytest.mark.unit
-def test_build_minio_client_no_ca_bundle_uses_default_trust_store():
-    """Test: with no ca_bundle_path configured, no explicit http_client is
-    forced - the SDK falls back to its own default trust store, matching
-    local dev / docker-compose (which talk plain HTTP over the docker
-    network and don't have a CA bundle mounted).
+def test_client_without_a_ca_bundle_keeps_default_verification_on():
+    """Test: no ca_bundle_path means the default trust store - never
+    verify=False. Verification is only ever narrowed to a specific CA, not
+    disabled.
     """
-    with patch("app.storage.minio_client.Minio") as mock_minio, patch(
-        "app.storage.minio_client.settings"
-    ) as mock_settings:
-        mock_settings.minio_url = "minio.internal:9000"
-        mock_settings.minio_access_key = "access-123"
-        mock_settings.minio_secret_key = "secret-456"
-        mock_settings.ca_bundle_path = None
+    with (
+        patch("app.storage.object_storage_client.boto3.client") as mock_client,
+        patch("app.storage.object_storage_client.settings") as mock_settings,
+    ):
+        _settings(mock_settings, url="https://storage.internal:8333")
 
-        build_minio_client()
+        build_object_storage_client()
 
-        _, kwargs = mock_minio.call_args
-        assert kwargs.get("http_client") is None
+    _, kwargs = mock_client.call_args
+    assert kwargs["verify"] is True
+
+
+@pytest.mark.unit
+def test_a_schemeless_url_is_treated_as_plaintext_http():
+    """Test: a bare host:port keeps meaning what it meant with the previous
+    SDK - a plaintext connection (local dev only; every TLS deployment
+    configures https:// explicitly).
+    """
+    with patch("app.storage.object_storage_client.settings") as mock_settings:
+        _settings(mock_settings, url="storage.internal:8333")
+
+        client = build_object_storage_client()
+
+    assert client.meta.endpoint_url == "http://storage.internal:8333"
 
 
 # --- Object key construction (user isolation) --------------------------------
@@ -154,7 +129,7 @@ def test_build_minio_client_no_ca_bundle_uses_default_trust_store():
 def test_build_object_key_scopes_by_user_and_document():
     """Test: object keys are namespaced as user_id/kb_id/filename.
 
-    This is the structural user-isolation mechanism for MinIO objects (see
+    This is the structural user-isolation mechanism for stored objects (see
     docs/REPOSITORY_PATTERN.md's ownership pattern, applied here to object
     storage instead of a DB table): a caller can never construct a key
     that reaches into another user's prefix without also supplying that

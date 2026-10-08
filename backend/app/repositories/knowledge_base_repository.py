@@ -60,7 +60,7 @@ class KnowledgeBaseRepository:
         storage_key/original_filename/content_type are cleared to None, so
         the row no longer claims to be backed by file bytes the new content
         doesn't match. The caller is responsible for deleting the
-        now-orphaned MinIO object (see app.api.knowledge_base) - this
+        now-orphaned stored object (see app.api.knowledge_base) - this
         method only owns the DB row's fields, not object storage.
 
         Does not commit; the caller owns the transaction.

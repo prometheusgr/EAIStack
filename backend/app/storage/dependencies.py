@@ -10,18 +10,20 @@ from functools import lru_cache
 
 from app.core.config import settings
 from app.storage.document_store import DocumentStore
-from app.storage.minio_client import build_minio_client
+from app.storage.object_storage_client import build_object_storage_client
 
 
 @lru_cache(maxsize=1)
 def _document_store() -> DocumentStore:
     """Build the process-wide DocumentStore once.
 
-    The underlying Minio client holds a connection pool, so it is built
+    The underlying S3 client holds a connection pool, so it is built
     once per process and reused - the same rationale as
     app.core.tls.get_ssl_context caching the parsed CA bundle.
     """
-    return DocumentStore(client=build_minio_client(), bucket=settings.minio_bucket)
+    return DocumentStore(
+        client=build_object_storage_client(), bucket=settings.object_storage_bucket
+    )
 
 
 def get_document_store() -> DocumentStore:

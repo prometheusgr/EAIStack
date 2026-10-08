@@ -32,7 +32,7 @@ K3s is a minimal, production-grade Kubernetes distribution ideal for air-gapped 
 
 - `--secrets-encryption` — Enable etcd secrets encryption at rest
 - `--disable=servicelb` — Use cert-manager-based ingress instead of K3s's built-in load balancer
-- Custom volumes with encrypted StorageClass for Postgres/MinIO data
+- Custom volumes with encrypted StorageClass for Postgres/SeaweedFS data
 
 ## References
 

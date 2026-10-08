@@ -1,62 +1,92 @@
-"""Integration tests for DocumentStore against a real MinIO server.
+"""Integration tests for DocumentStore against a real SeaweedFS S3 gateway.
 
-MinIO is an external boundary (per AGENTS.md): these tests run against a
-real MinIO container via testcontainers, not a mock, so they actually
-exercise the wire protocol the SDK speaks - bucket creation, object
+Object storage is an external boundary (per AGENTS.md): these tests run
+against a real SeaweedFS container via testcontainers, not a mock, so they
+actually exercise the wire protocol the SDK speaks - bucket creation, object
 upload/download/delete, and batch delete. Unit tests
 (tests/unit/test_document_store.py) cover DocumentStore's own logic with a
-mocked client; this file is the "does it actually work against MinIO"
-check.
+mocked client; this file is the "does it actually work against the real
+S3 server" check (issue #94 swapped MinIO for SeaweedFS and the MinIO Python
+SDK for boto3).
 
-Runs over plaintext (secure=False), matching how every other local/CI
-service in this stack talks - see app.storage.minio_client's
+Runs over plaintext (http://), matching how every other local/CI
+service in this stack talks - see app.storage.object_storage_client's
 scheme-derived secure flag and issue #17 (tracked follow-up to make local
 dev TLS-by-default).
 """
 
+import urllib.request
 from io import BytesIO
 
+import boto3
 import pytest
-from minio import Minio
+from botocore.config import Config
 from testcontainers.core.container import DockerContainer
-from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.core.waiting_utils import wait_container_is_ready
 
 from app.storage.document_store import DocumentStore
 
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
+ACCESS_KEY = "test-access-key"
+SECRET_KEY = "test-secret-key"
+S3_PORT = 8333
+
+# Keep in sync with docker-compose.yml's seaweedfs service and
+# infra/helm/charts/seaweedfs/values.yaml: one pinned tag, never `latest`.
+SEAWEEDFS_IMAGE = "chrislusf/seaweedfs:4.48"
+
+
+@wait_container_is_ready()
+def _wait_for_s3_gateway(container: DockerContainer) -> None:
+    """Poll the gateway's /healthz until it answers 200 (raises until then)."""
+    host = container.get_container_host_ip()
+    port = container.get_exposed_port(S3_PORT)
+    with urllib.request.urlopen(f"http://{host}:{port}/healthz", timeout=2) as response:
+        assert response.status == 200
 
 
 @pytest.fixture(scope="module")
-def minio_container():
-    """Start a real MinIO server for the duration of this test module."""
+def object_storage_container():
+    """Start a real SeaweedFS server (master + volume + filer + S3 gateway
+    in one process) for the duration of this test module.
+
+    Same volume settings as docker-compose and the Helm chart: one volume
+    per bucket and 1 GiB volumes. With SeaweedFS's defaults (7 volumes per
+    bucket, 30 GB each) the fresh-bucket-per-test fixture below runs out of
+    volume slots after a few tests and uploads fail with InternalError.
+    """
     container = (
-        DockerContainer("minio/minio:latest")
-        .with_env("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
-        .with_env("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
-        .with_exposed_ports(9000)
-        .with_command("server /data")
+        DockerContainer(SEAWEEDFS_IMAGE)
+        .with_env("AWS_ACCESS_KEY_ID", ACCESS_KEY)
+        .with_env("AWS_SECRET_ACCESS_KEY", SECRET_KEY)
+        .with_env("WEED_MASTER_VOLUME_GROWTH_COPY_1", "1")
+        .with_exposed_ports(S3_PORT)
+        .with_command(
+            f"server -dir=/data -volume.max=0 -master.volumeSizeLimitMB=1024 "
+            f"-master.telemetry=false -s3 -s3.port={S3_PORT}"
+        )
     )
     container.start()
-    wait_for_logs(container, "API:", timeout=30)
+    _wait_for_s3_gateway(container)
     yield container
     container.stop()
 
 
 @pytest.fixture
-def document_store(minio_container):
-    """A DocumentStore backed by the real MinIO container, with a fresh
+def document_store(object_storage_container):
+    """A DocumentStore backed by the real SeaweedFS container, with a fresh
     per-test bucket so tests don't see each other's objects.
     """
     import uuid
 
-    host = minio_container.get_container_host_ip()
-    port = minio_container.get_exposed_port(9000)
-    client = Minio(
-        f"{host}:{port}",
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
-        secure=False,
+    host = object_storage_container.get_container_host_ip()
+    port = object_storage_container.get_exposed_port(S3_PORT)
+    client = boto3.client(
+        "s3",
+        endpoint_url=f"http://{host}:{port}",
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY,
+        region_name="us-east-1",
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
     )
     bucket = f"test-{uuid.uuid4().hex[:12]}"
     return DocumentStore(client=client, bucket=bucket)
@@ -91,7 +121,7 @@ def test_upload_creates_the_bucket_on_first_use(document_store):
         content_type="text/plain",
     )
 
-    assert document_store._client.bucket_exists(document_store._bucket)
+    document_store._client.head_bucket(Bucket=document_store._bucket)  # raises if missing
 
 
 @pytest.mark.integration

@@ -9,18 +9,24 @@
 All service-to-service communication is encrypted:
 - Frontend ↔ Backend: TLS
 - Backend ↔ Database: TLS
-- Backend ↔ MinIO: TLS
+- Backend ↔ object storage (SeaweedFS S3 gateway): TLS
 - Backend ↔ llama-server: TLS (optional, can be unencrypted on private network)
 - Backend ↔ MCP servers: TLS
 - Backend ↔ Phoenix (tracing): **not yet** — see below
 
-`backend/app/storage/minio_client.py` derives its `secure`/CA-bundle
-behavior from `MINIO_URL`'s scheme, the same "let the URL decide" rule
+`backend/app/storage/object_storage_client.py` derives its `secure`/CA-bundle
+behavior from `OBJECT_STORAGE_URL`'s scheme, the same "let the URL decide" rule
 every other outbound client in this codebase follows — the Helm-deployed
-MinIO above is `https://`, so it always gets a TLS+CA-verified client.
-docker-compose's local MinIO is plaintext, like every other service in
+SeaweedFS above is `https://`, so it always gets a TLS+CA-verified client.
+docker-compose's local SeaweedFS is plaintext, like every other service in
 that stack; moving local dev to TLS-by-default across the board is tracked
-separately (issue #17), not built into the MinIO client itself.
+separately (issue #17), not built into the object-storage client itself.
+
+**Object storage telemetry is disabled.** SeaweedFS's image reports anonymous
+cluster statistics to `telemetry.seaweedfs.com` by default. Both docker-compose
+and the Helm chart pass `-master.telemetry=false`; a fork that runs the image
+any other way must do the same, since an air-gapped install has no business
+attempting outbound connections and a connected one shouldn't leak usage data.
 
 **Phoenix (issue #4) is the one exception to "TLS enabled by default via
 cert-manager."** Every other Helm chart in `infra/helm/charts/` terminates
@@ -65,7 +71,7 @@ kubectl get secret session-jwt -n eaistack -o yaml
 # Should show encrypted values, not plaintext
 ```
 
-**Volumes (Postgres, MinIO)**:
+**Volumes (Postgres, SeaweedFS)**:
 - Backed by encrypted StorageClass (LUKS or host-provided)
 - Configuration is environment/deployment-dependent
 - Document your storage backend's encryption mechanism
@@ -87,7 +93,7 @@ This template does **not** include a dedicated Key Management Service (Vault, AW
 
 **For deployments requiring stricter key separation**:
 1. Add HashiCorp Vault as a separate Helm deployment
-2. Configure Postgres and MinIO to fetch encryption keys from Vault
+2. Configure Postgres and SeaweedFS to fetch encryption keys from Vault
 3. Document the Vault init/unseal process for air-gapped networks
 
 This is a documented upgrade path, not built in to keep the template's complexity down.
@@ -105,7 +111,7 @@ effect on the next retention sweep — no backend restart.
 | `conversation_threads` / `conversation_checkpoints` | `session_ttl_hours`, default **24h** since last update. Also purged on logout when `session_cleanup_on_logout` is on. | Yes (`conversation_retention_hours`, `cleanup_on_logout`) | `purge_expired_conversations`, `purge_user_conversations` |
 | `knowledge_base` (soft-deleted) | **30 days** after `deleted_at`, then hard-deleted. Live documents are never purged. | Yes (`knowledge_base_purge_days`) | `purge_expired_knowledge_base` |
 | `embeddings` | Follows its parent document — purged in the same batch. | Inherited | `purge_expired_knowledge_base` |
-| MinIO object (uploaded file, if any) | Follows its parent document — deleted in the same purge as the DB row. A pasted-text entry has no object (`storage_key` is NULL) and nothing is deleted for it. | Inherited | `purge_expired_knowledge_base` (via `DocumentStore.delete_many`) |
+| Stored object (uploaded file, if any) | Follows its parent document — deleted in the same purge as the DB row. A pasted-text entry has no object (`storage_key` is NULL) and nothing is deleted for it. | Inherited | `purge_expired_knowledge_base` (via `DocumentStore.delete_many`) |
 | `api_keys` (revoked) | **30 days** after `revoked_at`, then hard-deleted. Active keys are never purged. | Yes (`api_key_purge_days`) | `purge_expired_api_keys` |
 | Phoenix traces (LLM prompts/responses, tool calls — issue #4) | **None yet — accumulates indefinitely.** Carries the same sensitive prompt/response content as `conversation_threads`, which defaults to 24h; this store has no bound at all today. | **Not yet** ([#32](../../../issues/32)) | **Not yet** ([#32](../../../issues/32)) — lives in Phoenix's own SQLite store, outside the `eaistack` database this sweep purges directly |
 | `system_settings` | **Forever** (configuration, single row). | n/a | Never purged |
@@ -377,7 +383,7 @@ policy table above.
 The session cleanup mechanism satisfies "right to be forgotten" by:
 1. User requests deletion (or session expires)
 2. Checkpoint rows are purged
-3. MinIO document metadata can be tagged with user_id for bulk deletion
+3. Stored document objects are keyed by user_id (`{user_id}/{kb_id}/{filename}`), so they can be bulk-deleted by prefix; document metadata can be tagged with user_id for bulk deletion
 
 **Caveat**: Audit logs are deliberately exempt from every purge path and retained
 indefinitely; configure audit log retention per your compliance requirements

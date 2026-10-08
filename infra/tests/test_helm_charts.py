@@ -46,7 +46,7 @@ VALUES_CI = Path(__file__).parent.parent / "helm" / "values-ci.yaml"
 CHART_SPECS = {
     "postgres": {"uid": 999, "kind": "StatefulSet"},
     "keycloak": {"uid": 1000, "kind": "Deployment"},
-    "minio": {"uid": 1000, "kind": "Deployment"},
+    "seaweedfs": {"uid": 1000, "kind": "Deployment"},
     "llama-server": {"uid": 1000, "kind": "Deployment"},
     "embedding-server": {"uid": 1000, "kind": "Deployment"},
     "backend": {"uid": 1000, "kind": "Deployment", "replicas": 1},
@@ -67,7 +67,7 @@ CHART_SPECS = {
 # test instead of failing it. See STANDALONE_VALUES_NESTED_KEY below for the
 # fix: extract the chart's own nested block and pass just that as its
 # top-level values.
-CHARTS_WITH_NESTED_CI_VALUES = ("postgres", "minio", "phoenix")
+CHARTS_WITH_NESTED_CI_VALUES = ("postgres", "seaweedfs", "phoenix")
 
 
 def _standalone_values_from_ci(chart_name: str, values_file: Path) -> Path:
@@ -111,7 +111,7 @@ def render_chart(chart_path: Path, values_file: Path = None, extra_set: dict = N
     chart under both tls.enabled: true/false without needing a second values
     file (e.g. verifying probe scheme flips correctly with the flag).
 
-    For postgres/minio/phoenix (CHARTS_WITH_NESTED_CI_VALUES), a non-zero
+    For postgres/seaweedfs/phoenix (CHARTS_WITH_NESTED_CI_VALUES), a non-zero
     `helm template` exit is a hard test failure, not a skip: these charts
     are complete and their values-ci.yaml block is deliberately supplied
     (re-nested via _standalone_values_from_ci) specifically so their render
@@ -351,8 +351,8 @@ def render_chart_expecting_failure(
     [
         ("postgres", "global.postgresPassword", {"storage.storageClassName": "standard"}),
         ("keycloak", "global.keycloakAdminPassword", {}),
-        ("minio", "global.miniRootUser", {"storage.storageClassName": "standard"}),
-        ("minio", "global.miniRootPassword", {"storage.storageClassName": "standard"}),
+        ("seaweedfs", "global.objectStorageAccessKey", {"storage.storageClassName": "standard"}),
+        ("seaweedfs", "global.objectStorageSecretKey", {"storage.storageClassName": "standard"}),
     ],
 )
 class TestRequiredValueGuards:
@@ -360,7 +360,7 @@ class TestRequiredValueGuards:
 
     Previously each of these three charts had its own shallow test
     (test_postgres_password_required, test_admin_password_required,
-    test_minio_credentials_required) whose docstring claimed to verify the
+    test_seaweedfs_credentials_required) whose docstring claimed to verify the
     `{{ required }}` guard, but whose body only asserted `len(secrets) > 0`
     against VALUES_CI - which already supplies every required value. That
     proves a Secret exists when its input is present; it never omits the
@@ -463,16 +463,16 @@ class TestKeycloak:
             "No realm-import ConfigMap found in keycloak chart"
 
 
-class TestMinio:
-    """MinIO-specific tests."""
+class TestSeaweedFS:
+    """SeaweedFS-specific tests."""
 
     def test_pvc_has_storageclassname(self):
-        """Test: MinIO PVC references a non-empty storageClassName (Decision 6)."""
-        chart_path = CHARTS_DIR / "minio"
+        """Test: SeaweedFS PVC references a non-empty storageClassName (Decision 6)."""
+        chart_path = CHARTS_DIR / "seaweedfs"
         docs = render_chart(chart_path, VALUES_CI)
 
         pvcs = [doc for doc in docs if doc.get("kind") == "PersistentVolumeClaim"]
-        assert len(pvcs) > 0, "No PVC found in minio chart"
+        assert len(pvcs) > 0, "No PVC found in seaweedfs chart"
 
         for pvc in pvcs:
             storage_class = pvc.get("spec", {}).get("storageClassName")
@@ -858,7 +858,7 @@ class TestUmbrellaChart:
         dependencies = chart_yaml.get("dependencies", [])
         dep_names = [dep.get("name") for dep in dependencies]
 
-        expected_subcharts = ["postgres", "keycloak", "minio", "llama-server", "embedding-server", "backend", "doc-search", "phoenix", "frontend"]
+        expected_subcharts = ["postgres", "keycloak", "seaweedfs", "llama-server", "embedding-server", "backend", "doc-search", "phoenix", "frontend"]
         for subchart in expected_subcharts:
             assert subchart in dep_names, f"Umbrella missing dependency: {subchart}"
 
@@ -933,8 +933,8 @@ class TestUmbrellaChart:
         validator's own hand-picked fixtures.
 
         This is the gap that let a real bug ship silently: the validator's
-        MINIO_*/POSTGRES_* credential-prefix match flagged MINIO_URL,
-        MINIO_BUCKET, POSTGRES_DB, and POSTGRES_INITDB_ARGS as hardcoded
+        OBJECT_STORAGE_*/POSTGRES_* credential-prefix match flagged OBJECT_STORAGE_URL,
+        OBJECT_STORAGE_BUCKET, POSTGRES_DB, and POSTGRES_INITDB_ARGS as hardcoded
         credentials, because no test had ever run the validator against the
         actual chart's full env-var list — only against synthetic fixtures
         that happened not to include those specific names. Rendering the

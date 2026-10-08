@@ -15,19 +15,34 @@ services:
       timeout: 5s
       retries: 5
 
-  minio:
-    image: minio/minio:latest
+  # S3-compatible object storage (issue #94: replaced MinIO, whose free
+  # container images were retired). One process runs SeaweedFS's master,
+  # volume server, filer, and S3 gateway.
+  seaweedfs:
+    # Pinned, never `latest`: the same tag is vendored for air-gapped installs
+    # (infra/scripts/bootstrap-airgap.sh) and used by infra/helm/charts/seaweedfs.
+    image: chrislusf/seaweedfs:4.48
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      # The admin S3 identity. Must match OBJECT_STORAGE_ACCESS_KEY/_SECRET_KEY
+      # in backend/app/core/config.py's defaults, which the backend uses here.
+      AWS_ACCESS_KEY_ID: eaistack-dev-access
+      AWS_SECRET_ACCESS_KEY: eaistack-dev-secret
+      # One new volume per bucket instead of SeaweedFS's default 7: that
+      # default spreads writes across a multi-server cluster, and on this
+      # single node it only pre-allocates volume slots until none are left.
+      WEED_MASTER_VOLUME_GROWTH_COPY_1: "1"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8333:8333"
     volumes:
-      - minio_data:/minio_root
-    command: minio server /minio_root --console-address ":9001"
+      - seaweedfs_data:/data
+    # -volume.max=0 + -master.volumeSizeLimitMB=1024: size the volume-slot
+    #   count from free disk in 1 GiB volumes. The 30 GB default would leave a
+    #   small disk with zero slots, and nothing could be written at all.
+    # -master.telemetry=false: the image reports anonymous usage stats to
+    #   telemetry.seaweedfs.com by default, which this stack never allows.
+    command: server -dir=/data -volume.max=0 -master.volumeSizeLimitMB=1024 -master.telemetry=false -s3 -s3.port=8333
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:8333/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -231,7 +246,7 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/eaistack
-      MINIO_URL: http://minio:9000
+      OBJECT_STORAGE_URL: http://seaweedfs:8333
       KEYCLOAK_URL: http://keycloak:8080
       # keycloak:8080 above is the docker-compose-internal hostname the
       # backend uses for token verification -- not resolvable from an
@@ -283,7 +298,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
       keycloak:
         condition: service_started
@@ -315,5 +330,5 @@ services:
 
 volumes:
   postgres_data:
-  minio_data:
+  seaweedfs_data:
   phoenix_data:

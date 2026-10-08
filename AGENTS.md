@@ -45,7 +45,7 @@ All unit tests must pass locally before pushing. Every commit must have correspo
 - Mock the LLM boundary (`FakeChatModel` in tests); TDD all deterministic logic
 - `tests/unit/` — fast, mocked, gates every commit (CI requirement)
 - `tests/integration/` — real llama-server, not gated, smoke-test only
-- Fixtures: fake LLM, test Postgres (testcontainers), test MinIO
+- Fixtures: fake LLM, test Postgres (testcontainers), test object storage (SeaweedFS)
 
 **Test commands**:
 ```bash
@@ -419,7 +419,7 @@ npm run build           # Production build
 - **LLM mock boundary**: All LLM calls go through `app.core.llm_client`. Unit tests mock this boundary only; don't mock at higher levels.
 - **Agent state isolation**: LangGraph checkpoints live in Postgres, keyed by `(user_id, thread_id)`. Prevents context bleeding between sessions.
 - **Phase scope**: Don't add features outside the current phase (see CLAUDE.md Current Status). Stick to thin vertical slices.
-- **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, minio).
+- **No Bitnami charts**: Official upstream images only (pgvector/pgvector, keycloak, chrislusf/seaweedfs).
 - **MCP transport**: Must be Streamable HTTP (not stdio) for K8s pod-to-pod communication (Phase 3+).
 
 ## Code Maintenance & 10-Year Lifecycle

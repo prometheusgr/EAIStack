@@ -26,7 +26,7 @@ postgres:
 keycloak:
   enabled: true
 
-minio:
+seaweedfs:
   enabled: true
 
 llama-server:

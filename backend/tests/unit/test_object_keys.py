@@ -1,5 +1,5 @@
 """Unit tests for build_object_key - the structural user-isolation mechanism
-for MinIO object paths (see app.storage.object_keys module docstring).
+for stored object paths (see app.storage.object_keys module docstring).
 
 Covers the path-traversal guard specifically: it must reject real traversal
 attempts while not rejecting a filename that merely contains the substring

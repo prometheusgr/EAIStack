@@ -177,16 +177,6 @@ jobs:
 
   e2e-tests:
     runs-on: ubuntu-latest
-    # Non-blocking as of 2026-09-29: MinIO pulled its minio/minio image from
-    # every public registry (Docker Hub and quay.io both now return 401/403,
-    # including on old digests; dl.min.io binaries are 410 Gone) in a move to
-    # its paid AIStor product. The backend service depends on minio being
-    # healthy before it starts, so this job's `docker compose up` cannot
-    # bring up the stack at all right now - not a real test failure. Tracked
-    # as issue #93 (unblock: skip until fixed) and issue #94 (migrate the
-    # object-storage backend off MinIO to SeaweedFS). Remove
-    # continue-on-error once #94 lands or MinIO is otherwise pullable again.
-    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
@@ -205,7 +195,7 @@ jobs:
       # playwright.config.ts) rather than testing the compose-built frontend
       # image.
       - name: Start dev stack
-        run: docker compose up -d postgres minio keycloak doc-search migrate backend
+        run: docker compose up -d postgres seaweedfs keycloak doc-search migrate backend
 
       - name: Wait for doc-search
         run: |

@@ -1,1 +1,1 @@
-"""MinIO client wrapper for object storage."""
+"""object-storage client wrapper for object storage."""

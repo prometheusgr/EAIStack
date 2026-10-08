@@ -17,11 +17,11 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql://postgres:postgres@localhost:5432/eaistack"
 
-    # MinIO
-    minio_url: str = "http://localhost:9000"
-    minio_access_key: str = "minioadmin"
-    minio_secret_key: str = "minioadmin"
-    minio_bucket: str = "documents"
+    # Object storage (S3 API; SeaweedFS in this stack)
+    object_storage_url: str = "http://localhost:8333"
+    object_storage_access_key: str = "eaistack-dev-access"
+    object_storage_secret_key: str = "eaistack-dev-secret"
+    object_storage_bucket: str = "documents"
 
     # LLM Provider
     llm_provider: str = "fake"  # "fake" | "llama-cpp" | "openai-compatible"

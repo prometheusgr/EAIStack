@@ -23,7 +23,7 @@ is not reachable and never will be.
 The answer is to run our own CA inside the cluster:
 
 - EAIStack creates one **root CA certificate**, self-signed, valid for 10 years.
-- Every EAIStack service (backend, doc-search, postgres, minio, keycloak, ...)
+- Every EAIStack service (backend, doc-search, postgres, seaweedfs, keycloak, ...)
   gets its own certificate **signed by that root**.
 - Every EAIStack pod that makes outbound calls mounts the root CA and is told to
   trust it, so it can verify the certificates its peers present.
@@ -126,7 +126,7 @@ Stage 2   Certificate    eaistack-ca      (isCA: true, namespace: cert-manager)
 Stage 3   ClusterIssuer  eaistack-ca-issuer              (kind: ca)
              │  signs
              ▼
-          every per-service Certificate (backend, postgres, minio, ...)
+          every per-service Certificate (backend, postgres, seaweedfs, ...)
 ```
 
 The bootstrap issuer from Stage 1 is used exactly once, for Stage 2, and never
@@ -356,7 +356,7 @@ issuerRef:
   group: cert-manager.io
 ```
 
-One certificate per service (backend, frontend, doc-search, postgres, minio,
+One certificate per service (backend, frontend, doc-search, postgres, seaweedfs,
 keycloak, ...) rather than one shared wildcard, so a compromise of any single
 pod's key does not expose every other service's identity.
 
