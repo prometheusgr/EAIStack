@@ -20,6 +20,33 @@ import yaml
 from app.workflows.schema import WorkflowDef, parse_workflow_definition
 
 
+def load_workflow_sources(directory: str) -> dict[str, str]:
+    """Read every *.yaml file directly under directory, validating each,
+    and return its exact text keyed by the definition's `name`.
+
+    The text (not just the parsed definition) is what the versioned store
+    records for a built-in (see app.services.workflow_service.
+    sync_builtin_versions), so a version's content hash is the hash of the
+    file as shipped.
+
+    Raises WorkflowValidationError, naming the offending file, on the
+    first invalid definition encountered.
+    """
+    sources: dict[str, str] = {}
+    directory_path = Path(directory)
+    if not directory_path.is_dir():
+        return sources
+
+    for yaml_file in sorted(directory_path.glob("*.yaml")):
+        yaml_text = yaml_file.read_text(encoding="utf-8")
+        definition = parse_workflow_definition(
+            yaml.safe_load(yaml_text), source_file=yaml_file.name
+        )
+        sources[definition.name] = yaml_text
+
+    return sources
+
+
 def load_workflow_definitions(directory: str) -> dict[str, WorkflowDef]:
     """Parse and validate every *.yaml file directly under directory.
 
@@ -33,14 +60,7 @@ def load_workflow_definitions(directory: str) -> dict[str, WorkflowDef]:
     propagate at startup rather than catching it, per the DoD requirement
     that a broken built-in fails the process loudly.
     """
-    definitions: dict[str, WorkflowDef] = {}
-    directory_path = Path(directory)
-    if not directory_path.is_dir():
-        return definitions
-
-    for yaml_file in sorted(directory_path.glob("*.yaml")):
-        raw = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
-        definition = parse_workflow_definition(raw, source_file=yaml_file.name)
-        definitions[definition.name] = definition
-
-    return definitions
+    return {
+        name: parse_workflow_definition(yaml.safe_load(yaml_text), source_file=f"{name}.yaml")
+        for name, yaml_text in load_workflow_sources(directory).items()
+    }

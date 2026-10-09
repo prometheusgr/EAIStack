@@ -113,6 +113,8 @@ effect on the next retention sweep — no backend restart.
 | `embeddings` | Follows its parent document — purged in the same batch. | Inherited | `purge_expired_knowledge_base` |
 | Stored object (uploaded file, if any) | Follows its parent document — deleted in the same purge as the DB row. A pasted-text entry has no object (`storage_key` is NULL) and nothing is deleted for it. | Inherited | `purge_expired_knowledge_base` (via `DocumentStore.delete_many`) |
 | `api_keys` (revoked) | **30 days** after `revoked_at`, then hard-deleted. Active keys are never purged. | Yes (`api_key_purge_days`) | `purge_expired_api_keys` |
+| `chat_turn_versions` (which workflow version answered each chat turn, issue #83) | **365 days** after the turn. Holds no message content, and deliberately outlives the conversation: it is **not** purged by conversation retention or logout cleanup, because its purpose is answering "which prompt produced this answer?" afterwards. | Yes (`chat_turn_version_retention_days`) | `purge_expired_chat_turn_versions` |
+| `workflow_versions` / `workflow_active_versions` | Kept forever. Workflow definitions are configuration with an audit purpose, not user data; versions are append-only and hash-chained (see "Workflow Store" below). | No | — (no purge path) |
 | Phoenix traces (LLM prompts/responses, tool calls — issue #4) | **None yet — accumulates indefinitely.** Carries the same sensitive prompt/response content as `conversation_threads`, which defaults to 24h; this store has no bound at all today. | **Not yet** ([#32](../../../issues/32)) | **Not yet** ([#32](../../../issues/32)) — lives in Phoenix's own SQLite store, outside the `eaistack` database this sweep purges directly |
 | `system_settings` | **Forever** (configuration, single row). | n/a | Never purged |
 | `audit_logs` | **Forever** — retained on a schedule independent of session cleanup. | **No, by design** | Never purged (see below) |
@@ -821,3 +823,34 @@ Checklist for Phase 5 deployment:
 ## Questions?
 
 Refer to [docs/ARCHITECTURE.md](ARCHITECTURE.md) for architectural context, or [CLAUDE.md](../CLAUDE.md) for development standards.
+
+## Workflow Store (issue #83)
+
+Admins can change workflows (prompts, steps, tool bindings) at runtime from the
+Workflows screen. That is a powerful capability: a YAML editor is equivalent in
+power to a file upload. The controls are therefore not "no upload", but:
+
+- **Admin-only**: every `/api/workflows` route is `require_admin`.
+- **Validation on save and again on publish**: the same schema rules as a
+  built-in file at startup — only registered tools (`app.workflows.tool_registry`,
+  so YAML can never reach an unregistered tool or carry credentials), no dangling
+  or unreachable steps, `review_loop` bounded by the fixed, non-DB-editable
+  `REVIEW_LOOP_MAX_ITERATIONS_CEILING`. Plus a fixed 64 KiB size ceiling, a
+  required change note, and (for `chat`) an `agent` entry step so the output
+  guardrail's leak detector always has the live system prompt.
+- **Immutable, attributable history**: `workflow_versions` is append-only
+  (`WorkflowVersionRepository` has no update/delete method, asserted by a test)
+  and each version records its author (Keycloak `sub`), timestamp and change note.
+- **Tamper evidence**: each version's chain hash covers its content, author,
+  timestamp, note and predecessor; `app.workflows.version_chain.verify_chain`
+  names the first version altered out-of-band. This is evidence, not prevention —
+  an external anchor (the WORM archive, issue #89) is the planned prevention.
+- **Audited pointer moves**: publish and rollback move the active-version pointer
+  and write the audit entry in one transaction (see `docs/AUDIT_EVENTS.md`).
+- **Built-ins never silently overwrite an admin change** (epic #80 invariant 4).
+- **Traceability**: every chat turn records the version that answered it, and
+  its trace is tagged with the workflow name and version ID.
+
+Change management is `direct` (publish from the UI) and only `direct` today;
+git-backed modes and two-person approval are issue #87.
+

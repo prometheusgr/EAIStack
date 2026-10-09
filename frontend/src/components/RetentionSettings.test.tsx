@@ -51,6 +51,8 @@ const ENV_DEFAULT_SETTINGS = {
   knowledge_base_purge_days_is_db_override: false,
   api_key_purge_days: 30,
   api_key_purge_days_is_db_override: false,
+  chat_turn_version_retention_days: 365,
+  chat_turn_version_retention_days_is_db_override: false,
   max_input_length: 4000,
   max_input_length_is_db_override: false,
   guardrails_input_enabled: true,
@@ -362,6 +364,25 @@ describe('Settings retention section', () => {
     })
     expect(vi.mocked(settingsClient.updateSettings).mock.calls[0][0]).toMatchObject({
       retention_notice_enabled: false,
+    })
+  })
+
+  it('shows and saves the chat-turn version retention window (issue #83)', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForLoaded()
+
+    const input = screen.getByLabelText(/chat-turn workflow versions \(days\)/i)
+    expect(input).toHaveValue(365)
+    await user.clear(input)
+    await user.type(input, '400')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+    expect(vi.mocked(settingsClient.updateSettings).mock.calls[0][0]).toMatchObject({
+      chat_turn_version_retention_days: 400,
     })
   })
 })

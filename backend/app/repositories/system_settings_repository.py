@@ -38,6 +38,7 @@ class SystemSettingsRepository:
         cleanup_on_logout: bool | None = None,
         knowledge_base_purge_days: int | None = None,
         api_key_purge_days: int | None = None,
+        chat_turn_version_retention_days: int | None = None,
         max_input_length: int | None = None,
         guardrails_input_enabled: bool | None = None,
         guardrails_output_enabled: bool | None = None,
@@ -82,6 +83,7 @@ class SystemSettingsRepository:
         settings_row.cleanup_on_logout = cleanup_on_logout
         settings_row.knowledge_base_purge_days = knowledge_base_purge_days
         settings_row.api_key_purge_days = api_key_purge_days
+        settings_row.chat_turn_version_retention_days = chat_turn_version_retention_days
         settings_row.max_input_length = max_input_length
         settings_row.guardrails_input_enabled = guardrails_input_enabled
         settings_row.guardrails_output_enabled = guardrails_output_enabled

@@ -49,6 +49,41 @@ no DB-backed store or admin UI yet either (later slices).
   file fails the container at boot** with a `WorkflowValidationError` naming
   the file and field, not a 500 on the first chat request.
 
+## Versioned store & the Workflows screen (issue #83)
+
+Postgres is the system of record for workflows; the YAML files above are the
+*built-in defaults*, recorded into the store at startup.
+
+- **Startup sync** (`app.services.workflow_service.sync_builtin_versions`): each
+  built-in file whose text differs from its last recorded built-in version is
+  stored as a new `source=builtin` version. It becomes active only if the active
+  version is itself a built-in; if an admin has published their own version, the
+  new built-in is recorded and the Workflows screen shows "built-in update
+  available" instead. A restart with unchanged files is a no-op.
+- **Versions are immutable** (`workflow_versions`, append-only, per-workflow
+  `sequence`, hash-chained — see `app/workflows/version_chain.py`). There is no
+  status column: "published" means the per-workflow pointer
+  (`workflow_active_versions`) points at it; a saved version it has never pointed
+  at is a draft.
+- **Lifecycle** (all admin-only, all audited — see `docs/AUDIT_EVENTS.md`):
+  1. *Create* a new workflow (`POST /api/workflows`; name comes from the YAML),
+     or edit an existing one — saving a draft (`POST /api/workflows/{name}/versions`)
+     validates it with exactly the startup rules plus a required change note.
+     Editing a built-in never modifies it; the draft is an `admin` version.
+  2. *Publish* (`POST /api/workflows/{name}/publish`) after confirming the diff
+     against the active version on screen. Live from the next chat turn.
+  3. *Roll back* (`POST /api/workflows/{name}/rollback`) re-publishes an older
+     version, recorded as `workflow.rolled_back`.
+- **What runs**: `POST /api/agents/chat` resolves the *published* `chat` version
+  per request (`resolve_active_workflow`), records it in `chat_turn_versions`, and
+  tags the run's trace metadata with `workflow_name`/`workflow_version_id`.
+  Thread replay's output-guardrail re-filter uses the same published prompt.
+  New workflows are not reachable from chat until workflow selection (issue #85).
+- **Not yet built**: the step diagram endpoint exists
+  (`GET /api/workflows/{name}/versions/{id}/graph`) but the screen doesn't draw it
+  yet; no syntax highlighting (plain textarea; a highlighting editor would need
+  vendoring); no file upload/bulk import; no rename or delete of a workflow.
+
 ## Schema reference
 
 Every workflow file has this top-level shape:

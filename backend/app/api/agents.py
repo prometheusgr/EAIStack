@@ -7,7 +7,6 @@ from langgraph.checkpoint.base import CheckpointTuple
 from sqlalchemy.orm import Session
 
 from app.agents.checkpointer import SqlAlchemyCheckpointSaver
-from app.agents.registry import get_agent_definition
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -23,12 +22,13 @@ from app.db.database import get_db
 from app.db.models import utc_now
 from app.guardrails.input_guardrail import GuardrailVerdict
 from app.guardrails.output_guardrail import filter_output
-from app.repositories import ThreadRepository
+from app.repositories import ChatTurnVersionRepository, ThreadRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services import check_input_guardrail, filter_agent_response
 from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
 from app.services.rate_limit_config_service import resolve_rate_limit_config
 from app.services.rate_limiter_service import check_chat_rate_limit, rate_limit_exceeded_response
+from app.services.workflow_service import resolve_active_workflow
 from app.workflows.primitives import extract_sources_from_messages
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -116,11 +116,14 @@ async def chat(
     thread_repository = ThreadRepository(db)
     thread = thread_repository.get_or_create_owned(request.thread_id, user["user_id"])
 
-    chat_agent_definition = get_agent_definition("chat")
-    # chat.yaml's entry step is an `agent` step (see WorkflowDef.entry_prompt),
-    # so this is always populated for "chat" specifically -- AgentDefinition.
-    # system_prompt is only None for a route/review_loop-entry workflow (see
-    # its docstring), neither of which any endpoint resolves by name today.
+    # The published version of "chat" from the versioned store (issue #83):
+    # an admin's published edit is live from the next turn, and the turn is
+    # recorded against that exact version below.
+    active_chat = resolve_active_workflow(db, "chat", now=utc_now())
+    chat_agent_definition = active_chat.agent_definition
+    # workflow_service refuses to save or publish a "chat" version whose
+    # entry isn't an `agent` step (WORKFLOWS_REQUIRING_AGENT_ENTRY), so
+    # this always has the single system prompt the output guardrail needs.
     assert chat_agent_definition.system_prompt is not None
     agent = chat_agent_definition.factory(db, user["access_token"], settings.doc_search_mcp_url)
     state = {
@@ -130,7 +133,19 @@ async def chat(
         "step_outputs": {},
     }
 
-    result = await agent.ainvoke(state, config={"configurable": {"thread_id": thread.id}})
+    result = await agent.ainvoke(
+        state,
+        config={
+            "configurable": {"thread_id": thread.id},
+            # Tags every Phoenix span of this run with the exact workflow
+            # version (epic #80 invariant 2: the version ID travels
+            # everywhere), so a trace can be matched to the prompt it used.
+            "metadata": {
+                "workflow_name": active_chat.workflow_name,
+                "workflow_version_id": active_chat.version_id,
+            },
+        },
+    )
     final_message = result["messages"][-1]
 
     filtered = filter_agent_response(
@@ -144,6 +159,13 @@ async def chat(
     )
 
     thread_repository.touch(thread.id, now=utc_now())
+    ChatTurnVersionRepository(db).record(
+        user_id=user["user_id"],
+        thread_id=thread.id,
+        workflow_name=active_chat.workflow_name,
+        workflow_version_id=active_chat.version_id,
+        now=utc_now(),
+    )
     db.commit()
 
     sources = extract_sources_from_messages(result["messages"])
@@ -198,13 +220,21 @@ async def get_thread_history(
         {"configurable": {"thread_id": thread.id}}
     )
     guardrail_config = resolve_guardrail_config(db)
-    messages = _render_messages(checkpoint_tuple, guardrail_config=guardrail_config)
+    system_prompt = resolve_active_workflow(
+        db, "chat", now=utc_now()
+    ).agent_definition.system_prompt
+    messages = _render_messages(
+        checkpoint_tuple, guardrail_config=guardrail_config, system_prompt=system_prompt
+    )
 
     return ThreadHistoryResponse(id=thread.id, messages=messages)
 
 
 def _render_messages(
-    checkpoint_tuple: CheckpointTuple | None, *, guardrail_config: GuardrailConfig
+    checkpoint_tuple: CheckpointTuple | None,
+    *,
+    guardrail_config: GuardrailConfig,
+    system_prompt: str | None,
 ) -> list[ThreadMessage]:
     """Map a checkpoint's stored LangChain messages to user/agent turns.
 
@@ -230,7 +260,6 @@ def _render_messages(
         return []
 
     stored_messages = checkpoint_tuple.checkpoint["channel_values"].get("messages", [])
-    system_prompt = get_agent_definition("chat").system_prompt
     rendered: list[ThreadMessage] = []
     for message in stored_messages:
         if isinstance(message, HumanMessage):

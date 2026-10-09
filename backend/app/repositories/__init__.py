@@ -8,6 +8,11 @@ from app.repositories.guardrail_pattern_repository import GuardrailPatternReposi
 from app.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.repositories.thread_repository import ThreadRepository
+from app.repositories.workflow_version_repository import (
+    ChatTurnVersionRepository,
+    WorkflowActiveVersionRepository,
+    WorkflowVersionRepository,
+)
 
 __all__ = [
     "EmbeddingRepository",
@@ -18,4 +23,7 @@ __all__ = [
     "SystemSettingsRepository",
     "ThreadRepository",
     "CheckpointRepository",
+    "ChatTurnVersionRepository",
+    "WorkflowActiveVersionRepository",
+    "WorkflowVersionRepository",
 ]

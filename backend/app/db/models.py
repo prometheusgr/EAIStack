@@ -17,6 +17,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.ext.compiler import compiles
@@ -341,6 +342,12 @@ class SystemSettings(Base):
     cleanup_on_logout: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     knowledge_base_purge_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     api_key_purge_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # How long a chat turn's workflow-version record (ChatTurnVersion) is
+    # kept (issue #83). Deliberately its own window rather than following
+    # conversation_retention_hours: it holds no message content, and its
+    # purpose is answering "which prompt produced this answer?" after the
+    # conversation itself is gone. None = keep forever, 0 = purge immediately.
+    chat_turn_version_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Guardrail config (issue #16). max_input_length, when set, is capped at
     # app.guardrails.input_guardrail.MAX_INPUT_LENGTH_CEILING by the request
     # schema (UpdateSettingsRequest) before it ever reaches this column -
@@ -471,3 +478,109 @@ class GuardrailPattern(Base):
 
     def __repr__(self):
         return f"<GuardrailPattern(id={self.id}, source={self.source}, enabled={self.enabled})>"
+
+
+class WorkflowVersion(Base):
+    """One immutable revision of a workflow definition (issue #83).
+
+    Built-in workflows (the git-reviewed backend/workflows/*.yaml files)
+    and admin edits are both recorded here, distinguished by `source`.
+    Append-only by design: WorkflowVersionRepository has no update or
+    delete method, so there is no updated_at column, and "published" is
+    not a status on the row - it is which version WorkflowActiveVersion
+    points at, with each pointer move recorded in audit_logs. A saved
+    version that has never been pointed at is a draft.
+
+    sequence counts up per workflow (1, 2, 3...); the unique constraint on
+    (workflow_name, sequence) stops two concurrent saves from both
+    claiming the next position and forking the hash chain (see
+    app.workflows.version_chain).
+    """
+
+    __tablename__ = "workflow_versions"
+    __table_args__ = (
+        UniqueConstraint("workflow_name", "sequence", name="uq_workflow_versions_name_sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workflow_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    yaml_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    chain_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    prev_chain_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    parent_version_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("workflow_versions.id"), nullable=True
+    )
+    # "builtin" (synced from a shipped YAML file) or "admin" (saved through
+    # the Workflows screen).
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Keycloak `sub` of the admin who saved it, or "system" for a built-in.
+    author_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    change_note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    def __repr__(self):
+        return (
+            f"<WorkflowVersion(id={self.id}, workflow_name={self.workflow_name}, "
+            f"sequence={self.sequence}, source={self.source})>"
+        )
+
+
+class WorkflowActiveVersion(Base):
+    """Which version of each workflow is currently published (issue #83).
+
+    The one mutable table in the workflow store: publishing or rolling back
+    moves this pointer. Every move happens in the same transaction as the
+    audit_logs entry that records it (app.services.workflow_service), so the
+    audit trail is a complete history of what this row has ever held.
+    """
+
+    __tablename__ = "workflow_active_versions"
+
+    workflow_name: Mapped[str] = mapped_column(String(255), primary_key=True)
+    version_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflow_versions.id"), nullable=False
+    )
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    def __repr__(self):
+        return (
+            f"<WorkflowActiveVersion(workflow_name={self.workflow_name}, "
+            f"version_id={self.version_id})>"
+        )
+
+
+class ChatTurnVersion(Base):
+    """Which workflow version answered one chat turn (issue #83).
+
+    Recorded by POST /api/agents/chat for every turn, so "which prompt
+    produced this answer on the 14th?" stays answerable after later
+    edits. Holds no message content.
+
+    thread_id is deliberately not a foreign key to conversation_threads:
+    this record has its own retention window
+    (SystemSettings.chat_turn_version_retention_days) and is expected to
+    outlive the conversation it describes, which conversation retention
+    or logout cleanup may already have purged.
+    """
+
+    __tablename__ = "chat_turn_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    thread_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    workflow_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    workflow_version_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflow_versions.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, index=True
+    )
+
+    def __repr__(self):
+        return (
+            f"<ChatTurnVersion(id={self.id}, thread_id={self.thread_id}, "
+            f"workflow_version_id={self.workflow_version_id})>"
+        )

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.models import (
     APIKey,
+    ChatTurnVersion,
     ConversationCheckpoint,
     ConversationThread,
     Embedding,
@@ -61,6 +62,7 @@ class RetentionConfig:
     cleanup_on_logout: bool
     knowledge_base_purge_days: int | None
     api_key_purge_days: int | None
+    chat_turn_version_retention_days: int | None
 
 
 def resolve_retention_config(
@@ -97,6 +99,10 @@ def resolve_retention_config(
         api_key_purge_days=resolve_field(
             db_value=db_settings.api_key_purge_days if db_settings else None,
             env_default=settings.api_key_purge_days,
+        ),
+        chat_turn_version_retention_days=resolve_field(
+            db_value=db_settings.chat_turn_version_retention_days if db_settings else None,
+            env_default=settings.chat_turn_version_retention_days,
         ),
     )
 
@@ -295,6 +301,34 @@ def purge_expired_api_keys(
     return purged
 
 
+def purge_expired_chat_turn_versions(
+    db: Session,
+    retention_days: int | None,
+    now: datetime,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+) -> int:
+    """Delete chat-turn workflow-version records older than the window.
+
+    Purged only here, on its own window (issue #83) - never by logout
+    cleanup or the conversation purge, since the record exists to outlive
+    the conversation it describes. retention_days=None keeps forever.
+    """
+    if retention_days is None:
+        return 0
+
+    cutoff = (now - timedelta(days=retention_days)).replace(tzinfo=None)
+    expired_ids = [
+        row.id
+        for row in db.query(ChatTurnVersion.id).filter(ChatTurnVersion.created_at < cutoff).all()
+    ]
+    if not expired_ids:
+        return 0
+
+    purged = _delete_in_batches(db, ChatTurnVersion, expired_ids, batch_size)
+    logger.info("Retention purge: deleted %d chat-turn version record(s)", purged)
+    return purged
+
+
 def run_retention_sweep(
     db: Session, now: datetime, document_store: "DocumentStore | None" = None
 ) -> dict[str, int]:
@@ -323,12 +357,17 @@ def run_retention_sweep(
             db, config.knowledge_base_purge_days, now, document_store=document_store
         ),
         "api_keys": purge_expired_api_keys(db, config.api_key_purge_days, now),
+        "chat_turn_versions": purge_expired_chat_turn_versions(
+            db, config.chat_turn_version_retention_days, now
+        ),
     }
 
     logger.info(
-        "Retention sweep complete: %d conversation(s), %d document(s), %d API key(s) purged",
+        "Retention sweep complete: %d conversation(s), %d document(s), %d API key(s), "
+        "%d chat-turn version record(s) purged",
         result["conversations"],
         result["knowledge_base"],
         result["api_keys"],
+        result["chat_turn_versions"],
     )
     return result

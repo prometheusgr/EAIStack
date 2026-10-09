@@ -88,3 +88,26 @@ describe('MainLayout User Management link (issue #40)', () => {
     expect(screen.queryByRole('link', { name: /user management/i })).not.toBeInTheDocument()
   })
 })
+
+describe('MainLayout Workflows nav entry (issue #83)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('shows Workflows to an admin', async () => {
+    localStorage.setItem('access_token', ADMIN_TOKEN)
+
+    renderLayout()
+
+    expect(await screen.findByRole('button', { name: 'Workflows' })).toBeInTheDocument()
+  })
+
+  it('hides Workflows from a non-admin user', async () => {
+    localStorage.setItem('access_token', NON_ADMIN_TOKEN)
+
+    renderLayout()
+
+    await waitFor(() => expect(screen.getByText('content')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Workflows' })).not.toBeInTheDocument()
+  })
+})

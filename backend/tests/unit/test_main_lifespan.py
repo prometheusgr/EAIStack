@@ -94,3 +94,25 @@ def test_lifespan_fails_loudly_on_an_invalid_built_in_workflow_file(
 
     assert exc_info.value.file == "broken.yaml"
     assert "does_not_exist" in exc_info.value.message
+
+
+@pytest.mark.unit
+def test_lifespan_records_and_activates_every_shipped_builtin_workflow(lifespan_db_sessionmaker):
+    """Issue #83: after startup, the Workflows screen lists each built-in
+    with a real, active version - a fresh `docker compose up` has something
+    to edit immediately."""
+    from app.db.models import WorkflowActiveVersion
+
+    with (
+        patch("app.main.SessionLocal", lifespan_db_sessionmaker),
+        patch("app.main.configure_tracing"),
+    ):
+        with TestClient(app):
+            pass
+
+    db = lifespan_db_sessionmaker()
+    try:
+        active = {row.workflow_name for row in db.query(WorkflowActiveVersion).all()}
+    finally:
+        db.close()
+    assert {"chat", "triage", "reviewed_answer"} <= active

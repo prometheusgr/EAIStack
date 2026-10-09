@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.guardrails.input_guardrail import MAX_INPUT_LENGTH_CEILING
+from app.services.workflow_service import MAX_CHANGE_NOTE_CHARS, MAX_WORKFLOW_YAML_BYTES
 
 
 def _as_utc_isoformat(value: datetime) -> str:
@@ -454,6 +455,8 @@ class SystemSettingsResponse(BaseModel):
     knowledge_base_purge_days_is_db_override: bool
     api_key_purge_days: Optional[int] = None
     api_key_purge_days_is_db_override: bool
+    chat_turn_version_retention_days: Optional[int] = None
+    chat_turn_version_retention_days_is_db_override: bool
     max_input_length: int
     max_input_length_is_db_override: bool
     guardrails_input_enabled: bool
@@ -528,6 +531,7 @@ class UpdateSettingsRequest(BaseModel):
     cleanup_on_logout: Optional[bool] = None
     knowledge_base_purge_days: Optional[int] = Field(default=None, ge=0)
     api_key_purge_days: Optional[int] = Field(default=None, ge=0)
+    chat_turn_version_retention_days: Optional[int] = Field(default=None, ge=0)
     # Guardrail config. max_input_length's upper bound is imported directly
     # from app.guardrails.input_guardrail.MAX_INPUT_LENGTH_CEILING (the
     # module docstring there calls it "the one place that ceiling is
@@ -569,3 +573,78 @@ class UpdateSettingsRequest(BaseModel):
     rag_chunk_size: Optional[int] = Field(default=None, ge=1)
     rag_chunk_overlap_ratio: Optional[float] = Field(default=None, ge=0, le=0.9)
     rag_max_excerpt_chars: Optional[int] = Field(default=None, ge=1)
+
+
+class WorkflowSummaryResponse(BaseModel):
+    """One workflow on the Workflows screen's list (issue #83)."""
+
+    name: str
+    active_version_id: Optional[str] = None
+    active_version_sequence: Optional[int] = None
+    active_version_source: Optional[str] = None
+    latest_version_sequence: int
+    builtin_update_available: bool
+
+
+class WorkflowListResponse(BaseModel):
+    """Response body for GET /api/workflows.
+
+    change_management_mode is read-only: it is deployment configuration
+    (issue #87), and today always "direct".
+    """
+
+    change_management_mode: str
+    workflows: list[WorkflowSummaryResponse]
+
+
+class WorkflowVersionSummary(BaseModel):
+    """One row of a workflow's version history (no YAML; see detail)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    workflow_name: str
+    sequence: int
+    source: str
+    author_user_id: str
+    change_note: str
+    content_hash: str
+    parent_version_id: Optional[str] = None
+    created_at: datetime
+    is_active: bool
+
+
+class WorkflowVersionDetail(WorkflowVersionSummary):
+    """One version including its full YAML text."""
+
+    yaml_text: str
+
+
+class WorkflowVersionListResponse(BaseModel):
+    """Response body for GET /api/workflows/{name}/versions, newest first."""
+
+    versions: list[WorkflowVersionSummary]
+
+
+class SaveWorkflowDraftRequest(BaseModel):
+    """Request body for saving a draft (or creating a new workflow).
+
+    The byte ceiling is enforced by app.services.workflow_service.
+    parse_draft_yaml; the character bound here only stops an absurd body
+    before it is parsed.
+    """
+
+    yaml_text: str = Field(max_length=MAX_WORKFLOW_YAML_BYTES)
+    change_note: str = Field(max_length=MAX_CHANGE_NOTE_CHARS)
+
+
+class PublishWorkflowRequest(BaseModel):
+    """Request body for publish and rollback."""
+
+    version_id: str
+
+
+class WorkflowDiffResponse(BaseModel):
+    """Unified diff between two versions' YAML."""
+
+    diff: str
