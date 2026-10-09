@@ -541,3 +541,24 @@ def test_get_thread_history_returns_200_with_messages_for_owned_thread(client):
     texts = [m["text"] for m in data["messages"]]
     assert "What is 2+2?" in texts
     assert agent_reply in texts
+
+
+@pytest.mark.unit
+def test_chat_endpoint_rejects_unknown_fields_instead_of_silently_dropping_them(client):
+    """A misspelled field (the frontend once sent `threadId` instead of
+    `thread_id`) must fail loudly. Silently ignoring it made every follow-up
+    message start a brand-new conversation with no memory of earlier turns.
+    """
+    app.dependency_overrides[get_current_user] = lambda: {
+        "user_id": "user-1",
+        "username": "u",
+        "email": "u@example.com",
+        "name": "U",
+        "token": {},
+        "access_token": "fake-access-token",
+    }
+
+    response = client.post("/api/agents/chat", json={"message": "hi", "threadId": "abc"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422

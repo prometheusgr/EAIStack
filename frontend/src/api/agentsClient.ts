@@ -7,10 +7,10 @@ export async function sendChatMessage(
   token: string,
   onRefresh?: AuthRefresh
 ): Promise<ChatResponse> {
-  const request: ChatRequest = {
-    message,
-    threadId,
-  };
+  const request: ChatRequest = { message };
+  if (threadId) {
+    request.thread_id = threadId;
+  }
 
   if (!onRefresh) {
     throw new Error('Auth refresh callback is required')
