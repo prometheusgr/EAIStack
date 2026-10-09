@@ -29,6 +29,21 @@ def _login_as(user_id: str) -> dict:
     return fake_user
 
 
+def _guardrail_entries(db_session):
+    """Audit entries written by the guardrails, newest first.
+
+    Filtered by action rather than counting every entry: the first chat
+    turn against a fresh test database also records the built-in workflow
+    versions (workflow.builtin_synced, issue #83), which are not what
+    these tests are about.
+    """
+    return [
+        entry
+        for entry in AuditLogRepository(db_session).list_recent()
+        if entry.action.startswith("guardrail.")
+    ]
+
+
 @pytest.mark.unit
 def test_chat_endpoint_rejects_prompt_injection_with_400(client):
     """A message that trips the input guardrail is rejected outright --
@@ -99,7 +114,7 @@ def test_chat_endpoint_records_audit_entry_on_guardrail_rejection(client, db_ses
 
     app.dependency_overrides.clear()
 
-    entries = AuditLogRepository(db_session).list_recent()
+    entries = _guardrail_entries(db_session)
     assert len(entries) == 1
     assert entries[0].actor_user_id == "user-a"
     assert entries[0].action == "guardrail.input_rejected"
@@ -117,7 +132,7 @@ def test_chat_endpoint_does_not_record_audit_entry_for_allowed_message(client, d
 
     app.dependency_overrides.clear()
 
-    entries = AuditLogRepository(db_session).list_recent()
+    entries = _guardrail_entries(db_session)
     assert len(entries) == 0
 
 
@@ -143,7 +158,7 @@ def test_chat_endpoint_records_audit_entry_on_output_redaction(client, db_sessio
     assert "[redacted]" in response.json()["response"]
     assert response.json()["was_modified"] is True
 
-    entries = AuditLogRepository(db_session).list_recent()
+    entries = _guardrail_entries(db_session)
     assert len(entries) == 1
     assert entries[0].actor_user_id == "user-a"
     assert entries[0].action == "guardrail.output_redacted"
@@ -165,7 +180,7 @@ def test_chat_endpoint_does_not_record_audit_entry_for_unmodified_output(
 
     app.dependency_overrides.clear()
 
-    entries = AuditLogRepository(db_session).list_recent()
+    entries = _guardrail_entries(db_session)
     assert len(entries) == 0
     assert response.json()["was_modified"] is False
 

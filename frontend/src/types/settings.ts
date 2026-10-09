@@ -103,6 +103,9 @@ export interface SystemSettingsResponse {
   knowledge_base_purge_days_is_db_override: boolean
   api_key_purge_days: number | null
   api_key_purge_days_is_db_override: boolean
+  /** How long each chat turn's workflow-version record is kept (issue #83). */
+  chat_turn_version_retention_days: number | null
+  chat_turn_version_retention_days_is_db_override: boolean
   max_input_length: number
   max_input_length_is_db_override: boolean
   guardrails_input_enabled: boolean
@@ -172,6 +175,7 @@ export interface UpdateSettingsRequest {
   cleanup_on_logout?: boolean | null
   knowledge_base_purge_days?: number | null
   api_key_purge_days?: number | null
+  chat_turn_version_retention_days?: number | null
   max_input_length?: number | null
   guardrails_input_enabled?: boolean | null
   guardrails_output_enabled?: boolean | null

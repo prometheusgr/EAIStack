@@ -6,6 +6,7 @@ import { useRetryCountdown } from './hooks/useRetryCountdown'
 import { ChatWindow } from './components/ChatWindow'
 import { APIKeys } from './components/APIKeys'
 import { AuditLog } from './components/AuditLog'
+import { Workflows } from './components/Workflows'
 import { Dashboard } from './components/Dashboard'
 import { EmbeddingsList } from '@/components/embeddings/EmbeddingsList'
 import { EmbeddingsSearch } from '@/components/embeddings/EmbeddingsSearch'
@@ -106,6 +107,7 @@ function AppContent() {
       )}
       {currentView === 'settings' && isAdmin && <Settings />}
       {currentView === 'audit' && isAdmin && <AuditLog />}
+      {currentView === 'workflows' && isAdmin && <Workflows />}
       {currentView === 'dashboard' && isAdmin && (
         <Dashboard onViewAuditLog={() => setCurrentView('audit')} />
       )}

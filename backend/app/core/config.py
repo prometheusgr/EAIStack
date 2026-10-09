@@ -166,6 +166,13 @@ class Settings(BaseSettings):
     knowledge_base_purge_days: int | None = 30
     api_key_purge_days: int | None = 30
 
+    # How long each chat turn's workflow-version record is kept (issue #83).
+    # Longer than the conversation window by design: it holds no message
+    # content and exists to answer "which prompt produced this answer?"
+    # after the conversation is gone. None = keep forever, 0 = purge
+    # immediately; an admin can override it on the Settings screen.
+    chat_turn_version_retention_days: int | None = 365
+
     # Guardrail config (env-level defaults; an admin can override each at
     # runtime via the settings screen, which writes to SystemSettings — see
     # app.services.guardrail_config_service.resolve_guardrail_config).

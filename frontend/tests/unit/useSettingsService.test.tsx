@@ -67,6 +67,8 @@ const SETTINGS_RESPONSE = {
   knowledge_base_purge_days_is_db_override: false,
   api_key_purge_days: 30,
   api_key_purge_days_is_db_override: false,
+  chat_turn_version_retention_days: 365,
+  chat_turn_version_retention_days_is_db_override: false,
   max_input_length: 4000,
   max_input_length_is_db_override: false,
   guardrails_input_enabled: true,

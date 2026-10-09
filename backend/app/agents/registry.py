@@ -79,11 +79,23 @@ def register_workflow_definitions(definitions: dict[str, WorkflowDef]) -> None:
     unrelated caller's turn.
     """
     for name, definition in definitions.items():
-        _REGISTRY[name] = AgentDefinition(
-            name=name,
-            factory=_make_factory(definition),
-            system_prompt=definition.entry_prompt_or_none(),
-        )
+        _REGISTRY[name] = build_agent_definition(name, definition)
+
+
+def build_agent_definition(name: str, definition: WorkflowDef) -> AgentDefinition:
+    """Wrap one validated workflow definition as an AgentDefinition.
+
+    Used for the built-ins registered at startup and, per request, for an
+    admin-published version resolved from the versioned store (see
+    app.services.workflow_service.resolve_active_workflow) - both paths
+    produce the same shape, so the chat endpoint never needs to know which
+    one it got.
+    """
+    return AgentDefinition(
+        name=name,
+        factory=_make_factory(definition),
+        system_prompt=definition.entry_prompt_or_none(),
+    )
 
 
 def _make_factory(definition: WorkflowDef) -> AgentFactory:

@@ -270,3 +270,37 @@ def test_audit_log_endpoint_is_admin_only(client):
     app.dependency_overrides.clear()
 
     assert response.status_code == 403
+
+
+@pytest.mark.unit
+def test_chat_turn_version_retention_defaults_and_overrides(client, db_session):
+    """Issue #83: the chat-turn version record has its own retention window,
+    configured and audited exactly like the other retention fields."""
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    before = client.get("/api/settings").json()
+    response = client.put("/api/settings", json={"chat_turn_version_retention_days": 30})
+
+    app.dependency_overrides.clear()
+
+    assert before["chat_turn_version_retention_days"] == 365
+    assert before["chat_turn_version_retention_days_is_db_override"] is False
+    assert response.status_code == 200
+    assert response.json()["chat_turn_version_retention_days"] == 30
+    entry = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.field_name == "chat_turn_version_retention_days")
+        .one()
+    )
+    assert (entry.action, entry.old_value, entry.new_value) == ("retention.update", None, "30")
+
+
+@pytest.mark.unit
+def test_chat_turn_version_retention_rejects_a_negative_window(client):
+    app.dependency_overrides[get_current_user] = _override_user(ADMIN_USER)
+
+    response = client.put("/api/settings", json={"chat_turn_version_retention_days": -1})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
