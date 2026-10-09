@@ -51,11 +51,9 @@ MAX_CHANGE_NOTE_CHARS = 2000
 # only mode that exists, so it is a constant shown read-only in the UI.
 CHANGE_MANAGEMENT_MODE = "direct"
 
-# Workflows an endpoint invokes in a way that needs a single entry-step
-# system prompt: POST /api/agents/chat passes it to the output
-# guardrail's leak detector. A route/review_loop entry has no single
-# prompt, so publishing one for these would break that endpoint.
-WORKFLOWS_REQUIRING_AGENT_ENTRY = frozenset({"chat"})
+# The workflow a conversation uses when the user doesn't choose one
+# (issue #85): today's behavior for everyone who never opens the picker.
+DEFAULT_WORKFLOW = "chat"
 
 SYSTEM_ACTOR = "system"
 
@@ -95,6 +93,15 @@ class ActiveWorkflow:
 
 
 @dataclass(frozen=True)
+class AvailableWorkflow:
+    """A published workflow an end user can start a conversation with."""
+
+    name: str
+    description: str
+    is_default: bool
+
+
+@dataclass(frozen=True)
 class WorkflowSummary:
     """One row of the Workflows screen's list."""
 
@@ -122,13 +129,6 @@ def parse_draft_yaml(workflow_name: str, yaml_text: str) -> WorkflowDef:
         raise WorkflowDraftRejected(
             field="name",
             message=f"name must stay {workflow_name!r}; renaming a workflow is not supported.",
-        )
-    if workflow_name in WORKFLOWS_REQUIRING_AGENT_ENTRY and not isinstance(
-        definition.steps[definition.entry], AgentStepDef
-    ):
-        raise WorkflowDraftRejected(
-            field="entry",
-            message=f"The {workflow_name!r} workflow's entry step must be an `agent` step.",
         )
     return definition
 
@@ -378,20 +378,68 @@ def resolve_active_workflow(db, workflow_name: str, *, now: datetime) -> ActiveW
     pointers = WorkflowActiveVersionRepository(db)
     active_id = pointers.get_active_version_id(workflow_name)
     if active_id is None:
-        sync_builtin_versions(db, load_builtin_sources(), now=now)
+        _ensure_builtins_recorded(db, now=now)
         active_id = pointers.get_active_version_id(workflow_name)
     if active_id is None:
         raise WorkflowNotFound(workflow_name)
 
     version = WorkflowVersionRepository(db).get(active_id)
     assert version is not None  # FK-guaranteed: the pointer references a stored version
-    definition = parse_workflow_definition(
-        yaml.safe_load(version.yaml_text), source_file=f"{workflow_name} v{version.sequence}"
-    )
+    definition = _parse_stored(version)
     return ActiveWorkflow(
         workflow_name=workflow_name,
         version_id=version.id,
         agent_definition=build_agent_definition(workflow_name, definition),
+    )
+
+
+def list_available_workflows(db, *, now: datetime) -> list[AvailableWorkflow]:
+    """Every workflow with a published version, default first, then by name.
+
+    The user-facing list (issue #85): drafts and never-published workflows
+    are excluded, since only a published version can run. In v1 every
+    published workflow is offered to every signed-in user; restricting one
+    to a role is a deliberate follow-up, not an oversight.
+    """
+    _ensure_builtins_recorded(db, now=now)
+    versions = WorkflowVersionRepository(db)
+    pointers = WorkflowActiveVersionRepository(db)
+    available = []
+    for name in versions.list_workflow_names():
+        active_id = pointers.get_active_version_id(name)
+        if active_id is None:
+            continue
+        version = versions.get(active_id)
+        assert version is not None  # FK-guaranteed
+        available.append(
+            AvailableWorkflow(
+                name=name,
+                description=_parse_stored(version).description,
+                is_default=name == DEFAULT_WORKFLOW,
+            )
+        )
+    return sorted(available, key=lambda w: (not w.is_default, w.name))
+
+
+def is_available(db, workflow_name: str, *, now: datetime) -> bool:
+    """Whether workflow_name has a published version a conversation can use."""
+    _ensure_builtins_recorded(db, now=now)
+    return WorkflowActiveVersionRepository(db).get_active_version_id(workflow_name) is not None
+
+
+def _ensure_builtins_recorded(db, *, now: datetime) -> None:
+    """Sync the shipped built-ins if the store has never seen them (a fresh
+    database that hasn't been through a startup sync, e.g. under unit tests).
+    """
+    if WorkflowVersionRepository(db).latest_for_workflow(DEFAULT_WORKFLOW) is None:
+        sync_builtin_versions(db, load_builtin_sources(), now=now)
+
+
+def _parse_stored(version: WorkflowVersion) -> WorkflowDef:
+    """Parse a stored version's YAML (already validated when it was saved)."""
+    return parse_workflow_definition(
+        yaml.safe_load(version.yaml_text),
+        source_file=f"{version.workflow_name} v{version.sequence}",
     )
 
 
@@ -448,10 +496,7 @@ def workflow_graph(version: WorkflowVersion) -> dict[str, Any]:
     get_graph(): compiling needs a db session, caller token and MCP URL
     just to draw a picture, and the definition already holds every edge.
     """
-    definition = parse_workflow_definition(
-        yaml.safe_load(version.yaml_text),
-        source_file=f"{version.workflow_name} v{version.sequence}",
-    )
+    definition = _parse_stored(version)
     nodes = [{"id": name, "type": step.type} for name, step in definition.steps.items()]
     edges: list[dict[str, str | None]] = []
     for name, step in definition.steps.items():

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.agents.checkpointer import SqlAlchemyCheckpointSaver
 from app.api.schemas import (
+    AvailableWorkflowListResponse,
+    AvailableWorkflowResponse,
     ChatRequest,
     ChatResponse,
     SourceReference,
@@ -28,7 +30,12 @@ from app.services import check_input_guardrail, filter_agent_response
 from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
 from app.services.rate_limit_config_service import resolve_rate_limit_config
 from app.services.rate_limiter_service import check_chat_rate_limit, rate_limit_exceeded_response
-from app.services.workflow_service import resolve_active_workflow
+from app.services.workflow_service import (
+    DEFAULT_WORKFLOW,
+    is_available,
+    list_available_workflows,
+    resolve_active_workflow,
+)
 from app.workflows.primitives import extract_sources_from_messages
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -114,18 +121,36 @@ async def chat(
         )
 
     thread_repository = ThreadRepository(db)
-    thread = thread_repository.get_or_create_owned(request.thread_id, user["user_id"])
+    existing_thread = (
+        thread_repository.get_by_id_for_user(request.thread_id, user["user_id"])
+        if request.thread_id
+        else None
+    )
+    if existing_thread is not None:
+        thread = existing_thread
+    else:
+        # A new conversation binds to the requested workflow (issue #85). Only
+        # a published workflow may be used - never a draft or an unknown name.
+        requested_workflow = request.workflow or DEFAULT_WORKFLOW
+        if not is_available(db, requested_workflow, now=utc_now()):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "workflow_not_available",
+                    "message": f"The workflow {requested_workflow!r} is not available.",
+                },
+            )
+        thread = thread_repository.get_or_create_owned(
+            None, user["user_id"], workflow_name=requested_workflow
+        )
 
-    # The published version of "chat" from the versioned store (issue #83):
-    # an admin's published edit is live from the next turn, and the turn is
-    # recorded against that exact version below.
-    active_chat = resolve_active_workflow(db, "chat", now=utc_now())
-    chat_agent_definition = active_chat.agent_definition
-    # workflow_service refuses to save or publish a "chat" version whose
-    # entry isn't an `agent` step (WORKFLOWS_REQUIRING_AGENT_ENTRY), so
-    # this always has the single system prompt the output guardrail needs.
-    assert chat_agent_definition.system_prompt is not None
-    agent = chat_agent_definition.factory(db, user["access_token"], settings.doc_search_mcp_url)
+    # The published version of the thread's workflow (issues #83, #85): an
+    # admin's published edit is live from the next turn, and the turn is
+    # recorded against that exact version below. An existing thread keeps its
+    # bound workflow whatever the request asked for.
+    active_workflow = resolve_active_workflow(db, thread.workflow_name, now=utc_now())
+    agent_definition = active_workflow.agent_definition
+    agent = agent_definition.factory(db, user["access_token"], settings.doc_search_mcp_url)
     state = {
         "messages": [HumanMessage(content=request.message)],
         "thread_id": thread.id,
@@ -141,8 +166,8 @@ async def chat(
             # version (epic #80 invariant 2: the version ID travels
             # everywhere), so a trace can be matched to the prompt it used.
             "metadata": {
-                "workflow_name": active_chat.workflow_name,
-                "workflow_version_id": active_chat.version_id,
+                "workflow_name": active_workflow.workflow_name,
+                "workflow_version_id": active_workflow.version_id,
             },
         },
     )
@@ -151,7 +176,7 @@ async def chat(
     filtered = filter_agent_response(
         db,
         final_message=final_message,
-        system_prompt=chat_agent_definition.system_prompt,
+        system_prompt=agent_definition.guarded_prompt_text,
         actor_user_id=user["user_id"],
         thread_id=thread.id,
         config=guardrail_config,
@@ -162,8 +187,8 @@ async def chat(
     ChatTurnVersionRepository(db).record(
         user_id=user["user_id"],
         thread_id=thread.id,
-        workflow_name=active_chat.workflow_name,
-        workflow_version_id=active_chat.version_id,
+        workflow_name=active_workflow.workflow_name,
+        workflow_version_id=active_workflow.version_id,
         now=utc_now(),
     )
     db.commit()
@@ -182,6 +207,30 @@ async def chat(
             for source in sources
         ],
         was_modified=filtered.was_modified,
+        workflow=thread.workflow_name,
+    )
+
+
+@router.get("/workflows", response_model=AvailableWorkflowListResponse)
+async def list_workflows(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AvailableWorkflowListResponse:
+    """The published workflows a user can start a conversation with.
+
+    User feature (issue #85): any signed-in user. Drafts and unpublished
+    workflows are never listed, and every published workflow is offered to
+    every user in v1 (no per-role restriction yet).
+    """
+    workflows = list_available_workflows(db, now=utc_now())
+    db.commit()  # persists the one-time built-in sync on a fresh database
+    return AvailableWorkflowListResponse(
+        workflows=[
+            AvailableWorkflowResponse(
+                name=w.name, description=w.description, is_default=w.is_default
+            )
+            for w in workflows
+        ]
     )
 
 
@@ -194,7 +243,9 @@ async def list_threads(
     threads = ThreadRepository(db).list_for_user(user["user_id"])
     return ThreadListResponse(
         threads=[
-            ThreadSummary(id=t.id, created_at=t.created_at, updated_at=t.updated_at)
+            ThreadSummary(
+                id=t.id, workflow=t.workflow_name, created_at=t.created_at, updated_at=t.updated_at
+            )
             for t in threads
         ]
     )
@@ -220,14 +271,14 @@ async def get_thread_history(
         {"configurable": {"thread_id": thread.id}}
     )
     guardrail_config = resolve_guardrail_config(db)
-    system_prompt = resolve_active_workflow(
-        db, "chat", now=utc_now()
-    ).agent_definition.system_prompt
+    guarded_prompt_text = resolve_active_workflow(
+        db, thread.workflow_name, now=utc_now()
+    ).agent_definition.guarded_prompt_text
     messages = _render_messages(
-        checkpoint_tuple, guardrail_config=guardrail_config, system_prompt=system_prompt
+        checkpoint_tuple, guardrail_config=guardrail_config, system_prompt=guarded_prompt_text
     )
 
-    return ThreadHistoryResponse(id=thread.id, messages=messages)
+    return ThreadHistoryResponse(id=thread.id, workflow=thread.workflow_name, messages=messages)
 
 
 def _render_messages(

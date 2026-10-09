@@ -36,7 +36,12 @@ describe('threadsClient', () => {
         ok: true,
         json: async () => ({
           threads: [
-            { id: 'thread-1', created_at: '2026-08-20T00:00:00Z', updated_at: '2026-08-20T01:00:00Z' },
+            {
+              id: 'thread-1',
+              created_at: '2026-08-20T00:00:00Z',
+              updated_at: '2026-08-20T01:00:00Z',
+              workflow: 'triage',
+            },
           ],
         }),
       })
@@ -48,7 +53,14 @@ describe('threadsClient', () => {
         expect.objectContaining({ method: 'GET' })
       )
       expect(result).toEqual({
-        threads: [{ id: 'thread-1', createdAt: '2026-08-20T00:00:00Z', updatedAt: '2026-08-20T01:00:00Z' }],
+        threads: [
+          {
+            id: 'thread-1',
+            createdAt: '2026-08-20T00:00:00Z',
+            updatedAt: '2026-08-20T01:00:00Z',
+            workflow: 'triage',
+          },
+        ],
       })
     })
 
@@ -85,6 +97,7 @@ describe('threadsClient', () => {
         json: async () => ({
           id: 'thread-1',
           messages: [{ role: 'user', text: 'Hello' }],
+          workflow: 'triage',
         }),
       })
 
@@ -94,7 +107,11 @@ describe('threadsClient', () => {
         expect.stringContaining('/api/agents/threads/thread-1'),
         expect.objectContaining({ method: 'GET' })
       )
-      expect(result).toEqual({ id: 'thread-1', messages: [{ role: 'user', text: 'Hello' }] })
+      expect(result).toEqual({
+        id: 'thread-1',
+        messages: [{ role: 'user', text: 'Hello' }],
+        workflow: 'triage',
+      })
     })
 
     it('throws ApiError with detail on 404 (not found or not owned)', async () => {

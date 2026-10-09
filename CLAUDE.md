@@ -184,6 +184,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Migration `015` verified up/down/up against real Postgres; startup sync verified idempotent there with intact chains.
 - **Not in this slice**: drawing the step diagram (the graph endpoint exists), syntax highlighting, upload/bulk import, rename/delete, a `workflow-admin` role, and running non-`chat` workflows from chat (#85).
 
+**Workflow Selection in Chat Complete ✓**: Pick a Published Workflow (issue #85, epic #80)
+- **User feature** (any signed-in user). User-visible signal: a new chat shows a **Workflow** picker of every *published* workflow (default `chat` first) with the selected one's `description`; once the first message is sent the chat shows "Workflow: <name>" instead, and the conversation list labels each conversation with its workflow. `GET /api/agents/workflows` lists published workflows only; `POST /api/agents/chat` takes an optional `workflow` for a new thread.
+- **Server-side binding**: the workflow is stored on the thread (`conversation_threads.workflow_name`, migration `016`, existing rows backfilled to `chat`) when it is created. A follow-up ignores any `workflow` the client sends — a conversation can never switch workflow mid-thread. An unknown, draft-only or unpublished name is `400 workflow_not_available` and creates no thread; the chat screen shows that as its own alert (not the content-safety banner) and refreshes the picker. Each turn runs the workflow's *currently published* version.
+- **Leak guard generalized, `chat`'s agent-entry rule removed**: #83 required `chat` drafts to keep an `agent` entry step so the output guardrail had "the" system prompt. A route-first workflow like `triage` has none, so the leak detector now compares against every prompt a workflow sends (`WorkflowDef.guarded_prompt_text()` — agent, route classifier, review-loop worker and reviewer prompts), carried on `AgentDefinition.guarded_prompt_text`, live and on thread replay (which now uses the thread's own workflow). `WORKFLOWS_REQUIRING_AGENT_ENTRY` is gone.
+- New optional top-level YAML field `description`; every built-in has one.
+- **Configuration call-out**: no new settings. `DEFAULT_WORKFLOW = "chat"` is a named constant (the default is the workflow the product ships with — a code-level choice, not a per-deployment knob).
+- Depends on the chat `thread_id` fix (follow-ups previously always started a new thread, which would have made the binding meaningless).
+- e2e: `frontend/tests/e2e/workflow-selection.spec.ts` publishes a fresh workflow on the Workflows screen, picks it in chat, and checks the conversation is bound to it. Content-independent, so it runs under CI's fake provider.
+
 ## Common Development Commands
 
 ### Backend (Python)

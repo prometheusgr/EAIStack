@@ -38,6 +38,10 @@ class ChatRequest(BaseModel):
 
     message: str
     thread_id: str | None = None
+    # The published workflow to start a *new* conversation with (issue #85).
+    # Ignored for an existing thread, which keeps its bound workflow; None
+    # means the default chat workflow.
+    workflow: str | None = None
 
 
 class SourceReference(BaseModel):
@@ -73,12 +77,15 @@ class ChatResponse(BaseModel):
     # should fail loudly (a Pydantic validation error), not silently
     # manufacture a false "not redacted" signal.
     was_modified: bool
+    # The workflow that answered (the thread's bound workflow, issue #85).
+    workflow: str
 
 
 class ThreadSummary(BaseModel):
     """One entry in a user's thread list."""
 
     id: str
+    workflow: str
     created_at: datetime
     updated_at: datetime
 
@@ -104,7 +111,22 @@ class ThreadHistoryResponse(BaseModel):
     """Response body for GET /api/agents/threads/{thread_id}."""
 
     id: str
+    workflow: str
     messages: list[ThreadMessage]
+
+
+class AvailableWorkflowResponse(BaseModel):
+    """One published workflow a user can start a conversation with."""
+
+    name: str
+    description: str
+    is_default: bool
+
+
+class AvailableWorkflowListResponse(BaseModel):
+    """Response body for GET /api/agents/workflows."""
+
+    workflows: list[AvailableWorkflowResponse]
 
 
 class APIKeyCreate(BaseModel):

@@ -187,20 +187,20 @@ def test_save_draft_rejects_an_invalid_definition_naming_the_field(
 
 
 @pytest.mark.unit
-def test_chat_draft_must_keep_an_agent_entry_step(seeded):
-    """POST /api/agents/chat needs a single system prompt for the output
-    guardrail's leak detector, which only an `agent` entry step has."""
-    with pytest.raises(WorkflowDraftRejected) as excinfo:
-        save_draft(
-            seeded,
-            workflow_name="chat",
-            yaml_text=TRIAGE_BUILTIN.replace("name: triage", "name: chat"),
-            change_note="route first",
-            actor_user_id="admin-1",
-            now=NOW,
-        )
+def test_chat_draft_may_start_with_a_route_step(seeded):
+    """Issue #85: the output guardrail now protects every prompt in a
+    workflow (WorkflowDef.guarded_prompt_text), so `chat` no longer needs a
+    single `agent` entry step to be safe to run."""
+    draft = save_draft(
+        seeded,
+        workflow_name="chat",
+        yaml_text=TRIAGE_BUILTIN.replace("name: triage", "name: chat"),
+        change_note="route first",
+        actor_user_id="admin-1",
+        now=NOW,
+    )
 
-    assert excinfo.value.field == "entry"
+    assert draft.sequence == 2
 
 
 @pytest.mark.unit

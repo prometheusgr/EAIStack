@@ -52,6 +52,7 @@ describe("ChatWindow", () => {
       threadId: "test-thread-123",
       sources: [],
       wasModified: false,
+      workflow: "chat",
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -75,6 +76,7 @@ describe("ChatWindow", () => {
       threadId: "test-thread-456",
       sources: [],
       wasModified: false,
+      workflow: "chat",
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -97,6 +99,7 @@ describe("ChatWindow", () => {
       threadId: "test-thread-789",
       sources: [],
       wasModified: false,
+      workflow: "chat",
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -119,6 +122,7 @@ describe("ChatWindow", () => {
       threadId: "test-thread-999",
       sources: [],
       wasModified: false,
+      workflow: "chat",
     };
 
     const mockSendChat = vi
@@ -137,7 +141,8 @@ describe("ChatWindow", () => {
         "Test",
         undefined,
         "fake-token-123",
-        expect.any(Function)
+        expect.any(Function),
+        undefined
       );
     });
   });
@@ -345,12 +350,13 @@ describe("ChatWindow", () => {
   it("should list the user's threads in the selector", async () => {
     vi.mocked(threadsClient.listThreads).mockResolvedValue({
       threads: [
-        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
-        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z" },
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z", workflow: "chat" },
+        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z", workflow: "chat" },
       ],
     });
     vi.mocked(threadsClient.getThreadHistory).mockResolvedValue({
       id: "thread-1",
+      workflow: "chat",
       messages: [],
     });
 
@@ -365,11 +371,12 @@ describe("ChatWindow", () => {
   it("should auto-load the most recently updated thread on mount", async () => {
     vi.mocked(threadsClient.listThreads).mockResolvedValue({
       threads: [
-        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z", workflow: "chat" },
       ],
     });
     vi.mocked(threadsClient.getThreadHistory).mockResolvedValue({
       id: "thread-1",
+      workflow: "chat",
       messages: [
         { role: "user", text: "Earlier question" },
         { role: "agent", text: "Earlier answer" },
@@ -404,12 +411,13 @@ describe("ChatWindow", () => {
   it("should load a different thread's history when selected from the dropdown", async () => {
     vi.mocked(threadsClient.listThreads).mockResolvedValue({
       threads: [
-        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
-        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z" },
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z", workflow: "chat" },
+        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z", workflow: "chat" },
       ],
     });
     vi.mocked(threadsClient.getThreadHistory).mockImplementation(async (threadId) => ({
       id: threadId,
+      workflow: "chat",
       messages: [{ role: "user", text: `Message from ${threadId}` }],
     }));
 
@@ -429,12 +437,13 @@ describe("ChatWindow", () => {
   it("should clear a lingering send-error banner when switching to a different thread", async () => {
     vi.mocked(threadsClient.listThreads).mockResolvedValue({
       threads: [
-        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
-        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z" },
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z", workflow: "chat" },
+        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z", workflow: "chat" },
       ],
     });
     vi.mocked(threadsClient.getThreadHistory).mockImplementation(async (threadId) => ({
       id: threadId,
+      workflow: "chat",
       messages: [],
     }));
     vi.mocked(agentsClient.sendChatMessage).mockRejectedValueOnce(
@@ -471,12 +480,13 @@ describe("ChatWindow", () => {
     // message list or show the error banner against thread-2.
     vi.mocked(threadsClient.listThreads).mockResolvedValue({
       threads: [
-        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
-        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z" },
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z", workflow: "chat" },
+        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z", workflow: "chat" },
       ],
     });
     vi.mocked(threadsClient.getThreadHistory).mockImplementation(async (threadId) => ({
       id: threadId,
+      workflow: "chat",
       messages:
         threadId === "thread-2" ? [{ role: "user", text: "Existing thread-2 message" }] : [],
     }));
@@ -531,6 +541,7 @@ describe("ChatWindow", () => {
         { knowledgeBaseId: "kb-1", title: "Vacation Policy", headingPath: null },
       ],
       wasModified: false,
+      workflow: "chat",
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -555,6 +566,7 @@ describe("ChatWindow", () => {
         { knowledgeBaseId: "kb-1", title: "Vacation Policy", headingPath: null },
       ],
       wasModified: false,
+      workflow: "chat",
     };
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
     vi.mocked(knowledgeBaseClient.get).mockResolvedValue({
@@ -596,6 +608,7 @@ describe("ChatWindow", () => {
       threadId: "test-thread-no-sources",
       sources: [],
       wasModified: false,
+      workflow: "chat",
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -618,6 +631,7 @@ describe("ChatWindow", () => {
       threadId: "test-thread-redacted",
       sources: [],
       wasModified: true,
+      workflow: "chat",
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -640,6 +654,7 @@ describe("ChatWindow", () => {
       threadId: "test-thread-not-redacted",
       sources: [],
       wasModified: false,
+      workflow: "chat",
     };
 
     vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce(mockResponse);
@@ -659,11 +674,12 @@ describe("ChatWindow", () => {
   it("should clear messages and start a new thread when New chat is clicked", async () => {
     vi.mocked(threadsClient.listThreads).mockResolvedValue({
       threads: [
-        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z" },
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z", workflow: "chat" },
       ],
     });
     vi.mocked(threadsClient.getThreadHistory).mockResolvedValue({
       id: "thread-1",
+      workflow: "chat",
       messages: [{ role: "user", text: "Old message" }],
     });
 
@@ -677,5 +693,132 @@ describe("ChatWindow", () => {
       expect(screen.queryByText("Old message")).not.toBeInTheDocument();
     });
     expect(screen.getByText(/start a conversation/i)).toBeInTheDocument();
+  });
+});
+
+describe("ChatWindow workflow selection (issue #85)", () => {
+  const WORKFLOWS = [
+    { name: "chat", description: "General assistant.", isDefault: true },
+    { name: "triage", description: "Routes your question to a specialist.", isDefault: false },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({ threads: [] });
+    vi.mocked(agentsClient.listAvailableWorkflows).mockResolvedValue(WORKFLOWS);
+  });
+
+  it("offers the published workflows when starting a new chat, with the default selected", async () => {
+    render(<ChatWindow />);
+
+    const picker = await screen.findByRole("combobox", { name: /workflow/i });
+    await waitFor(() => expect(screen.getAllByRole("option", { name: /triage/ })).toHaveLength(1));
+    expect(picker).toHaveValue("chat");
+    expect(screen.getByText("General assistant.")).toBeInTheDocument();
+  });
+
+  it("describes the workflow the user picks", async () => {
+    render(<ChatWindow />);
+
+    const picker = await screen.findByRole("combobox", { name: /workflow/i });
+    await screen.findByRole("option", { name: /triage/ });
+    fireEvent.change(picker, { target: { value: "triage" } });
+
+    expect(screen.getByText("Routes your question to a specialist.")).toBeInTheDocument();
+  });
+
+  it("starts the new conversation with the picked workflow", async () => {
+    vi.mocked(agentsClient.sendChatMessage).mockResolvedValueOnce({
+      response: "Routed answer",
+      threadId: "thread-new",
+      sources: [],
+      wasModified: false,
+      workflow: "triage",
+    });
+    render(<ChatWindow />);
+
+    const picker = await screen.findByRole("combobox", { name: /workflow/i });
+    await screen.findByRole("option", { name: /triage/ });
+    fireEvent.change(picker, { target: { value: "triage" } });
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: "Help" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() =>
+      expect(agentsClient.sendChatMessage).toHaveBeenCalledWith(
+        "Help",
+        undefined,
+        "fake-token-123",
+        expect.any(Function),
+        "triage"
+      )
+    );
+  });
+
+  it("shows an existing conversation's workflow instead of a picker, since it can't change", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({
+      threads: [
+        {
+          id: "thread-1",
+          createdAt: "2026-08-20T00:00:00Z",
+          updatedAt: "2026-08-20T00:00:00Z",
+          workflow: "triage",
+        },
+      ],
+    });
+    vi.mocked(threadsClient.getThreadHistory).mockResolvedValue({
+      id: "thread-1",
+      messages: [{ role: "user", text: "Earlier question" }],
+      workflow: "triage",
+    });
+
+    render(<ChatWindow />);
+
+    await screen.findByText("Earlier question");
+    expect(screen.queryByRole("combobox", { name: /workflow/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/workflow: triage/i)).toBeInTheDocument();
+  });
+
+  it("labels each conversation in the selector with its workflow", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({
+      threads: [
+        {
+          id: "thread-1",
+          createdAt: "2026-08-20T00:00:00Z",
+          updatedAt: "2026-08-20T00:00:00Z",
+          workflow: "triage",
+        },
+      ],
+    });
+    vi.mocked(threadsClient.getThreadHistory).mockResolvedValue({
+      id: "thread-1",
+      messages: [],
+      workflow: "triage",
+    });
+
+    render(<ChatWindow />);
+
+    const conversations = await screen.findByRole("combobox", { name: /select conversation/i });
+    await waitFor(() => expect(conversations).toHaveValue("thread-1"));
+    expect(screen.getByRole("option", { name: /triage/ })).toBeInTheDocument();
+  });
+
+  it("explains a workflow that stopped being available, and refreshes the list, rather than blaming a safety rule", async () => {
+    vi.mocked(agentsClient.sendChatMessage).mockRejectedValueOnce(
+      new ApiErrorImpl(400, "workflow_not_available", "The workflow 'triage' is not available.")
+    );
+    render(<ChatWindow />);
+
+    const picker = await screen.findByRole("combobox", { name: /workflow/i });
+    await screen.findByRole("option", { name: /triage/ });
+    fireEvent.change(picker, { target: { value: "triage" } });
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: "Help" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    const alert = await screen.findByRole("alert", { name: /workflow unavailable/i });
+    expect(alert).toHaveTextContent("The workflow 'triage' is not available.");
+    expect(
+      screen.queryByRole("alert", { name: /content safety rule/i })
+    ).not.toBeInTheDocument();
+    await waitFor(() => expect(agentsClient.listAvailableWorkflows).toHaveBeenCalledTimes(2));
   });
 });

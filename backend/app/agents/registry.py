@@ -51,6 +51,10 @@ class AgentDefinition:
     name: str
     factory: AgentFactory
     system_prompt: str | None
+    # Every prompt in the workflow (WorkflowDef.guarded_prompt_text) - what
+    # the output guardrail's leak detector compares a reply against, so a
+    # route-first workflow is protected too (issue #85).
+    guarded_prompt_text: str
 
 
 _REGISTRY: dict[str, AgentDefinition] = {}
@@ -95,6 +99,7 @@ def build_agent_definition(name: str, definition: WorkflowDef) -> AgentDefinitio
         name=name,
         factory=_make_factory(definition),
         system_prompt=definition.entry_prompt_or_none(),
+        guarded_prompt_text=definition.guarded_prompt_text(),
     )
 
 

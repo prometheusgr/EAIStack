@@ -223,13 +223,22 @@ class ConversationThread(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    # The workflow this conversation is bound to (issue #85), fixed when the
+    # thread is created. Every later turn runs this workflow's published
+    # version, whatever the client sends.
+    workflow_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="chat", server_default="chat"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )
 
     def __repr__(self):
-        return f"<ConversationThread(id={self.id}, user_id={self.user_id})>"
+        return (
+            f"<ConversationThread(id={self.id}, user_id={self.user_id}, "
+            f"workflow_name={self.workflow_name})>"
+        )
 
 
 class ConversationCheckpoint(Base):

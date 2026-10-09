@@ -129,8 +129,27 @@ class WorkflowDef(BaseModel):
 
     name: str
     version: int
+    # One line shown to end users when they pick a workflow in chat
+    # (issue #85). Optional so a fork's existing definitions stay valid.
+    description: str = ""
     entry: str
     steps: dict[str, StepDef]
+
+    def guarded_prompt_text(self) -> str:
+        """Every prompt this workflow sends to the model, joined.
+
+        What the output guardrail's verbatim-leak check compares a reply
+        against. A workflow whose entry is a route or review_loop step has no
+        single "system prompt", and any of its steps' prompts could be the
+        one a model is coaxed into repeating, so all of them are protected.
+        """
+        prompts: list[str] = []
+        for step in self.steps.values():
+            if isinstance(step, ReviewLoopStepDef):
+                prompts.extend([step.worker_prompt, step.reviewer_prompt])
+            else:
+                prompts.append(step.prompt)
+        return "\n\n".join(prompts)
 
     def entry_prompt_or_none(self) -> str | None:
         """entry_prompt(), or None for a workflow whose entry step isn't a

@@ -11,6 +11,7 @@
 # their own routing workflow.
 name: triage
 version: 1
+description: Sends technical questions to a technical specialist and everything else to a general assistant.
 entry: classify
 steps:
   classify:

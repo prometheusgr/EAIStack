@@ -1,7 +1,7 @@
 # Multi-Agent Workflow Engine (Issues #81/#82, Epic #80)
 
-**Status**: engine slice (1 of 5) plus reference workflows (slice 2 of 5)
-implemented. This document is the YAML reference for the workflow engine
+**Status**: engine (issue #81), reference workflows (#82), versioned store +
+admin screen (#83) and workflow selection in chat (#85) implemented. This document is the YAML reference for the workflow engine
 that composes agents into LangGraph graphs declaratively. See
 `docs/AGENT_LIBRARY.md` for the hand-coded-agent pattern this engine's
 `agent` primitive generalizes, and epic #80 for the full multi-slice plan
@@ -22,16 +22,16 @@ expressiveness.
 Three built-in workflows ship today:
 
 - `backend/workflows/chat.yaml` — re-expresses the chat agent through the
-  engine with identical behavior (slice 1); the only one wired to an HTTP
-  endpoint (`POST /api/agents/chat`).
+  engine with identical behavior (slice 1); the default workflow a new
+  conversation uses.
 - `backend/workflows/reviewed_answer.yaml` — interpret → work → review loop
   (slice 2, issue #82), the evaluator-optimizer reference workflow.
 - `backend/workflows/triage.yaml` — route to specialists (slice 2, issue
   #82), the routing reference workflow.
 
-The latter two are reference examples for forkers, not reachable by any
-endpoint yet — workflow *selection* in chat is issue #85's scope. There is
-no DB-backed store or admin UI yet either (later slices).
+All three are published at startup, so a user can pick any of them when
+starting a new chat (see "Choosing a workflow in chat" below), as can any
+workflow an admin creates and publishes.
 
 ## Directory & loading
 
@@ -78,11 +78,45 @@ Postgres is the system of record for workflows; the YAML files above are the
   per request (`resolve_active_workflow`), records it in `chat_turn_versions`, and
   tags the run's trace metadata with `workflow_name`/`workflow_version_id`.
   Thread replay's output-guardrail re-filter uses the same published prompt.
-  New workflows are not reachable from chat until workflow selection (issue #85).
+  Since issue #85 it resolves the workflow *the thread is bound to*, not always
+  `chat`.
 - **Not yet built**: the step diagram endpoint exists
   (`GET /api/workflows/{name}/versions/{id}/graph`) but the screen doesn't draw it
   yet; no syntax highlighting (plain textarea; a highlighting editor would need
   vendoring); no file upload/bulk import; no rename or delete of a workflow.
+
+## Choosing a workflow in chat (issue #85)
+
+**User feature** (any signed-in user). On a new chat, the chat screen shows a
+**Workflow** picker listing every *published* workflow (default `chat` first),
+with the selected workflow's `description`. The first message starts the
+conversation with that workflow; from then on the chat shows
+"Workflow: <name>" instead of a picker, and the conversation list labels each
+conversation with its workflow.
+
+- `GET /api/agents/workflows` — published workflows only (`name`,
+  `description`, `is_default`). Drafts and never-published workflows are not
+  listed and cannot be started.
+- `POST /api/agents/chat` takes an optional `workflow` for a **new** thread.
+  It is bound to the thread on the server (`conversation_threads.workflow_name`,
+  migration `016`, existing threads backfilled to `chat`); for an existing
+  thread the field is ignored — a client cannot switch a conversation's workflow
+  mid-thread. An unknown or unpublished name is `400 workflow_not_available`
+  and creates no thread; the chat screen says so and refreshes the picker.
+- Each turn runs the workflow's **currently published** version, so a publish
+  or rollback affects running conversations from their next turn (recorded per
+  turn in `chat_turn_versions`).
+- `ChatResponse.workflow`, `ThreadSummary.workflow` and
+  `ThreadHistoryResponse.workflow` report the bound workflow.
+- The output guardrail's leak detector covers every prompt the workflow sends
+  (see `docs/SECURITY.md`), which is why a workflow no longer needs an `agent`
+  entry step to be run from chat.
+- **`description`** (optional top-level YAML field, default empty) is the
+  one-line text shown under the picker. Every built-in has one.
+- **Configuration**: none new. `DEFAULT_WORKFLOW = "chat"`
+  (`app.services.workflow_service`) is a named constant: the default is the
+  workflow the system ships with, and changing it is a code-level decision
+  rather than a per-deployment knob.
 
 ## Schema reference
 
@@ -91,6 +125,7 @@ Every workflow file has this top-level shape:
 ```yaml
 name: chat          # stable identifier — registry lookup key, not the filename
 version: 1           # documents intent (bump when wording/behavior changes); not yet read programmatically, same as PromptTemplate.version
+description: General assistant.  # optional; shown under chat's workflow picker (issue #85)
 entry: respond       # the step name execution starts at
 steps:
   respond:           # step name, referenced by entry/next/branches
@@ -277,11 +312,8 @@ it, per `AGENTS.md`'s no-premature-abstraction guidance.
 ## Worked examples: the reference workflows
 
 These are the real, shipped built-in workflows (issue #82) — not
-illustrative snippets. Both are reachable through
-`app.workflows.loader.load_workflow_definitions` and
-`app.agents.registry`, but neither is wired to an HTTP endpoint yet
-(workflow selection in chat is issue #85's scope); they exist as
-structurally-tested, copyable examples for a fork building its own
+illustrative snippets. Both can be picked in chat (issue #85), and both
+are structurally-tested, copyable examples for a fork building its own
 review-loop or routing workflow.
 
 ### `backend/workflows/reviewed_answer.yaml` — interpret → work → review loop
@@ -448,8 +480,6 @@ under either.
 2. Add a test (following `test_chat_workflow.py`'s shape) that loads it via
    `load_workflow_definitions` and compiles it via `compile_workflow`,
    exercising its behavior with `FakeChatModel`.
-3. If it should be reachable over HTTP, wire an endpoint the way
-   `POST /api/agents/chat` resolves `get_agent_definition("chat")` — see
-   `docs/AGENT_LIBRARY.md`'s endpoint-wiring step. Workflow *selection* in
-   chat (letting a user pick which workflow to run) is issue #85's scope,
-   not this slice's.
+3. Give it a `description:` — it is what users see in chat's workflow
+   picker. It is published at the next startup and selectable from chat with
+   no further wiring (issue #85).

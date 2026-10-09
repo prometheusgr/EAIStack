@@ -8,8 +8,8 @@ import { test, expect } from '@playwright/test'
 // seeded admin's database is shared by every spec in this suite (AGENTS.md's
 // "start from a clean, known state" convention), and publishing a different
 // `chat` prompt would change what every chat-based spec runs against. A new
-// workflow is not reachable from chat until workflow selection (issue #85),
-// so leaving it behind affects nothing else.
+// workflow left behind only adds an entry to chat's workflow picker (issue
+// #85); nothing else selects it.
 //
 // Content-independent (no LLM call), so it runs under CI's fake provider.
 // Runs pre-authenticated via storageState (see playwright.config.ts).
