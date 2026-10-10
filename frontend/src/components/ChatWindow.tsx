@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ShieldAlert, Clock, AlertCircle } from "lucide-react";
-import { useChatService } from "../hooks/useChatService";
+import { useAvailableWorkflows, useChatService } from "../hooks/useChatService";
 import { useThreadsService } from "../hooks/useThreadsService";
 import { useIsMounted } from "../hooks/useIsMounted";
 import { useRetryCountdown } from "../hooks/useRetryCountdown";
@@ -19,6 +19,9 @@ const GENERIC_ERROR_MESSAGE = "Something went wrong and your message failed to s
  * - "rate_limit": the request was throttled (429, see rate_limiter_service.py)
  *   -- carries retryAfterSeconds when the backend's Retry-After header was
  *   present, for the countdown below.
+ * - "workflow_unavailable": the workflow picked for a new conversation was
+ *   unpublished or removed after the picker loaded (issue #85) -- not a
+ *   content-safety rejection, so it must not be shown as one.
  * - "generic": anything else (5xx, an unmapped 4xx with no message, a plain
  *   FastAPI HTTPException) -- never shows the raw backend detail/message,
  *   since those aren't guaranteed fit for a user to read.
@@ -26,6 +29,7 @@ const GENERIC_ERROR_MESSAGE = "Something went wrong and your message failed to s
 type SendErrorInfo =
   | { kind: "guardrail"; text: string }
   | { kind: "rate_limit"; text: string; retryAfterSeconds?: number }
+  | { kind: "workflow_unavailable"; text: string }
   | { kind: "generic"; text: string };
 
 // rate_limit_exceeded_response's detail is always this exact literal (see
@@ -34,6 +38,8 @@ type SendErrorInfo =
 // tied to the one backend contract that actually promises the shape, in
 // case a future 429 from an unrelated source doesn't carry Retry-After.
 const RATE_LIMIT_DETAIL = "rate_limit_exceeded";
+// backend/app/api/agents.py's 400 for a workflow that isn't published.
+const WORKFLOW_UNAVAILABLE_DETAIL = "workflow_not_available";
 
 function classifySendError(error: unknown): SendErrorInfo {
   if (error instanceof ApiErrorImpl && error.status === 429 && error.detail === RATE_LIMIT_DETAIL) {
@@ -42,6 +48,9 @@ function classifySendError(error: unknown): SendErrorInfo {
       text: error.message || GENERIC_ERROR_MESSAGE,
       retryAfterSeconds: error.retryAfterSeconds,
     };
+  }
+  if (error instanceof ApiErrorImpl && error.detail === WORKFLOW_UNAVAILABLE_DETAIL) {
+    return { kind: "workflow_unavailable", text: error.message || GENERIC_ERROR_MESSAGE };
   }
   // A raw HTTP status/reason string (ApiErrorImpl's fallback when the
   // backend doesn't supply a human-readable message, e.g. a 500) is not fit
@@ -56,9 +65,16 @@ function classifySendError(error: unknown): SendErrorInfo {
 export function ChatWindow() {
   const { mutateAsync: sendMessage, isPending } = useChatService();
   const { listThreads, getThreadHistory } = useThreadsService();
+  const availableWorkflows = useAvailableWorkflows();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [threadId, setThreadId] = useState<string>("");
+  // The workflow the open conversation is bound to (issue #85) -- fixed by
+  // the server when the conversation starts, so it is shown, not chosen.
+  const [threadWorkflow, setThreadWorkflow] = useState<string>("");
+  // The workflow picked for the next *new* conversation; "" means the
+  // server's default, so an unchanged picker sends no workflow at all.
+  const [selectedWorkflow, setSelectedWorkflow] = useState<string>("");
   const [hasLoadedInitialThread, setHasLoadedInitialThread] = useState(false);
   const [sendError, setSendError] = useState<SendErrorInfo | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -96,6 +112,7 @@ export function ChatWindow() {
   const loadThread = async (id: string) => {
     const history = await getThreadHistory.mutateAsync(id);
     if (isMounted()) setThreadId(history.id);
+    if (isMounted()) setThreadWorkflow(history.workflow);
     if (isMounted()) setMessages(history.messages);
   };
 
@@ -107,6 +124,7 @@ export function ChatWindow() {
     setSendError(null);
     if (!id) {
       setThreadId("");
+      setThreadWorkflow("");
       setMessages([]);
       return;
     }
@@ -132,11 +150,16 @@ export function ChatWindow() {
       setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
       setInputValue("");
 
-      const result = await sendMessage({ message: userMessage, threadId: currentThreadId });
+      const result = await sendMessage({
+        message: userMessage,
+        threadId: currentThreadId,
+        workflow: currentThreadId ? undefined : selectedWorkflow || undefined,
+      });
       const stillOnSameThread = activeThreadIdRef.current === sendThreadId;
       if (isMounted() && stillOnSameThread) {
         activeThreadIdRef.current = result.threadId;
         setThreadId(result.threadId);
+        setThreadWorkflow(result.workflow);
         setMessages((prev) => [
           ...prev,
           {
@@ -159,9 +182,19 @@ export function ChatWindow() {
       // sendDisabledForRateLimit turning false, but still blocked by an
       // unrelated, now-stale reason the user has no way to see.
       if (isMounted() && stillOnSameThread) setInputValue(userMessage);
-      if (isMounted() && stillOnSameThread) setSendError(classifySendError(error));
+      const errorInfo = classifySendError(error);
+      if (isMounted() && stillOnSameThread) setSendError(errorInfo);
+      if (errorInfo.kind === "workflow_unavailable") {
+        if (isMounted()) setSelectedWorkflow("");
+        availableWorkflows.execute();
+      }
     }
   };
+
+  const workflows = availableWorkflows.data ?? [];
+  const pickedWorkflowName =
+    selectedWorkflow || workflows.find((workflow) => workflow.isDefault)?.name || "";
+  const pickedWorkflow = workflows.find((workflow) => workflow.name === pickedWorkflowName);
 
   return (
     <Card className="flex flex-col h-96">
@@ -177,7 +210,7 @@ export function ChatWindow() {
             <option value="">New chat</option>
             {listThreads.data?.threads.map((thread) => (
               <option key={thread.id} value={thread.id}>
-                {new Date(thread.updatedAt).toLocaleString()}
+                {new Date(thread.updatedAt).toLocaleString()} · {thread.workflow}
               </option>
             ))}
           </select>
@@ -188,6 +221,33 @@ export function ChatWindow() {
       </CardHeader>
       <CardContent className="flex flex-col flex-1 gap-4">
         <RetentionNotice />
+        {threadId && threadWorkflow && (
+          <p className="text-xs text-muted-foreground">Workflow: {threadWorkflow}</p>
+        )}
+        {!threadId && workflows.length > 0 && (
+          <div className="flex flex-col gap-1 text-sm">
+            <div className="flex items-center gap-2">
+              <label htmlFor="chat-workflow" className="text-muted-foreground">
+                Workflow
+              </label>
+              <select
+                id="chat-workflow"
+                value={pickedWorkflowName}
+                onChange={(e) => setSelectedWorkflow(e.target.value)}
+                className="text-sm border border-input rounded-md bg-background text-foreground px-2 py-1"
+              >
+                {workflows.map((workflow) => (
+                  <option key={workflow.name} value={workflow.name}>
+                    {workflow.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {pickedWorkflow?.description && (
+              <p className="text-xs text-muted-foreground">{pickedWorkflow.description}</p>
+            )}
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto space-y-3 border border-border rounded-md p-4 bg-muted">
           {messages.length === 0 && (
             <div className="text-center text-muted-foreground text-sm py-8">
@@ -276,6 +336,16 @@ export function ChatWindow() {
             >
               <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0" />
               <p>{sendError.text}</p>
+            </div>
+          )}
+          {sendError && sendError.kind === "workflow_unavailable" && (
+            <div
+              role="alert"
+              aria-label="Workflow unavailable"
+              className="flex items-start gap-2 bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm"
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <p>{sendError.text} Pick another workflow and try again.</p>
             </div>
           )}
           {sendError && sendError.kind === "generic" && (

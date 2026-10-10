@@ -21,7 +21,9 @@ class ThreadRepository:
         """Initialize with database session."""
         self.db = db
 
-    def get_or_create_owned(self, thread_id: str | None, user_id: str) -> ConversationThread:
+    def get_or_create_owned(
+        self, thread_id: str | None, user_id: str, *, workflow_name: str = "chat"
+    ) -> ConversationThread:
         """Resolve a thread_id to a thread owned by user_id, minting a new one if needed.
 
         Returns the existing thread when thread_id is set and owned by
@@ -32,6 +34,10 @@ class ThreadRepository:
         self-heals stale client state without ever granting access to
         someone else's conversation.
 
+        workflow_name binds a *new* thread to a workflow; an existing thread
+        keeps the workflow it was created with (issue #85), so a client can't
+        switch a conversation's workflow mid-thread.
+
         Does not commit; the caller owns the transaction.
         """
         if thread_id is not None:
@@ -39,7 +45,7 @@ class ThreadRepository:
             if existing is not None:
                 return existing
 
-        thread = ConversationThread(user_id=user_id)
+        thread = ConversationThread(user_id=user_id, workflow_name=workflow_name)
         self.db.add(thread)
         self.db.flush()
         return thread

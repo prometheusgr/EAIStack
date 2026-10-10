@@ -491,6 +491,16 @@ phrasing. A second agent added later (see `docs/AGENT_LIBRARY.md`) gets this
 protection automatically as long as it passes its own rendered prompt
 through the same service.
 
+For a workflow (epic #80) the "rendered system prompt" is **every** prompt
+the workflow sends the model — each `agent` step's prompt, a `route` step's
+classifier prompt, and a `review_loop`'s worker and reviewer prompts —
+joined by `WorkflowDef.guarded_prompt_text()` and carried on
+`AgentDefinition.guarded_prompt_text`. A route-first workflow such as
+`triage` has no single system prompt, so checking only an entry step's
+prompt would leave its specialists' instructions unprotected once users can
+run it from chat (issue #85). Thread replay re-filters against the prompts
+of the workflow *that thread* is bound to, not always `chat`'s.
+
 **PII detection is out of scope for this phase.** It was deliberately
 deferred rather than silently dropped: scoping it correctly requires
 deciding which PII categories to detect and how redacted PII should be
@@ -836,8 +846,14 @@ power to a file upload. The controls are therefore not "no upload", but:
   so YAML can never reach an unregistered tool or carry credentials), no dangling
   or unreachable steps, `review_loop` bounded by the fixed, non-DB-editable
   `REVIEW_LOOP_MAX_ITERATIONS_CEILING`. Plus a fixed 64 KiB size ceiling, a
-  required change note, and (for `chat`) an `agent` entry step so the output
-  guardrail's leak detector always has the live system prompt.
+  required change note. (Issue #83 additionally required `chat` to keep an
+  `agent` entry step for the leak detector; issue #85 removed that rule by
+  making the detector cover every step's prompt — see "Guardrails" above.)
+- **Only published workflows run**: a user can start a conversation with any
+  *published* workflow (`GET /api/agents/workflows` lists them), never a draft
+  or an unpublished one (`400 workflow_not_available`). The choice is bound to
+  the thread on the server (`conversation_threads.workflow_name`) when it is
+  created; a follow-up cannot switch it, whatever the client sends.
 - **Immutable, attributable history**: `workflow_versions` is append-only
   (`WorkflowVersionRepository` has no update/delete method, asserted by a test)
   and each version records its author (Keycloak `sub`), timestamp and change note.

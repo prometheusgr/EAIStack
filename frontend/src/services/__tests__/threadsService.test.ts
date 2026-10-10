@@ -22,7 +22,7 @@ describe('ThreadsService', () => {
 
   describe('listThreads', () => {
     it('delegates to threadsClient.listThreads with the constructor token', async () => {
-      const response = { threads: [{ id: 'thread-1', createdAt: 'a', updatedAt: 'b' }] }
+      const response = { threads: [{ id: 'thread-1', createdAt: 'a', updatedAt: 'b', workflow: 'chat' }] }
       vi.mocked(threadsClient.listThreads).mockResolvedValueOnce(response)
 
       const service = new ThreadsService(mockToken, mockRefresh)
@@ -42,7 +42,7 @@ describe('ThreadsService', () => {
 
   describe('getThreadHistory', () => {
     it('delegates to threadsClient.getThreadHistory with the constructor token and threadId', async () => {
-      const response = { id: 'thread-1', messages: [{ role: 'user' as const, text: 'Hi' }] }
+      const response = { id: 'thread-1', messages: [{ role: 'user' as const, text: 'Hi' }], workflow: 'chat' }
       vi.mocked(threadsClient.getThreadHistory).mockResolvedValueOnce(response)
 
       const service = new ThreadsService(mockToken, mockRefresh)

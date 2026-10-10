@@ -1,15 +1,18 @@
-import { ChatRequest, ChatResponse } from "../types/chat";
+import { AvailableWorkflow, ChatRequest, ChatResponse } from "../types/chat";
 import { authorizedFetch, type AuthRefresh } from "./authorizedFetch";
 
 export async function sendChatMessage(
   message: string,
   threadId: string | undefined,
   token: string,
-  onRefresh?: AuthRefresh
+  onRefresh?: AuthRefresh,
+  workflow?: string
 ): Promise<ChatResponse> {
   const request: ChatRequest = { message };
   if (threadId) {
     request.thread_id = threadId;
+  } else if (workflow) {
+    request.workflow = workflow;
   }
 
   if (!onRefresh) {
@@ -34,6 +37,7 @@ export async function sendChatMessage(
     thread_id: string;
     sources: { knowledge_base_id: string; title: string; heading_path: string | null }[];
     was_modified: boolean;
+    workflow: string;
   };
 
   return {
@@ -45,5 +49,23 @@ export async function sendChatMessage(
       headingPath: source.heading_path,
     })),
     wasModified: data.was_modified,
+    workflow: data.workflow,
   };
+}
+
+export async function listAvailableWorkflows(
+  token: string,
+  onRefresh: AuthRefresh
+): Promise<AvailableWorkflow[]> {
+  const response = await authorizedFetch("/api/agents/workflows", token, onRefresh, {
+    method: "GET",
+  });
+  const data = (await response.json()) as {
+    workflows: { name: string; description: string; is_default: boolean }[];
+  };
+  return data.workflows.map((workflow) => ({
+    name: workflow.name,
+    description: workflow.description,
+    isDefault: workflow.is_default,
+  }));
 }

@@ -9,6 +9,7 @@
 # source of truth — see docs/WORKFLOWS.md).
 name: chat
 version: 1
+description: General assistant that answers from your knowledge base.
 entry: respond
 steps:
   respond:

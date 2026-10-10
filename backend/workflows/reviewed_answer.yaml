@@ -16,6 +16,7 @@
 # forkers building their own review-loop workflow.
 name: reviewed_answer
 version: 1
+description: Drafts an answer, has a reviewer check it, and revises before replying. Slower, more careful.
 entry: interpret
 steps:
   interpret:
