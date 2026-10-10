@@ -1,6 +1,7 @@
 import { authorizedFetch, type AuthRefresh } from './authorizedFetch'
 import type {
   SaveWorkflowDraftRequest,
+  TestChatReply,
   WorkflowDiffResponse,
   WorkflowListResponse,
   WorkflowVersionDetail,
@@ -110,6 +111,50 @@ const workflowsClient = {
       }
     )
     return response.json()
+  },
+
+  /** One draft test-chat turn against a specific version (issue #84).
+   * threadId continues a test conversation of that same version. */
+  async testChat(
+    name: string,
+    versionId: string,
+    message: string,
+    threadId: string | undefined,
+    token: string,
+    onRefresh: AuthRefresh
+  ): Promise<TestChatReply> {
+    const response = await authorizedFetch(
+      `/api/workflows/${encodeURIComponent(name)}/versions/${encodeURIComponent(versionId)}/test-chat`,
+      token,
+      onRefresh,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(threadId ? { message, thread_id: threadId } : { message }),
+      }
+    )
+    const data = (await response.json()) as {
+      response: string
+      thread_id: string
+      sources: { knowledge_base_id: string; title: string; heading_path: string | null }[]
+      was_modified: boolean
+      workflow: string
+      test_version_id: string
+      test_version_sequence: number
+    }
+    return {
+      response: data.response,
+      threadId: data.thread_id,
+      sources: data.sources.map((source) => ({
+        knowledgeBaseId: source.knowledge_base_id,
+        title: source.title,
+        headingPath: source.heading_path,
+      })),
+      wasModified: data.was_modified,
+      workflow: data.workflow,
+      testVersionId: data.test_version_id,
+      testVersionSequence: data.test_version_sequence,
+    }
   },
 }
 

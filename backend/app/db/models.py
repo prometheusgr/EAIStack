@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.ext.compiler import compiles
@@ -228,6 +229,12 @@ class ConversationThread(Base):
     # version, whatever the client sends.
     workflow_name: Mapped[str] = mapped_column(
         String(255), nullable=False, default="chat", server_default="chat"
+    )
+    # Set only on an admin's draft test-chat thread (issue #84): the exact
+    # version every turn of it runs. ThreadRepository keeps these threads out
+    # of every production lookup, so they never appear as conversations.
+    test_version_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("workflow_versions.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
@@ -583,6 +590,12 @@ class ChatTurnVersion(Base):
     workflow_name: Mapped[str] = mapped_column(String(255), nullable=False)
     workflow_version_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("workflow_versions.id"), nullable=False
+    )
+    # An admin's draft test-chat turn (issue #84) rather than production
+    # traffic. Kept here because this record outlives the thread that would
+    # otherwise say so.
+    is_test_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, index=True

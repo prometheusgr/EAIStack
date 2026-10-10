@@ -169,6 +169,7 @@ class ChatTurnVersionRepository:
         thread_id: str,
         workflow_name: str,
         workflow_version_id: str,
+        is_test_run: bool,
         now: datetime,
     ) -> ChatTurnVersion:
         """Record one chat turn's workflow version. Does not commit."""
@@ -177,6 +178,7 @@ class ChatTurnVersionRepository:
             thread_id=thread_id,
             workflow_name=workflow_name,
             workflow_version_id=workflow_version_id,
+            is_test_run=is_test_run,
             created_at=now.replace(tzinfo=None),
         )
         self.db.add(turn)

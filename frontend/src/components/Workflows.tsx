@@ -5,6 +5,7 @@ import { useIsMounted } from '@/hooks/useIsMounted'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { WorkflowTestChat } from '@/components/WorkflowTestChat'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,6 +66,7 @@ export function Workflows() {
   const [editorError, setEditorError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+  const [testTarget, setTestTarget] = useState<WorkflowVersionSummary | null>(null)
 
   useEffect(() => {
     if (isAuthLoading) return
@@ -79,6 +81,7 @@ export function Workflows() {
   const openWorkflow = async (workflow: WorkflowSummary) => {
     setSelectedName(workflow.name)
     setIsCreating(false)
+    setTestTarget(null)
     setEditorError(null)
     setNotice(null)
     setChangeNote('')
@@ -308,6 +311,14 @@ export function Workflows() {
                       )}
                       <Button
                         size="sm"
+                        variant="outline"
+                        onClick={() => setTestTarget(v)}
+                        aria-label={`Test v${v.sequence}`}
+                      >
+                        Test
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="ghost"
                         onClick={() => selectedName && loadIntoEditor(selectedName, v.id)}
                         aria-label={`Open v${v.sequence} in editor`}
@@ -321,6 +332,15 @@ export function Workflows() {
             </Table>
           </div>
         </div>
+      )}
+
+      {selected && testTarget && (
+        <WorkflowTestChat
+          key={testTarget.id}
+          workflowName={selected.name}
+          version={{ id: testTarget.id, sequence: testTarget.sequence }}
+          onClose={() => setTestTarget(null)}
+        />
       )}
 
       <AlertDialog

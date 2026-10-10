@@ -2,6 +2,7 @@ import { workflowsClient } from '@/api/workflowsClient'
 import type { AuthRefresh } from '@/api/authorizedFetch'
 import type {
   SaveWorkflowDraftRequest,
+  TestChatReply,
   WorkflowDiffResponse,
   WorkflowListResponse,
   WorkflowVersionDetail,
@@ -54,5 +55,21 @@ export class WorkflowsService {
     const action =
       activeSequence !== null && target.sequence < activeSequence ? 'rollback' : 'publish'
     return workflowsClient.moveActive(action, name, target.id, this.requireToken(), this.onRefresh)
+  }
+
+  async testChat(
+    name: string,
+    versionId: string,
+    message: string,
+    threadId?: string
+  ): Promise<TestChatReply> {
+    return workflowsClient.testChat(
+      name,
+      versionId,
+      message,
+      threadId,
+      this.requireToken(),
+      this.onRefresh
+    )
   }
 }

@@ -1,5 +1,7 @@
 /** Shapes of the admin-only /api/workflows endpoints (issue #83). */
 
+import type { ChatResponse } from './chat'
+
 export interface WorkflowSummary {
   name: string
   active_version_id: string | null
@@ -43,4 +45,11 @@ export interface SaveWorkflowDraftRequest {
 
 export interface WorkflowDiffResponse {
   diff: string
+}
+
+/** A chat reply from an admin's draft test run (issue #84), naming the
+ * exact version that answered. */
+export interface TestChatReply extends ChatResponse {
+  testVersionId: string
+  testVersionSequence: number
 }

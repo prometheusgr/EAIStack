@@ -84,11 +84,13 @@ class WorkflowAlreadyExists(Exception):
 
 
 @dataclass(frozen=True)
-class ActiveWorkflow:
-    """The published version of a workflow, ready for an endpoint to run."""
+class ResolvedWorkflow:
+    """One recorded version of a workflow, ready for an endpoint to run:
+    the published one for production chat, any saved one for test chat."""
 
     workflow_name: str
     version_id: str
+    version_sequence: int
     agent_definition: AgentDefinition
 
 
@@ -366,7 +368,7 @@ def _apply_publish(
     )
 
 
-def resolve_active_workflow(db, workflow_name: str, *, now: datetime) -> ActiveWorkflow:
+def resolve_active_workflow(db, workflow_name: str, *, now: datetime) -> ResolvedWorkflow:
     """The published version of workflow_name, compiled-ready.
 
     Normally the pointer was set at startup by sync_builtin_versions. If
@@ -385,11 +387,27 @@ def resolve_active_workflow(db, workflow_name: str, *, now: datetime) -> ActiveW
 
     version = WorkflowVersionRepository(db).get(active_id)
     assert version is not None  # FK-guaranteed: the pointer references a stored version
-    definition = _parse_stored(version)
-    return ActiveWorkflow(
-        workflow_name=workflow_name,
+    return _resolved(version, _parse_stored(version))
+
+
+def resolve_version_for_test(db, workflow_name: str, version_id: str) -> ResolvedWorkflow:
+    """Any saved version of workflow_name - typically an unpublished draft -
+    for an admin's test chat (issue #84). Never changes what is published.
+
+    Re-validated like publish, so a version saved before a later rule (or a
+    tool's removal from the registry) can't run unchecked. Raises
+    WorkflowVersionNotFound or WorkflowDraftRejected.
+    """
+    version = _get_version_of(db, workflow_name, version_id)
+    return _resolved(version, parse_draft_yaml(workflow_name, version.yaml_text))
+
+
+def _resolved(version: WorkflowVersion, definition: WorkflowDef) -> ResolvedWorkflow:
+    return ResolvedWorkflow(
+        workflow_name=version.workflow_name,
         version_id=version.id,
-        agent_definition=build_agent_definition(workflow_name, definition),
+        version_sequence=version.sequence,
+        agent_definition=build_agent_definition(version.workflow_name, definition),
     )
 
 

@@ -2,6 +2,7 @@ import { useAuth } from '@/context/AuthContext'
 import { WorkflowsService } from '@/services/workflowsService'
 import type {
   SaveWorkflowDraftRequest,
+  TestChatReply,
   WorkflowDiffResponse,
   WorkflowListResponse,
   WorkflowVersionDetail,
@@ -12,6 +13,13 @@ import { useApiMutation } from './useApiMutation'
 
 export interface SaveDraftArgs extends SaveWorkflowDraftRequest {
   name: string
+}
+
+export interface TestChatArgs {
+  name: string
+  versionId: string
+  message: string
+  threadId?: string
 }
 
 export interface MakeActiveArgs {
@@ -60,5 +68,10 @@ export function useWorkflowsService() {
     async ({ name, target, activeSequence }) => service().makeActive(name, target, activeSequence)
   )
 
-  return { list, listVersions, getVersion, saveDraft, create, diff, makeActive }
+  const testChat = useApiMutation<TestChatArgs, TestChatReply>(
+    async ({ name, versionId, message, threadId }) =>
+      service().testChat(name, versionId, message, threadId)
+  )
+
+  return { list, listVersions, getVersion, saveDraft, create, diff, makeActive, testChat }
 }
