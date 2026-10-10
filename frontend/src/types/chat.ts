@@ -11,9 +11,10 @@ export interface ChatMessage {
   wasModified?: boolean;
 }
 
+/** Wire shape of POST /api/agents/chat - snake_case, as the backend reads it. */
 export interface ChatRequest {
   message: string;
-  threadId?: string;
+  thread_id?: string;
 }
 
 export interface ChatResponse {

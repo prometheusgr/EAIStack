@@ -27,7 +27,14 @@ def _as_utc_isoformat(value: datetime) -> str:
 
 
 class ChatRequest(BaseModel):
-    """Request body for chat endpoint."""
+    """Request body for chat endpoint.
+
+    Unknown fields are rejected (422) rather than ignored: a misspelled
+    field such as `threadId` used to be dropped silently, which made every
+    follow-up message start a new conversation.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     message: str
     thread_id: str | None = None
