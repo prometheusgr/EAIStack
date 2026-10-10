@@ -108,7 +108,7 @@ effect on the next retention sweep — no backend restart.
 
 | Store | Retention timeline | Admin-configurable | Enforced by |
 |---|---|---|---|
-| `conversation_threads` / `conversation_checkpoints` | `session_ttl_hours`, default **24h** since last update. Also purged on logout when `session_cleanup_on_logout` is on. | Yes (`conversation_retention_hours`, `cleanup_on_logout`) | `purge_expired_conversations`, `purge_user_conversations` |
+| `conversation_threads` / `conversation_checkpoints` | `session_ttl_hours`, default **24h** since last update. Also purged on logout when `session_cleanup_on_logout` is on. Covers admins' draft test-chat threads (issue #84) too: same content, same window. | Yes (`conversation_retention_hours`, `cleanup_on_logout`) | `purge_expired_conversations`, `purge_user_conversations` |
 | `knowledge_base` (soft-deleted) | **30 days** after `deleted_at`, then hard-deleted. Live documents are never purged. | Yes (`knowledge_base_purge_days`) | `purge_expired_knowledge_base` |
 | `embeddings` | Follows its parent document — purged in the same batch. | Inherited | `purge_expired_knowledge_base` |
 | Stored object (uploaded file, if any) | Follows its parent document — deleted in the same purge as the DB row. A pasted-text entry has no object (`storage_key` is NULL) and nothing is deleted for it. | Inherited | `purge_expired_knowledge_base` (via `DocumentStore.delete_many`) |
@@ -849,9 +849,14 @@ power to a file upload. The controls are therefore not "no upload", but:
   required change note. (Issue #83 additionally required `chat` to keep an
   `agent` entry step for the leak detector; issue #85 removed that rule by
   making the detector cover every step's prompt — see "Guardrails" above.)
-- **Only published workflows run**: a user can start a conversation with any
+- **Only published workflows run in chat**: a user can start a conversation with any
   *published* workflow (`GET /api/agents/workflows` lists them), never a draft
-  or an unpublished one (`400 workflow_not_available`). The choice is bound to
+  or an unpublished one (`400 workflow_not_available`). The one way to run a
+  draft is an admin's draft test chat (issue #84, `require_admin`). Its threads
+  are bound to the version (`conversation_threads.test_version_id`) and excluded
+  from every production thread lookup, so no end user can list, open, or
+  continue one. It runs under the same rate-limit bucket and both guardrails,
+  with the leak detector checking the draft's own prompts. The choice is bound to
   the thread on the server (`conversation_threads.workflow_name`) when it is
   created; a follow-up cannot switch it, whatever the client sends.
 - **Immutable, attributable history**: `workflow_versions` is append-only
@@ -865,7 +870,8 @@ power to a file upload. The controls are therefore not "no upload", but:
   and write the audit entry in one transaction (see `docs/AUDIT_EVENTS.md`).
 - **Built-ins never silently overwrite an admin change** (epic #80 invariant 4).
 - **Traceability**: every chat turn records the version that answered it, and
-  its trace is tagged with the workflow name and version ID.
+  its trace is tagged with the workflow name and version ID. Draft test-chat
+  turns are marked `is_test_run` and traced with `workflow_run_kind: "test"`.
 
 Change management is `direct` (publish from the UI) and only `direct` today;
 git-backed modes and two-person approval are issue #87.

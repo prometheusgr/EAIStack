@@ -193,6 +193,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Depends on the chat `thread_id` fix (follow-ups previously always started a new thread, which would have made the binding meaningless).
 - e2e: `frontend/tests/e2e/workflow-selection.spec.ts` publishes a fresh workflow on the Workflows screen, picks it in chat, and checks the conversation is bound to it. Content-independent, so it runs under CI's fake provider.
 
+**Draft Test Chat Complete ✓**: Run Any Workflow Version Before Publishing (issue #84 slice A of 3, epic #80)
+- **Admin feature** (`require_admin`). User-visible signal: each version row on the Workflows screen has a **Test** action that opens a panel headed "Draft test run: <name> v<N>", running exactly that version; every reply is labelled "Draft run · v<N>". Nothing is published. `POST /api/workflows/{name}/versions/{version_id}/test-chat`.
+- **One turn pipeline for both chats**: `app.services.chat_turn_service` (`admit_chat_message`, `run_chat_turn`), extracted from `POST /api/agents/chat`, so a draft runs under production's exact rules (rate limit, both guardrails, real tools, tracing, per-turn version record). The output leak guard checks the draft's own prompts (`workflow_service.resolve_version_for_test` re-validates the version and builds its `AgentDefinition`). HTTP mapping shared via `app.api.chat_http`.
+- **Separation**: test threads carry `conversation_threads.test_version_id` (migration `017`). `ThreadRepository`'s production lookups exclude them, so they never appear in, open from, or continue through end-user chat. The test endpoint only resumes a test thread the caller owns that is bound to the same version.
+- **Decisions**: test chat **shares the caller's chat rate-limit bucket** (same inference cost); test threads use the **existing conversation retention** and logout cleanup (same content); no audit action (a test run changes no configuration). Each test turn is recorded in `chat_turn_versions` with `is_test_run = true`, and Phoenix metadata carries `workflow_run_kind` (`test`/`production`).
+- **Configuration call-out**: no new settings or constants.
+- e2e: `frontend/tests/e2e/workflow-test-chat.spec.ts` creates an unpublished workflow, test-runs it, sees a reply labelled as a draft run, and checks it is still unpublished. Content-independent, so it runs under CI's fake provider.
+- **Next slices of #84**: B. test cases + eval runs with pass rates; C. draft-vs-published comparison + evidence-gated publish.
+
 ## Common Development Commands
 
 ### Backend (Python)

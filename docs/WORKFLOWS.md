@@ -1,7 +1,8 @@
 # Multi-Agent Workflow Engine (Issues #81/#82, Epic #80)
 
 **Status**: engine (issue #81), reference workflows (#82), versioned store +
-admin screen (#83) and workflow selection in chat (#85) implemented. This document is the YAML reference for the workflow engine
+admin screen (#83), workflow selection in chat (#85) and draft test chat
+(#84 slice A of 3) implemented. This document is the YAML reference for the workflow engine
 that composes agents into LangGraph graphs declaratively. See
 `docs/AGENT_LIBRARY.md` for the hand-coded-agent pattern this engine's
 `agent` primitive generalizes, and epic #80 for the full multi-slice plan
@@ -117,6 +118,62 @@ conversation with its workflow.
   (`app.services.workflow_service`) is a named constant: the default is the
   workflow the system ships with, and changing it is a code-level decision
   rather than a per-deployment knob.
+
+## Iterating on a workflow (issue #84)
+
+The edit → run → compare loop for prompts and graphs. Issue #84 ships in three
+slices: **A. draft test chat** (implemented, below), **B. test cases + eval
+runs** with pass rates, and **C. a draft-vs-published comparison view +
+evidence-gated publish**. Until B and C land, iterating means: save a draft,
+test-run it, edit, save another draft, and publish when it behaves.
+
+### Draft test chat
+
+**Admin feature** (`require_admin`). On the Workflows screen, every row of a
+workflow's history has a **Test** action. It opens a chat panel headed "Draft
+test run: <name> v<N>" that runs exactly that version, and labels every reply
+"Draft run · v<N>". Nothing is published: production chat keeps running the
+published version, and the panel says so.
+
+1. Open the workflow, edit the YAML, and **Save draft** (it becomes vN,
+   unpublished).
+2. Click **Test** on vN and send messages. The draft runs end to end: real
+   tools, review loops, both guardrails.
+3. Edit, save another draft, and test that version. Each test conversation is
+   pinned to the version it started with, so starting a test of a newer
+   version is a new conversation.
+4. When a version behaves, **Publish** it (or `Roll back` to an older one).
+
+How it works:
+
+- `POST /api/workflows/{name}/versions/{version_id}/test-chat` (`message`,
+  optional `thread_id`) returns a normal chat reply plus `test_version_id` and
+  `test_version_sequence`. An unknown version (or one belonging to a different
+  workflow) is `404`. The stored YAML is re-validated before it runs, exactly
+  like `publish` (`workflow_service.resolve_version_for_test`).
+- **Same rules as production**: both endpoints run turns through
+  `app.services.chat_turn_service` (rate limit → input guardrail → graph →
+  output guardrail → turn record). Test chat **shares the caller's chat
+  rate-limit bucket**, since a test turn costs the same inference. The output
+  guardrail's leak detector checks the **draft's** prompts, not the published
+  version's.
+- **Kept apart from conversations**: a test thread is a `conversation_threads`
+  row with `test_version_id` set (migration `017`). `ThreadRepository`'s
+  production lookups exclude such threads, so a test conversation never appears
+  in anyone's conversation list, `GET /api/agents/threads/{id}` returns `404`
+  for it, and sending its id to `POST /api/agents/chat` starts a fresh
+  conversation. The test endpoint resumes a thread only if the caller owns it
+  **and** it is bound to the same version.
+- **Retention**: test threads are ordinary conversation rows, so the existing
+  conversation TTL sweep and logout cleanup purge them under the same window.
+- **Traceability**: each test turn is recorded in `chat_turn_versions` with the
+  exact version ID and `is_test_run = true` (that record outlives the thread).
+  Phoenix trace metadata carries `workflow_run_kind: "test"` (`"production"`
+  for real chat) alongside `workflow_name` and `workflow_version_id`.
+- The panel shows live turns only: closing it ends the test conversation,
+  and there is no screen for reopening an old one.
+- **Configuration**: none new. Audit: none. A test run changes no
+  configuration, just as an ordinary chat turn isn't audited.
 
 ## Schema reference
 
@@ -455,6 +512,11 @@ each workflow's YAML, already bounded by `REVIEW_LOOP_MAX_ITERATIONS_CEILING`.
 - `backend/tests/unit/test_main_lifespan.py` — a corrupted built-in workflow
   file fails app startup with a `WorkflowValidationError`, not a runtime
   500.
+- `backend/tests/unit/test_workflow_test_chat.py` — draft test chat (issue
+  #84): admin-only, runs the draft without publishing it, records
+  `is_test_run`, tags trace metadata, applies both guardrails (leak guard on
+  the draft's prompt), shares the chat rate-limit bucket, and keeps test
+  threads out of every production thread lookup.
 
 **Scripted per-node fake harness**: `app.core.llm_client.FakeChatModel`'s
 existing `responses: list[AIMessage]` queue (consumed one-per-call, in
