@@ -2,8 +2,9 @@
 
 Admin feature: every route depends on require_admin. Backs the Workflows
 screen - list, history, detail, diff, diagram, create, save draft,
-publish, rollback, and test-chat against any version (issue #84). All business rules live in
-app.services.workflow_service; this module maps them to HTTP.
+publish, rollback, and test chat against any version (issue #84). All
+business rules live in app.services.workflow_service and
+app.services.chat_turn_service; this module maps them to HTTP.
 """
 
 from fastapi import APIRouter, Depends
