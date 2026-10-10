@@ -16,6 +16,7 @@ vi.mock('../api/workflowsClient', () => ({
     saveDraft: vi.fn(),
     diff: vi.fn(),
     moveActive: vi.fn(),
+    testChat: vi.fn(),
   },
 }))
 
@@ -218,6 +219,18 @@ describe('Workflows', () => {
         expect.anything()
       )
     )
+  })
+
+  it('opens a draft test run bound to a version without publishing it (issue #84)', async () => {
+    mockStore([V1, V2])
+
+    await openChat()
+    await userEvent.click(screen.getByRole('button', { name: 'Test v2' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Draft test run: chat v2' })
+    ).toBeInTheDocument()
+    expect(workflowsClient.moveActive).not.toHaveBeenCalled()
   })
 
   it('creates a new workflow from the editor', async () => {

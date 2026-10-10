@@ -19,6 +19,7 @@ from app.db.models import (
     KnowledgeBase,
     SystemSettings,
 )
+from app.repositories import WorkflowVersionRepository
 from app.services.retention_service import (
     purge_expired_api_keys,
     purge_expired_chat_turn_versions,
@@ -223,6 +224,48 @@ def test_logout_purge_removes_checkpoints_too(db_session):
     db_session.commit()
 
     assert db_session.query(ConversationCheckpoint).filter_by(thread_id=thread_id).first() is None
+
+
+def _make_test_thread(db, user_id: str, updated_at: datetime) -> ConversationThread:
+    """A draft test-chat thread (issue #84), bound to a recorded version."""
+    version = WorkflowVersionRepository(db).add(
+        workflow_name="chat",
+        yaml_text="name: chat\n",
+        source="admin",
+        author_user_id="admin-1",
+        change_note="draft",
+        parent_version_id=None,
+        now=updated_at,
+    )
+    thread = ConversationThread(
+        user_id=user_id,
+        test_version_id=version.id,
+        created_at=_naive(updated_at),
+        updated_at=_naive(updated_at),
+    )
+    db.add(thread)
+    db.flush()
+    return thread
+
+
+@pytest.mark.unit
+def test_draft_test_threads_expire_under_the_conversation_window(db_session):
+    """Test-chat conversations hold the same kind of content as production
+    ones, so they get the same retention window, not a separate one."""
+    _make_test_thread(db_session, "admin-1", NOW - timedelta(hours=25))
+    db_session.commit()
+
+    purged = purge_expired_conversations(db_session, retention_hours=24, now=NOW)
+
+    assert purged == 1
+
+
+@pytest.mark.unit
+def test_logout_purge_deletes_draft_test_threads_too(db_session):
+    _make_test_thread(db_session, "admin-1", NOW - timedelta(hours=1))
+    db_session.commit()
+
+    assert purge_user_conversations(db_session, user_id="admin-1") == 1
 
 
 # --- Purge windows: knowledge base / embeddings ------------------------------

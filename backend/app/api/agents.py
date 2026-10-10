@@ -7,36 +7,30 @@ from langgraph.checkpoint.base import CheckpointTuple
 from sqlalchemy.orm import Session
 
 from app.agents.checkpointer import SqlAlchemyCheckpointSaver
+from app.api.chat_http import refused_admission_response, reply_fields
 from app.api.schemas import (
     AvailableWorkflowListResponse,
     AvailableWorkflowResponse,
     ChatRequest,
     ChatResponse,
-    SourceReference,
     ThreadHistoryResponse,
     ThreadListResponse,
     ThreadMessage,
     ThreadSummary,
 )
 from app.core.auth import get_current_user
-from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import utc_now
-from app.guardrails.input_guardrail import GuardrailVerdict
 from app.guardrails.output_guardrail import filter_output
-from app.repositories import ChatTurnVersionRepository, ThreadRepository
-from app.repositories.system_settings_repository import SystemSettingsRepository
-from app.services import check_input_guardrail, filter_agent_response
+from app.repositories import ThreadRepository
+from app.services.chat_turn_service import admit_chat_message, run_chat_turn
 from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
-from app.services.rate_limit_config_service import resolve_rate_limit_config
-from app.services.rate_limiter_service import check_chat_rate_limit, rate_limit_exceeded_response
 from app.services.workflow_service import (
     DEFAULT_WORKFLOW,
     is_available,
     list_available_workflows,
     resolve_active_workflow,
 )
-from app.workflows.primitives import extract_sources_from_messages
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -70,15 +64,9 @@ async def chat(
     redaction, respectively) live in app.services.chat_guardrail_service,
     alongside the rationale for each guardrail's trip behavior.
 
-    The SystemSettings singleton row is fetched once here and passed to
-    every resolver that needs it (rate-limit config, then guardrail
-    config), rather than letting each resolve its own -- config cannot
-    legitimately change partway through one request, so resolving it
-    multiple times was pure redundant DB work (a SystemSettings SELECT,
-    once per resolver, plus a GuardrailPattern seed-check and list for the
-    guardrail resolver) on this endpoint's hot path. Mirrors
-    app.api.settings._to_response's identical fetch-once-share-many
-    pattern.
+    Admission (rate limit, input guardrail) and the turn itself run through
+    app.services.chat_turn_service, shared with the admin's draft test chat
+    (issue #84) so both run under identical rules.
 
     The rate limit check (issue #25) runs before the guardrail check --
     it's the cheaper, more fundamental gate (protects resource consumption
@@ -92,33 +80,12 @@ async def chat(
     rate-limiting section): it's a high-frequency operational signal, not
     an individually compliance-relevant event.
     """
-    db_settings = SystemSettingsRepository(db).get()
-
-    rate_limit_config = resolve_rate_limit_config(db, db_settings)
-    rate_limit_result = check_chat_rate_limit(
-        db, user_id=user["user_id"], now=utc_now(), config=rate_limit_config
+    admission = admit_chat_message(
+        db, user_id=user["user_id"], message=request.message, now=utc_now()
     )
-    if not rate_limit_result.allowed:
-        return rate_limit_exceeded_response(
-            rate_limit_result,
-            message="Too many requests. Please wait before sending another message.",
-        )
-
-    guardrail_config = resolve_guardrail_config(db, db_settings)
-
-    guardrail_result = check_input_guardrail(
-        db,
-        message=request.message,
-        actor_user_id=user["user_id"],
-        now=utc_now(),
-        config=guardrail_config,
-    )
-    if guardrail_result.verdict == GuardrailVerdict.REJECTED:
-        db.commit()
-        return JSONResponse(
-            status_code=400,
-            content={"detail": guardrail_result.reason, "message": guardrail_result.message},
-        )
+    if not admission.admitted:
+        db.commit()  # a guardrail rejection's audit entry
+        return refused_admission_response(admission)
 
     thread_repository = ThreadRepository(db)
     existing_thread = (
@@ -145,70 +112,19 @@ async def chat(
         )
 
     # The published version of the thread's workflow (issues #83, #85): an
-    # admin's published edit is live from the next turn, and the turn is
-    # recorded against that exact version below. An existing thread keeps its
-    # bound workflow whatever the request asked for.
-    active_workflow = resolve_active_workflow(db, thread.workflow_name, now=utc_now())
-    agent_definition = active_workflow.agent_definition
-    agent = agent_definition.factory(db, user["access_token"], settings.doc_search_mcp_url)
-    state = {
-        "messages": [HumanMessage(content=request.message)],
-        "thread_id": thread.id,
-        "user_id": user["user_id"],
-        "step_outputs": {},
-    }
-
-    result = await agent.ainvoke(
-        state,
-        config={
-            "configurable": {"thread_id": thread.id},
-            # Tags every Phoenix span of this run with the exact workflow
-            # version (epic #80 invariant 2: the version ID travels
-            # everywhere), so a trace can be matched to the prompt it used.
-            "metadata": {
-                "workflow_name": active_workflow.workflow_name,
-                "workflow_version_id": active_workflow.version_id,
-            },
-        },
-    )
-    final_message = result["messages"][-1]
-
-    filtered = filter_agent_response(
+    # admin's published edit is live from the next turn. An existing thread
+    # keeps its bound workflow whatever the request asked for.
+    outcome = await run_chat_turn(
         db,
-        final_message=final_message,
-        system_prompt=agent_definition.guarded_prompt_text,
-        actor_user_id=user["user_id"],
-        thread_id=thread.id,
-        config=guardrail_config,
+        user=user,
+        thread=thread,
+        workflow=resolve_active_workflow(db, thread.workflow_name, now=utc_now()),
+        message=request.message,
+        guardrail_config=admission.guardrail_config,
+        run_kind="production",
         now=utc_now(),
     )
-
-    thread_repository.touch(thread.id, now=utc_now())
-    ChatTurnVersionRepository(db).record(
-        user_id=user["user_id"],
-        thread_id=thread.id,
-        workflow_name=active_workflow.workflow_name,
-        workflow_version_id=active_workflow.version_id,
-        now=utc_now(),
-    )
-    db.commit()
-
-    sources = extract_sources_from_messages(result["messages"])
-
-    return ChatResponse(
-        response=filtered.text,
-        thread_id=result["thread_id"],
-        sources=[
-            SourceReference(
-                knowledge_base_id=source.knowledge_base_id,
-                title=source.title,
-                heading_path=source.heading_path,
-            )
-            for source in sources
-        ],
-        was_modified=filtered.was_modified,
-        workflow=thread.workflow_name,
-    )
+    return ChatResponse(**reply_fields(outcome), workflow=thread.workflow_name)
 
 
 @router.get("/workflows", response_model=AvailableWorkflowListResponse)

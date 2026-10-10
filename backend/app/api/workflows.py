@@ -2,7 +2,7 @@
 
 Admin feature: every route depends on require_admin. Backs the Workflows
 screen - list, history, detail, diff, diagram, create, save draft,
-publish, rollback. All business rules live in
+publish, rollback, and test-chat against any version (issue #84). All business rules live in
 app.services.workflow_service; this module maps them to HTTP.
 """
 
@@ -10,9 +10,12 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.api.chat_http import refused_admission_response, reply_fields
 from app.api.schemas import (
     PublishWorkflowRequest,
     SaveWorkflowDraftRequest,
+    TestChatRequest,
+    TestChatResponse,
     WorkflowDiffResponse,
     WorkflowListResponse,
     WorkflowSummaryResponse,
@@ -23,8 +26,13 @@ from app.api.schemas import (
 from app.core.auth import require_admin
 from app.db.database import get_db
 from app.db.models import WorkflowVersion, utc_now
-from app.repositories import WorkflowActiveVersionRepository, WorkflowVersionRepository
+from app.repositories import (
+    ThreadRepository,
+    WorkflowActiveVersionRepository,
+    WorkflowVersionRepository,
+)
 from app.services import workflow_service
+from app.services.chat_turn_service import admit_chat_message, run_chat_turn
 from app.services.workflow_service import (
     WorkflowAlreadyExists,
     WorkflowDraftRejected,
@@ -199,6 +207,61 @@ async def get_version_graph(
     except WorkflowVersionNotFound:
         return _not_found(f"No version {version_id!r} of {workflow_name!r}.")
     return workflow_service.workflow_graph(version)
+
+
+@router.post("/{workflow_name}/versions/{version_id}/test-chat", response_model=None)
+async def test_chat(
+    workflow_name: str,
+    version_id: str,
+    request: TestChatRequest,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TestChatResponse | JSONResponse:
+    """Run one chat turn against any saved version, typically a draft.
+
+    Never publishes anything: production chat keeps running the published
+    version. Runs under production's exact rules - shared rate-limit
+    bucket, both guardrails (the leak guard checks the draft's own
+    prompts), real tools - via app.services.chat_turn_service. The
+    conversation is a test thread bound to this version, kept out of every
+    production thread lookup, and each turn is recorded as a test run.
+    """
+    try:
+        workflow = workflow_service.resolve_version_for_test(db, workflow_name, version_id)
+    except WorkflowVersionNotFound:
+        return _not_found(f"No version {version_id!r} of {workflow_name!r}.")
+    except WorkflowDraftRejected as exc:
+        return _rejected(exc)
+
+    admission = admit_chat_message(
+        db, user_id=user["user_id"], message=request.message, now=utc_now()
+    )
+    if not admission.admitted:
+        db.commit()  # a guardrail rejection's audit entry
+        return refused_admission_response(admission)
+
+    thread = ThreadRepository(db).get_or_create_test_thread(
+        request.thread_id,
+        user["user_id"],
+        workflow_name=workflow_name,
+        version_id=workflow.version_id,
+    )
+    outcome = await run_chat_turn(
+        db,
+        user=user,
+        thread=thread,
+        workflow=workflow,
+        message=request.message,
+        guardrail_config=admission.guardrail_config,
+        run_kind="test",
+        now=utc_now(),
+    )
+    return TestChatResponse(
+        **reply_fields(outcome),
+        workflow=workflow_name,
+        test_version_id=workflow.version_id,
+        test_version_sequence=workflow.version_sequence,
+    )
 
 
 @router.get("/{workflow_name}/diff", response_model=WorkflowDiffResponse)

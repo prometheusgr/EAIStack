@@ -51,27 +51,66 @@ class ThreadRepository:
         return thread
 
     def get_by_id_for_user(self, thread_id: str, user_id: str) -> ConversationThread | None:
-        """Fetch a single thread by ID, verifying user ownership.
+        """Fetch a single conversation by ID, verifying user ownership.
 
-        Returns None if not found or not owned by user_id.
+        Returns None if not found, not owned by user_id, or a draft
+        test-chat thread - those are never production conversations, so no
+        production endpoint can list, open, or continue one (issue #84).
         """
         return (
             self.db.query(ConversationThread)
             .filter(
                 ConversationThread.id == thread_id,
                 ConversationThread.user_id == user_id,
+                ConversationThread.test_version_id.is_(None),
             )
             .first()
         )
 
     def list_for_user(self, user_id: str) -> list[ConversationThread]:
-        """Fetch all threads for a user, most recently updated first."""
+        """Fetch a user's conversations (never test-chat threads), most
+        recently updated first."""
         return (
             self.db.query(ConversationThread)
-            .filter(ConversationThread.user_id == user_id)
+            .filter(
+                ConversationThread.user_id == user_id,
+                ConversationThread.test_version_id.is_(None),
+            )
             .order_by(ConversationThread.updated_at.desc())
             .all()
         )
+
+    def get_or_create_test_thread(
+        self, thread_id: str | None, user_id: str, *, workflow_name: str, version_id: str
+    ) -> ConversationThread:
+        """Resolve a draft test-chat thread (issue #84), minting one if needed.
+
+        Resumes thread_id only when it is a test thread owned by user_id and
+        bound to version_id; anything else - a production conversation,
+        another user's thread, a test of a different version - gets a fresh
+        test thread, the same self-healing as get_or_create_owned.
+
+        Does not commit; the caller owns the transaction.
+        """
+        if thread_id is not None:
+            existing = (
+                self.db.query(ConversationThread)
+                .filter(
+                    ConversationThread.id == thread_id,
+                    ConversationThread.user_id == user_id,
+                    ConversationThread.test_version_id == version_id,
+                )
+                .first()
+            )
+            if existing is not None:
+                return existing
+
+        thread = ConversationThread(
+            user_id=user_id, workflow_name=workflow_name, test_version_id=version_id
+        )
+        self.db.add(thread)
+        self.db.flush()
+        return thread
 
     def touch(self, thread_id: str, now: datetime) -> None:
         """Bump a thread's updated_at to `now`.

@@ -666,6 +666,26 @@ class PublishWorkflowRequest(BaseModel):
     version_id: str
 
 
+class TestChatRequest(BaseModel):
+    """Request body for an admin's draft test chat (issue #84).
+
+    No workflow field: the URL names the exact version that runs. thread_id
+    continues a test conversation of that same version only.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    message: str
+    thread_id: str | None = None
+
+
+class TestChatResponse(ChatResponse):
+    """A chat reply from a draft test run, naming the version that ran."""
+
+    test_version_id: str
+    test_version_sequence: int
+
+
 class WorkflowDiffResponse(BaseModel):
     """Unified diff between two versions' YAML."""
 
