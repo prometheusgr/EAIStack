@@ -694,6 +694,86 @@ describe("ChatWindow", () => {
     });
     expect(screen.getByText(/start a conversation/i)).toBeInTheDocument();
   });
+
+  // The most recent conversation is restored on mount; a user who clicks
+  // New chat before that restore finishes must get a new chat, not have
+  // the old conversation land on top of it a moment later.
+  const ONE_OLD_THREAD = {
+    threads: [
+      { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z", workflow: "chat" },
+    ],
+  };
+  const OLD_HISTORY = {
+    id: "thread-1",
+    workflow: "chat",
+    messages: [{ role: "user" as const, text: "Old message" }],
+  };
+
+  it("keeps a new chat clicked before the thread list arrives", async () => {
+    let resolveList: (value: typeof ONE_OLD_THREAD) => void = () => {};
+    vi.mocked(threadsClient.listThreads).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      })
+    );
+    vi.mocked(threadsClient.getThreadHistory).mockResolvedValue(OLD_HISTORY);
+
+    render(<ChatWindow />);
+    fireEvent.click(screen.getByRole("button", { name: /new chat/i }));
+    await act(async () => resolveList(ONE_OLD_THREAD));
+
+    expect(screen.queryByText("Old message")).not.toBeInTheDocument();
+    expect(screen.getByText(/start a conversation/i)).toBeInTheDocument();
+  });
+
+  it("keeps a new chat clicked while the restored conversation is still loading", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue(ONE_OLD_THREAD);
+    let resolveHistory: (value: typeof OLD_HISTORY) => void = () => {};
+    vi.mocked(threadsClient.getThreadHistory).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHistory = resolve;
+      })
+    );
+
+    render(<ChatWindow />);
+    await waitFor(() => expect(threadsClient.getThreadHistory).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /new chat/i }));
+    await act(async () => resolveHistory(OLD_HISTORY));
+
+    expect(screen.queryByText("Old message")).not.toBeInTheDocument();
+    expect(screen.getByText(/start a conversation/i)).toBeInTheDocument();
+  });
+
+  it("shows the conversation picked last when an earlier pick's history arrives later", async () => {
+    vi.mocked(threadsClient.listThreads).mockResolvedValue({
+      threads: [
+        { id: "thread-1", createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-20T00:00:00Z", workflow: "chat" },
+        { id: "thread-2", createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z", workflow: "chat" },
+      ],
+    });
+    let resolveSlowThread1: (value: typeof OLD_HISTORY) => void = () => {};
+    vi.mocked(threadsClient.getThreadHistory).mockImplementation((threadId) =>
+      threadId === "thread-1"
+        ? new Promise((resolve) => {
+            resolveSlowThread1 = resolve;
+          })
+        : Promise.resolve({
+            id: "thread-2",
+            workflow: "chat",
+            messages: [{ role: "user", text: "Message from thread-2" }],
+          })
+    );
+
+    render(<ChatWindow />);
+    await waitFor(() => expect(threadsClient.getThreadHistory).toHaveBeenCalled());
+    const select = screen.getByRole("combobox", { name: /select conversation/i });
+    fireEvent.change(select, { target: { value: "thread-2" } });
+    await screen.findByText("Message from thread-2");
+    await act(async () => resolveSlowThread1(OLD_HISTORY));
+
+    expect(screen.queryByText("Old message")).not.toBeInTheDocument();
+    expect(screen.getByText("Message from thread-2")).toBeInTheDocument();
+  });
 });
 
 describe("ChatWindow workflow selection (issue #85)", () => {
