@@ -37,3 +37,15 @@ steps:
     prompt: >-
       You are a general-purpose assistant for non-technical questions. Be
       brief, direct, and helpful.
+# Test cases (issue #84): run from the Workflows screen's "Run evals". The
+# structural checks also run in CI against a scripted fake model
+# (tests/unit/test_builtin_workflow_evals.py).
+tests:
+  - name: technical_question_goes_to_the_technical_specialist
+    input: How do I configure the VPN client on a Linux laptop?
+    expect:
+      route: {step: classify, branch: technical}
+  - name: general_question_goes_to_the_general_assistant
+    input: Can you suggest a name for our team's summer offsite?
+    expect:
+      route: {step: classify, branch: general}

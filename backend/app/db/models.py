@@ -442,6 +442,12 @@ class SystemSettings(Base):
     # chunking already bounds normal chunk size, so this only bites an
     # unusually large individual chunk.
     rag_max_excerpt_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # How long one run of a workflow test case may take before it is
+    # recorded as timed out (issue #84). Resolved when an eval run starts,
+    # via app.services.eval_config_service. Hardware-dependent - a review
+    # loop on a CPU-only 8B model takes minutes, on a GPU seconds - which is
+    # why it is an admin setting rather than a constant.
+    eval_case_run_timeout_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )
@@ -605,4 +611,90 @@ class ChatTurnVersion(Base):
         return (
             f"<ChatTurnVersion(id={self.id}, thread_id={self.thread_id}, "
             f"workflow_version_id={self.workflow_version_id})>"
+        )
+
+
+class WorkflowEvalRun(Base):
+    """One eval run: a workflow version's test suite, executed (issue #84).
+
+    A job record, not an audit store: status, progress and the verdict are
+    updated as the run executes. Holds no conversation content (see
+    app.workflows.eval_scoring), so it is kept indefinitely as the evidence
+    a publish can point to.
+
+    The admin's browser drives the run one case run per request (see
+    app.services.workflow_eval_service for why), so last_activity_at is
+    what tells a run still being driven from one whose page was closed.
+
+    active_slot is TRUE while the run executes and NULL once it ends. Its
+    unique constraint allows at most one executing eval run per deployment
+    (NULLs never collide), enforced by the database rather than a
+    check-then-insert: eval runs share the one CPU-bound LLM with
+    production chat.
+    """
+
+    __tablename__ = "workflow_eval_runs"
+    __table_args__ = (UniqueConstraint("active_slot", name="uq_workflow_eval_runs_active_slot"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workflow_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    workflow_version_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflow_versions.id"), nullable=False, index=True
+    )
+    # "running", "completed", "cancelled" (stopped by the admin) or
+    # "abandoned" (no activity for longer than a case run may take).
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Every case met its required passes. NULL until the run completes.
+    passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    case_runs_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    case_runs_done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active_slot: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    started_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return (
+            f"<WorkflowEvalRun(id={self.id}, workflow={self.workflow_name}, status={self.status})>"
+        )
+
+
+class WorkflowEvalCaseResult(Base):
+    """The scored result of one run of one test case within an eval run.
+
+    Insert-only (WorkflowEvalCaseResultRepository has no update or delete).
+    `checks` is a list of {check, kind, passed, detail} objects; details
+    quote only the test's expectations, never the reply. thread_id is the
+    test thread the run used and is deliberately not a foreign key:
+    conversation retention purges that thread, while this result is kept.
+    """
+
+    __tablename__ = "workflow_eval_case_results"
+    # Two concurrent requests advancing the same run can't both record the
+    # same case run.
+    __table_args__ = (
+        UniqueConstraint(
+            "eval_run_id", "case_name", "run_index", name="uq_workflow_eval_case_results_run"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    eval_run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflow_eval_runs.id"), nullable=False, index=True
+    )
+    case_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    run_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    # app.workflows.eval_scoring.RunOutcome.
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    checks: Mapped[list] = mapped_column(JSON, nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    def __repr__(self):
+        return (
+            f"<WorkflowEvalCaseResult(eval_run_id={self.eval_run_id}, case={self.case_name}, "
+            f"run={self.run_index}, passed={self.passed})>"
         )

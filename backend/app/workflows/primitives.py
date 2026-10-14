@@ -205,13 +205,28 @@ def build_route_node(*, step_name: str, branches: list[str]) -> RouterFn:
         raise ValueError("route requires at least one branch")
 
     def route(state: WorkflowState) -> str:
-        output = state.get("step_outputs", {}).get(step_name, "")
-        for branch in branches:
-            if branch in output:
-                return branch
-        return branches[0]
+        return choose_route_branch(state.get("step_outputs", {}).get(step_name, ""), branches)
 
     return route
+
+
+def choose_route_branch(classifier_output: str, branches: list[str]) -> str:
+    """The branch a route step takes for its classifier's output: the first
+    declared branch name the output contains, else the first branch.
+
+    Shared by the router and app.workflows.eval_scoring's route check, so an
+    eval judges a route exactly the way the graph took it.
+    """
+    for branch in branches:
+        if branch in classifier_output:
+            return branch
+    return branches[0]
+
+
+def review_rounds_key(reviewer_step: str) -> str:
+    """The step_outputs key under which a review loop counts its completed
+    rounds (read by the loop's own router and by eval scoring)."""
+    return f"__{reviewer_step}_rounds"
 
 
 def _format_prompt(template: str, state: WorkflowState) -> str:
@@ -365,13 +380,13 @@ def build_review_loop(
         except Exception:
             review = ReviewResult(approved=False, issues=["reviewer output could not be parsed"])
 
-        rounds_so_far = state.get("step_outputs", {}).get(f"__{reviewer_step}_rounds", "0")
+        rounds_so_far = state.get("step_outputs", {}).get(review_rounds_key(reviewer_step), "0")
         return {
             "review": review,
             "step_outputs": {
                 **state.get("step_outputs", {}),
                 reviewer_step: review.model_dump_json(),
-                f"__{reviewer_step}_rounds": str(int(rounds_so_far) + 1),
+                review_rounds_key(reviewer_step): str(int(rounds_so_far) + 1),
             },
         }
 
@@ -386,7 +401,9 @@ def build_review_loop(
 
     def route_after_review(state: WorkflowState) -> str:
         review = state.get("review")
-        rounds_completed = int(state.get("step_outputs", {}).get(f"__{reviewer_step}_rounds", "0"))
+        rounds_completed = int(
+            state.get("step_outputs", {}).get(review_rounds_key(reviewer_step), "0")
+        )
         if review is not None and review.approved:
             return "__finalize__"
         if rounds_completed >= max_iterations:
@@ -446,11 +463,7 @@ def extract_sources_from_messages(messages: list[AnyMessage]) -> list[Source]:
     checkpointer, so its ToolMessage.artifact values are still real Source
     dataclass instances.
     """
-    last_human_index = -1
-    for index, message in enumerate(messages):
-        if isinstance(message, HumanMessage):
-            last_human_index = index
-    current_turn_messages = messages[last_human_index + 1 :]
+    current_turn_messages = _current_turn_messages(messages)
 
     sources: list[Source] = []
     seen_ids: set[str] = set()
@@ -463,3 +476,27 @@ def extract_sources_from_messages(messages: list[AnyMessage]) -> list[Source]:
             seen_ids.add(source.knowledge_base_id)
             sources.append(source)
     return sources
+
+
+def tools_called_in_current_turn(messages: list[AnyMessage]) -> frozenset[str]:
+    """Names of the tools the current turn's AI messages called.
+
+    Same current-turn scoping as extract_sources_from_messages. For a
+    review_loop worker this sees only the finalized round's tool calls,
+    since rejected drafts' tool exchanges never reach `messages`.
+    """
+    return frozenset(
+        tool_call["name"]
+        for message in _current_turn_messages(messages)
+        if isinstance(message, AIMessage)
+        for tool_call in message.tool_calls
+    )
+
+
+def _current_turn_messages(messages: list[AnyMessage]) -> list[AnyMessage]:
+    """Everything after the last HumanMessage: the turn just answered."""
+    last_human_index = -1
+    for index, message in enumerate(messages):
+        if isinstance(message, HumanMessage):
+            last_human_index = index
+    return messages[last_human_index + 1 :]

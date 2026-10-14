@@ -1,5 +1,6 @@
 import { authorizedFetch, type AuthRefresh } from './authorizedFetch'
 import type {
+  EvalRun,
   SaveWorkflowDraftRequest,
   TestChatReply,
   WorkflowDiffResponse,
@@ -155,6 +156,54 @@ const workflowsClient = {
       testVersionId: data.test_version_id,
       testVersionSequence: data.test_version_sequence,
     }
+  },
+
+  /** Start an eval run of a version's test suite (issue #84). Nothing runs
+   * until the run is advanced. */
+  async startEvalRun(
+    name: string,
+    versionId: string,
+    token: string,
+    onRefresh: AuthRefresh
+  ): Promise<EvalRun> {
+    const response = await authorizedFetch(
+      `/api/workflows/${encodeURIComponent(name)}/versions/${encodeURIComponent(versionId)}/eval-runs`,
+      token,
+      onRefresh,
+      { method: 'POST' }
+    )
+    return response.json()
+  },
+
+  /** Execute the run's next case run; resolves once it has been scored. */
+  async advanceEvalRun(
+    name: string,
+    runId: string,
+    token: string,
+    onRefresh: AuthRefresh
+  ): Promise<EvalRun> {
+    const response = await authorizedFetch(
+      `/api/workflows/${encodeURIComponent(name)}/eval-runs/${encodeURIComponent(runId)}/advance`,
+      token,
+      onRefresh,
+      { method: 'POST' }
+    )
+    return response.json()
+  },
+
+  async cancelEvalRun(
+    name: string,
+    runId: string,
+    token: string,
+    onRefresh: AuthRefresh
+  ): Promise<EvalRun> {
+    const response = await authorizedFetch(
+      `/api/workflows/${encodeURIComponent(name)}/eval-runs/${encodeURIComponent(runId)}/cancel`,
+      token,
+      onRefresh,
+      { method: 'POST' }
+    )
+    return response.json()
   },
 }
 

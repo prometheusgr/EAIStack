@@ -113,6 +113,8 @@ export function Settings() {
   const [ragChunkSize, setRagChunkSize] = useState<NumericSettingInput>('')
   const [ragChunkOverlapRatio, setRagChunkOverlapRatio] = useState<NumericSettingInput>('')
   const [ragMaxExcerptChars, setRagMaxExcerptChars] = useState<NumericSettingInput>('')
+  const [evalCaseRunTimeoutSeconds, setEvalCaseRunTimeoutSeconds] =
+    useState<NumericSettingInput>('')
   const [newPatternLabel, setNewPatternLabel] = useState('')
   const [newPatternPhrase, setNewPatternPhrase] = useState('')
   // Mirrors get.data.guardrail_patterns locally, patched in place by each
@@ -180,6 +182,7 @@ export function Settings() {
     setRagChunkSize(String(get.data.rag_chunk_size))
     setRagChunkOverlapRatio(String(get.data.rag_chunk_overlap_ratio))
     setRagMaxExcerptChars(String(get.data.rag_max_excerpt_chars))
+    setEvalCaseRunTimeoutSeconds(String(get.data.eval_case_run_timeout_seconds))
     setClearedFields(new Set())
   }, [get.data])
 
@@ -296,6 +299,9 @@ export function Settings() {
       rag_max_excerpt_chars: clearedFields.has('rag_max_excerpt_chars')
         ? null
         : toNumericSettingPayloadValue(ragMaxExcerptChars),
+      eval_case_run_timeout_seconds: clearedFields.has('eval_case_run_timeout_seconds')
+        ? null
+        : toNumericSettingPayloadValue(evalCaseRunTimeoutSeconds),
     }
   }
 
@@ -1507,6 +1513,55 @@ export function Settings() {
           }}
         >
           Reset retrieval/chunking to default
+        </Button>
+      </section>
+
+      <section
+        className="space-y-4 rounded-lg border border-border p-4"
+        aria-label="Workflow evaluation"
+      >
+        <h3 className="text-lg font-semibold">Workflow Evaluation</h3>
+        <p className="text-sm text-muted-foreground">
+          Eval runs execute a workflow version&apos;s test cases from the Workflows screen.
+        </p>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium" htmlFor="eval-case-run-timeout-seconds">
+              Case run timeout (seconds,{' '}
+              {overrideLabel(get.data.eval_case_run_timeout_seconds_is_db_override)})
+            </label>
+            <InfoTooltip>
+              How long one run of a test case may take before it is recorded as timed out and the
+              eval moves on. Set it to comfortably more than your slowest workflow takes to answer
+              on this hardware: a review loop on a CPU-only model can take minutes, on a GPU
+              seconds. Between 10 and 3600; a common default is 300. Applies from the next case
+              run.
+            </InfoTooltip>
+          </div>
+          <Input
+            id="eval-case-run-timeout-seconds"
+            type="number"
+            min={10}
+            max={3600}
+            value={evalCaseRunTimeoutSeconds}
+            onChange={(e) => {
+              setEvalCaseRunTimeoutSeconds(e.target.value)
+              markFieldEdited('eval_case_run_timeout_seconds')
+            }}
+          />
+        </div>
+
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto p-0 text-sm"
+          onClick={() => {
+            setEvalCaseRunTimeoutSeconds(String(get.data?.eval_case_run_timeout_seconds ?? ''))
+            markFieldCleared('eval_case_run_timeout_seconds')
+          }}
+        >
+          Reset workflow evaluation to default
         </Button>
       </section>
 

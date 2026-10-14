@@ -8,6 +8,11 @@ from app.repositories.guardrail_pattern_repository import GuardrailPatternReposi
 from app.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.repositories.thread_repository import ThreadRepository
+from app.repositories.workflow_eval_repository import (
+    EvalRunInProgress,
+    WorkflowEvalCaseResultRepository,
+    WorkflowEvalRunRepository,
+)
 from app.repositories.workflow_version_repository import (
     ChatTurnVersionRepository,
     WorkflowActiveVersionRepository,
@@ -26,4 +31,7 @@ __all__ = [
     "ChatTurnVersionRepository",
     "WorkflowActiveVersionRepository",
     "WorkflowVersionRepository",
+    "EvalRunInProgress",
+    "WorkflowEvalCaseResultRepository",
+    "WorkflowEvalRunRepository",
 ]

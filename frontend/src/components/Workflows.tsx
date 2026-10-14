@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WorkflowTestChat } from '@/components/WorkflowTestChat'
+import { WorkflowEvalRun } from '@/components/WorkflowEvalRun'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,6 +37,12 @@ steps:
       You are a helpful assistant. Be brief and direct.
     tools:
       - search_knowledge_base
+# Test cases for "Run evals" - see docs/WORKFLOWS.md for every check.
+tests:
+  - name: uses_the_knowledge_base
+    input: What does our handbook say about remote work?
+    expect:
+      tool_called: search_knowledge_base
 `
 
 interface PendingMove {
@@ -67,6 +74,7 @@ export function Workflows() {
   const [notice, setNotice] = useState<string | null>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [testTarget, setTestTarget] = useState<WorkflowVersionSummary | null>(null)
+  const [evalTarget, setEvalTarget] = useState<WorkflowVersionSummary | null>(null)
 
   useEffect(() => {
     if (isAuthLoading) return
@@ -82,6 +90,7 @@ export function Workflows() {
     setSelectedName(workflow.name)
     setIsCreating(false)
     setTestTarget(null)
+    setEvalTarget(null)
     setEditorError(null)
     setNotice(null)
     setChangeNote('')
@@ -319,6 +328,14 @@ export function Workflows() {
                       </Button>
                       <Button
                         size="sm"
+                        variant="outline"
+                        onClick={() => setEvalTarget(v)}
+                        aria-label={`Run evals on v${v.sequence}`}
+                      >
+                        Run evals
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="ghost"
                         onClick={() => selectedName && loadIntoEditor(selectedName, v.id)}
                         aria-label={`Open v${v.sequence} in editor`}
@@ -340,6 +357,15 @@ export function Workflows() {
           workflowName={selected.name}
           version={{ id: testTarget.id, sequence: testTarget.sequence }}
           onClose={() => setTestTarget(null)}
+        />
+      )}
+
+      {selected && evalTarget && (
+        <WorkflowEvalRun
+          key={evalTarget.id}
+          workflowName={selected.name}
+          version={{ id: evalTarget.id, sequence: evalTarget.sequence }}
+          onClose={() => setEvalTarget(null)}
         />
       )}
 

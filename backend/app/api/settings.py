@@ -36,6 +36,7 @@ from app.services import (
     resolve_audit_log_ui_config,
     resolve_dashboard_status,
     resolve_embedding_config,
+    resolve_eval_config,
     resolve_guardrail_config,
     resolve_llm_config,
     resolve_nav_config,
@@ -104,6 +105,7 @@ def _to_response(
     audit_log_ui_config = resolve_audit_log_ui_config(db, db_settings)
     retention_notice_config = resolve_retention_notice_config(db, db_settings)
     rag_config = resolve_rag_config(db, db_settings)
+    eval_config = resolve_eval_config(db, db_settings)
 
     return SystemSettingsResponse(
         llm_provider=llm_config.provider,
@@ -210,6 +212,10 @@ def _to_response(
         rag_max_excerpt_chars=rag_config.max_excerpt_chars,
         rag_max_excerpt_chars_is_db_override=bool(
             db_settings and db_settings.rag_max_excerpt_chars is not None
+        ),
+        eval_case_run_timeout_seconds=eval_config.case_run_timeout_seconds,
+        eval_case_run_timeout_seconds_is_db_override=bool(
+            db_settings and db_settings.eval_case_run_timeout_seconds is not None
         ),
         available_providers={
             category: [ProviderOption(**option) for option in options]
@@ -324,6 +330,7 @@ async def update_settings(
     previous_audit_log_ui = _audit_log_ui_override_values(db_settings)
     previous_retention_notice = _retention_notice_override_values(db_settings)
     previous_rag_config = _rag_config_override_values(db_settings)
+    previous_eval_config = _eval_config_override_values(db_settings)
 
     updated_settings = repo.upsert(
         llm_provider=payload.llm_provider,
@@ -354,6 +361,7 @@ async def update_settings(
         rag_chunk_size=payload.rag_chunk_size,
         rag_chunk_overlap_ratio=payload.rag_chunk_overlap_ratio,
         rag_max_excerpt_chars=payload.rag_max_excerpt_chars,
+        eval_case_run_timeout_seconds=payload.eval_case_run_timeout_seconds,
         updated_by=user["user_id"],
     )
 
@@ -398,6 +406,12 @@ async def update_settings(
         actor_user_id=user["user_id"],
         previous=previous_rag_config,
         current=_rag_config_override_values(updated_settings),
+    )
+    _record_eval_config_changes(
+        db,
+        actor_user_id=user["user_id"],
+        previous=previous_eval_config,
+        current=_eval_config_override_values(updated_settings),
     )
 
     db.commit()
@@ -990,3 +1004,48 @@ async def delete_guardrail_pattern(
     )
     db.commit()
     return None
+
+
+def _eval_config_override_values(db_settings: SystemSettings | None) -> dict[str, str | None]:
+    """Snapshot the eval-run config column's raw override value as a string.
+
+    Mirrors _retention_notice_override_values: the audit trail records what
+    the admin set (None = cleared back to the env default), not what the
+    value resolved to.
+    """
+    fields = ("eval_case_run_timeout_seconds",)
+    if db_settings is None:
+        return {field: None for field in fields}
+
+    return {
+        field: None if getattr(db_settings, field) is None else str(getattr(db_settings, field))
+        for field in fields
+    }
+
+
+def _record_eval_config_changes(
+    db: Session,
+    *,
+    actor_user_id: str,
+    previous: dict[str, str | None],
+    current: dict[str, str | None],
+) -> None:
+    """Append an "eval_config.config_update" audit entry per eval-run config
+    field whose override actually changed (issue #84).
+
+    Mirrors _record_retention_notice_changes' shape exactly.
+    """
+    repo = AuditLogRepository(db)
+    changed_at = utc_now()
+
+    for field, new_value in current.items():
+        if previous[field] == new_value:
+            continue
+        repo.record(
+            actor_user_id=actor_user_id,
+            action="eval_config.config_update",
+            field_name=field,
+            old_value=previous[field],
+            new_value=new_value,
+            now=changed_at,
+        )

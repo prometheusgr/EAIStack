@@ -2,9 +2,11 @@
 
 Admin feature: every route depends on require_admin. Backs the Workflows
 screen - list, history, detail, diff, diagram, create, save draft,
-publish, rollback, and test chat against any version (issue #84). All
-business rules live in app.services.workflow_service and
-app.services.chat_turn_service; this module maps them to HTTP.
+publish, rollback, test chat against any version, and eval runs of a
+version's test suite (issue #84). All
+business rules live in app.services.workflow_service,
+app.services.chat_turn_service and app.services.workflow_eval_service
+(eval runs of a version's test suite); this module maps them to HTTP.
 """
 
 from fastapi import APIRouter, Depends
@@ -13,6 +15,10 @@ from sqlalchemy.orm import Session
 
 from app.api.chat_http import refused_admission_response, reply_fields
 from app.api.schemas import (
+    EvalCaseRunResult,
+    EvalRunDetail,
+    EvalRunListResponse,
+    EvalRunSummary,
     PublishWorkflowRequest,
     SaveWorkflowDraftRequest,
     TestChatRequest,
@@ -28,12 +34,20 @@ from app.core.auth import require_admin
 from app.db.database import get_db
 from app.db.models import WorkflowVersion, utc_now
 from app.repositories import (
+    EvalRunInProgress,
     ThreadRepository,
     WorkflowActiveVersionRepository,
     WorkflowVersionRepository,
 )
-from app.services import workflow_service
+from app.services import workflow_eval_service, workflow_service
 from app.services.chat_turn_service import admit_chat_message, run_chat_turn
+from app.services.workflow_eval_service import (
+    EvalRunNotFound,
+    EvalRunNotRunning,
+    EvalRunReport,
+    NoTestCases,
+    NotEvalRunOwner,
+)
 from app.services.workflow_service import (
     WorkflowAlreadyExists,
     WorkflowDraftRejected,
@@ -319,3 +333,135 @@ def _move_pointer(operation, workflow_name, payload, user, db):
         return _rejected(exc)
     db.commit()
     return _detail(version, version.id)
+
+
+# --- eval runs (issue #84 slice B) --------------------------------------------
+#
+# The admin's page drives a run: start it, then advance it one case run per
+# request until it ends - see app.services.workflow_eval_service for why.
+
+
+@router.post(
+    "/{workflow_name}/versions/{version_id}/eval-runs", response_model=None, status_code=201
+)
+async def start_eval_run(
+    workflow_name: str,
+    version_id: str,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> EvalRunDetail | JSONResponse:
+    """Start an eval run of a version's test suite. Nothing runs yet."""
+    try:
+        report = workflow_eval_service.start_eval_run(
+            db, workflow_name, version_id, user_id=user["user_id"], now=utc_now()
+        )
+    except WorkflowVersionNotFound:
+        return _not_found(f"No version {version_id!r} of {workflow_name!r}.")
+    except WorkflowDraftRejected as exc:
+        return _rejected(exc)
+    except NoTestCases:
+        return _eval_error(
+            400, "no_test_cases", "This version declares no test cases under `tests:`."
+        )
+    except EvalRunInProgress:
+        return _eval_error(
+            409,
+            "eval_run_in_progress",
+            "Another eval run is in progress. Only one runs at a time, since eval "
+            "runs share the model with production chat.",
+        )
+    return _eval_run_detail(report)
+
+
+@router.get("/{workflow_name}/eval-runs", response_model=EvalRunListResponse)
+async def list_eval_runs(
+    workflow_name: str,
+    version_id: str | None = None,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Eval runs of a workflow (optionally of one version), newest first."""
+    runs = workflow_eval_service.list_eval_runs(db, workflow_name, version_id=version_id)
+    return EvalRunListResponse(runs=[EvalRunSummary.model_validate(run) for run in runs])
+
+
+@router.get("/{workflow_name}/eval-runs/{run_id}", response_model=None)
+async def get_eval_run(
+    workflow_name: str,
+    run_id: str,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> EvalRunDetail | JSONResponse:
+    """One eval run with every case's pass rate and per-run checks."""
+    try:
+        report = workflow_eval_service.get_eval_run_report(db, workflow_name, run_id)
+    except EvalRunNotFound:
+        return _not_found(f"No eval run {run_id!r} of {workflow_name!r}.")
+    return _eval_run_detail(report)
+
+
+@router.post("/{workflow_name}/eval-runs/{run_id}/advance", response_model=None)
+async def advance_eval_run(
+    workflow_name: str,
+    run_id: str,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> EvalRunDetail | JSONResponse:
+    """Execute the run's next case run and return the updated run."""
+    try:
+        report = await workflow_eval_service.advance_eval_run(
+            db, workflow_name, run_id, user=user, clock=utc_now
+        )
+    except EvalRunNotFound:
+        return _not_found(f"No eval run {run_id!r} of {workflow_name!r}.")
+    except EvalRunNotRunning:
+        return _eval_error(409, "eval_run_not_running", "This eval run has already ended.")
+    except NotEvalRunOwner:
+        return _eval_error(
+            403, "eval_run_not_yours", "Only the admin who started an eval run can run it."
+        )
+    except WorkflowDraftRejected as exc:
+        return _rejected(exc)
+    return _eval_run_detail(report)
+
+
+@router.post("/{workflow_name}/eval-runs/{run_id}/cancel", response_model=None)
+async def cancel_eval_run(
+    workflow_name: str,
+    run_id: str,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> EvalRunDetail | JSONResponse:
+    """Stop a running eval run, keeping the results recorded so far."""
+    try:
+        report = workflow_eval_service.cancel_eval_run(db, workflow_name, run_id, now=utc_now())
+    except EvalRunNotFound:
+        return _not_found(f"No eval run {run_id!r} of {workflow_name!r}.")
+    return _eval_run_detail(report)
+
+
+def _eval_error(status_code: int, detail: str, message: str) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"detail": detail, "message": message})
+
+
+def _eval_run_detail(report: EvalRunReport) -> EvalRunDetail:
+    return EvalRunDetail.model_validate(
+        {
+            **EvalRunSummary.model_validate(report.run).model_dump(),
+            "version_sequence": report.version_sequence,
+            "cases": [
+                {
+                    "name": case_report.case.name,
+                    "runs": case_report.case.runs,
+                    "required_passes": case_report.case.required_passes(),
+                    "runs_done": len(case_report.results),
+                    "passes": case_report.passes,
+                    "passed": case_report.passed,
+                    "results": [
+                        EvalCaseRunResult.model_validate(result) for result in case_report.results
+                    ],
+                }
+                for case_report in report.cases
+            ],
+        }
+    )

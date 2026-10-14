@@ -29,11 +29,15 @@ from app.services.guardrail_config_service import GuardrailConfig, resolve_guard
 from app.services.rate_limit_config_service import resolve_rate_limit_config
 from app.services.rate_limiter_service import RateLimitCheckResult, check_chat_rate_limit
 from app.services.workflow_service import ResolvedWorkflow
-from app.workflows.primitives import extract_sources_from_messages
+from app.workflows.primitives import (
+    extract_sources_from_messages,
+    tools_called_in_current_turn,
+)
 
 # Recorded on every turn and in Phoenix trace metadata, so production
-# traffic and an admin's test runs are never confused with one another.
-RunKind = Literal["production", "test"]
+# traffic, an admin's test chat and an eval run (issue #84) are never
+# confused with one another.
+RunKind = Literal["production", "test", "eval"]
 
 
 @dataclass(frozen=True)
@@ -55,12 +59,15 @@ class ChatAdmission:
 
 @dataclass(frozen=True)
 class ChatTurnOutcome:
-    """The guarded reply to one admitted message."""
+    """The guarded reply to one admitted message, plus how the workflow
+    got there (step_outputs, tools_called) for eval scoring."""
 
     text: str
     thread_id: str
     sources: list[Source]
     was_modified: bool
+    step_outputs: dict[str, str]
+    tools_called: frozenset[str]
 
 
 def admit_chat_message(db: Session, *, user_id: str, message: str, now: datetime) -> ChatAdmission:
@@ -102,13 +109,22 @@ async def run_chat_turn(
     guardrail_config: GuardrailConfig,
     run_kind: RunKind,
     now: datetime,
+    eval_run_id: str | None = None,
 ) -> ChatTurnOutcome:
     """Run workflow on thread, guard the reply, record the turn, commit.
 
     The output guardrail's leak detector compares against the prompts of
     the version that actually ran - a draft's in test chat - never the
-    published version's.
+    published version's. eval_run_id tags an eval run's spans so its
+    traces can be found from the eval result.
     """
+    trace_metadata = {
+        "workflow_name": workflow.workflow_name,
+        "workflow_version_id": workflow.version_id,
+        "workflow_run_kind": run_kind,
+    }
+    if eval_run_id is not None:
+        trace_metadata["eval_run_id"] = eval_run_id
     agent_definition = workflow.agent_definition
     agent = agent_definition.factory(db, user["access_token"], settings.doc_search_mcp_url)
     result = await agent.ainvoke(
@@ -122,11 +138,7 @@ async def run_chat_turn(
             "configurable": {"thread_id": thread.id},
             # Tags every Phoenix span of this run (epic #80 invariant 2: the
             # version ID travels everywhere).
-            "metadata": {
-                "workflow_name": workflow.workflow_name,
-                "workflow_version_id": workflow.version_id,
-                "workflow_run_kind": run_kind,
-            },
+            "metadata": trace_metadata,
         },
     )
 
@@ -146,7 +158,7 @@ async def run_chat_turn(
         thread_id=thread.id,
         workflow_name=workflow.workflow_name,
         workflow_version_id=workflow.version_id,
-        is_test_run=run_kind == "test",
+        is_test_run=run_kind != "production",
         now=now,
     )
     db.commit()
@@ -156,4 +168,6 @@ async def run_chat_turn(
         thread_id=result["thread_id"],
         sources=extract_sources_from_messages(result["messages"]),
         was_modified=filtered.was_modified,
+        step_outputs=dict(result.get("step_outputs", {})),
+        tools_called=tools_called_in_current_turn(result["messages"]),
     )

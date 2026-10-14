@@ -122,10 +122,11 @@ conversation with its workflow.
 ## Iterating on a workflow (issue #84)
 
 The edit → run → compare loop for prompts and graphs. Issue #84 ships in three
-slices: **A. draft test chat** (implemented, below), **B. test cases + eval
-runs** with pass rates, and **C. a draft-vs-published comparison view +
-evidence-gated publish**. Until B and C land, iterating means: save a draft,
-test-run it, edit, save another draft, and publish when it behaves.
+slices: **A. draft test chat** and **B. test cases + eval runs** with pass
+rates (both implemented, below), and **C. a draft-vs-published comparison view
++ evidence-gated publish**. Until C lands, iterating means: save a draft,
+test-run it, run its evals, edit, save another draft, and publish when it
+behaves.
 
 ### Draft test chat
 
@@ -174,6 +175,77 @@ How it works:
   and there is no screen for reopening an old one.
 - **Configuration**: none new. Audit: none. A test run changes no
   configuration, just as an ordinary chat turn isn't audited.
+
+### Eval runs
+
+**Admin feature** (`require_admin`). A workflow's test cases live in its own
+YAML, under `tests:` (see [Test cases](#test-cases-tests) below), so they are
+versioned, hash-chained, audited and exported with the workflow, and the
+evidence for a publish is pinned to the exact suite that version carried.
+Built-in workflows ship theirs in git.
+
+On the Workflows screen, every history row has a **Run evals** action. It
+opens a panel headed "Eval run: <name> v<N>"; **Start eval run** runs each
+test case as many times as its `runs` asks and shows, per case, its pass rate
+("2 of 3 runs passed"), how many passes it needs, and Passed/Failed, then the
+run's verdict ("Eval run passed" when every case met its required passes).
+Each case expands to show every run's outcome and each check's result.
+Nothing is published.
+
+1. Add or edit `tests:` in the YAML and **Save draft** (vN).
+2. Click **Run evals** on vN, then **Start eval run**.
+3. Read the per-case results, edit, save, and run evals on the new version.
+
+How it works:
+
+- **The admin's page drives the run**, one case run per request:
+  `POST /api/workflows/{name}/versions/{version_id}/eval-runs` starts it
+  (`201`, nothing executed yet), then the panel calls
+  `POST /api/workflows/{name}/eval-runs/{run_id}/advance` until the run ends;
+  each call executes, scores and records exactly one case run.
+  `POST .../cancel` stops it (results so far are kept), `GET .../eval-runs`
+  lists runs (`?version_id=` filters), and `GET .../eval-runs/{run_id}` reads
+  one. **Why not a background job:** every case run forwards the admin's own
+  Keycloak access token to tools (doc-search verifies it), and an access
+  token lives about five minutes, which is shorter than a suite takes on CPU
+  inference. Each advance request carries a token the frontend has just
+  refreshed, exactly like test chat, and the backend never holds a credential
+  beyond one request. Only the admin who started a run can advance it
+  (`403 eval_run_not_yours`), since the run executes as them.
+- **One executing run per deployment** (`409 eval_run_in_progress`), enforced
+  by a unique constraint on `workflow_eval_runs.active_slot`, not a
+  check-then-insert: eval runs share the one CPU-bound model with production
+  chat. Closing the panel cancels a run still executing; a run whose page went
+  away without cancelling is released as `abandoned` once it has been idle for
+  the case-run timeout plus 60 seconds (checked when the next run starts).
+- **Same pipeline as chat**: each case run is a fresh test thread bound to the
+  version, run through `app.services.chat_turn_service.run_chat_turn`, so the
+  output guardrail, real tools and tracing all apply. The input guardrail runs
+  too: a rejected test input is recorded as outcome
+  `rejected_by_input_guardrail` and audited like any other rejection (so it
+  also counts on the Dashboard's guardrail tile). **Not** applied: the
+  per-user chat rate limit. A suite would throttle itself against the admin's
+  own bucket; its cost is bounded instead by the suite ceilings and one run at
+  a time.
+- **Outcomes**: `completed`, `timed_out` (longer than the case-run timeout,
+  see Configuration), `rejected_by_input_guardrail`, or `error` (a model or
+  tool failure, recorded as a result while the run continues, since measuring
+  that unreliability is the point of an eval). A run that didn't complete
+  fails every check.
+- **Traceability**: each case run is recorded in `chat_turn_versions` with
+  `is_test_run = true`, and its Phoenix spans carry
+  `workflow_run_kind: "eval"` and `eval_run_id`.
+- **Results hold no conversation content**: a check's detail quotes only the
+  test's own expectation or a schema location, never the reply. So
+  `workflow_eval_runs`/`workflow_eval_case_results` are kept indefinitely as
+  publish evidence (see `docs/SECURITY.md`'s retention table), while the test
+  threads they ran in are purged by conversation retention as usual. To read
+  an actual reply, open the run's Phoenix trace.
+- **Not in this slice**: comparing a draft's results with the published
+  version's, evidence-gated publish, and Phoenix trace links (slice C); a list
+  of earlier eval runs on the screen (the API lists them; slice C's comparison
+  view selects among them); LLM-as-judge checks (#30); a check that expects a
+  guardrail rejection.
 
 ## Schema reference
 
@@ -349,6 +421,41 @@ Not yet implemented in this slice — the primitive set is fixed at `agent`,
 (fan-out/fan-in) is scoped for a later slice once a concrete workflow needs
 it, per `AGENTS.md`'s no-premature-abstraction guidance.
 
+### Test cases (`tests:`)
+
+An optional top-level list, run by **Run evals** (see [Eval runs](#eval-runs)):
+
+```yaml
+tests:
+  - name: billing_question_routes_to_billing   # unique within the workflow
+    input: I was charged twice this month       # sent as the user's message
+    runs: 3          # optional, default 1; at most EVAL_RUNS_PER_CASE_CEILING (10)
+    min_passes: 2    # optional, default = runs (every run must pass)
+    expect:          # at least one check; unknown keys are rejected
+      route: {step: classify, branch: billing}                  # structural
+      review_rounds_at_most: {step: draft_and_review, rounds: 2} # structural
+      tool_called: search_knowledge_base                         # structural
+      reply_contains: [refund]                                   # content
+      reply_json_schema: {type: object, required: [answer]}      # content
+```
+
+A run passes when every check passes; a case passes when at least
+`min_passes` of its runs pass. The threshold is a whole number of runs, not a
+fraction, so "2 of 3" can't be lost to rounding.
+
+| Check | Kind | Passes when |
+|---|---|---|
+| `route` | structural | The `route` step dispatched to `branch`, judged by the router's own rule (`primitives.choose_route_branch`): the first declared branch the classifier's reply contains, else the first branch. Fails if the step never ran. |
+| `review_rounds_at_most` | structural | The `review_loop` step finished within `rounds` rounds (1 to its `max_iterations`). Fails if the loop never ran. |
+| `tool_called` | structural | The turn called that registered tool. **Limitation:** for a `review_loop` worker, only the finalized round's tool calls are visible (rejected drafts' tool exchanges never reach `messages`, per the state-shape decision below). |
+| `reply_contains` | content | The guarded reply contains the text: literal and case-insensitive, never regex. One check per entry. |
+| `reply_json_schema` | content | The guarded reply parses as JSON and matches the schema (JSON Schema 2020-12). The keywords `pattern` and `patternProperties` are rejected anywhere in the schema, the same no-admin-regex rule as custom guardrail patterns (no ReDoS surface). Deliberately conservative: a property literally named `pattern` is rejected too. |
+
+Structural checks inspect how the workflow ran and are deterministic under a
+scripted fake model, so built-in workflows' structural checks run in CI
+(`tests/unit/test_builtin_workflow_evals.py`). Content checks inspect the
+reply and only mean something against a real model.
+
 ## Validation rules (fail loudly at load time)
 
 `app.workflows.schema.parse_workflow_definition` rejects, each with a
@@ -365,6 +472,13 @@ it, per `AGENTS.md`'s no-premature-abstraction guidance.
   `REVIEW_LOOP_MAX_ITERATIONS_CEILING`.
 - A `review_loop` step's `worker_tools` entry that isn't a registered tool
   name (same check as `agent`'s `tools`).
+- A test case (`tests:`) with a duplicate name, no checks, an unknown check
+  key, a `route` check naming a non-`route` step or an undeclared branch, a
+  `review_rounds_at_most` check naming a non-`review_loop` step or `rounds`
+  outside 1..`max_iterations`, an unregistered `tool_called`, an invalid
+  `reply_json_schema` or one using `pattern`/`patternProperties`, `runs` above
+  `EVAL_RUNS_PER_CASE_CEILING`, `min_passes` outside 1..`runs`, or a suite
+  whose `runs` add up to more than `EVAL_MAX_CASE_RUNS_PER_SUITE`.
 
 ## Worked examples: the reference workflows
 
@@ -479,7 +593,12 @@ must be explicitly called out as an admin setting or a named constant):
 | `_MAX_TOOL_CALL_ROUNDS` (`app.workflows.compiler`) | Fixed code constant | The same fixed cap `chat_agent.py`'s `MAX_TOOL_CALL_ROUNDS` used, applied to any YAML-defined tool-bound agent step. Not yet YAML-configurable: no workflow has needed a different value, and making it per-step configurable ahead of a real need would be a premature abstraction. |
 | `_WORKER_MAX_TOOL_CALL_ROUNDS` (`app.workflows.primitives`) | Fixed code constant | The same cap as `_MAX_TOOL_CALL_ROUNDS`, applied to a `review_loop` worker's own internal tool-call resolution. Private to `primitives.py` since a worker's tool calls are resolved inside one node invocation, never as separate graph nodes the compiler wires up. |
 
-None of these three constants is a `SystemSettings`-backed admin knob — see
+| `EVAL_RUNS_PER_CASE_CEILING` (10), `EVAL_MAX_CASE_RUNS_PER_SUITE` (50) (`app.workflows.schema`) | Fixed code constants, enforced when a version is saved | Same reasoning as `REVIEW_LOOP_MAX_ITERATIONS_CEILING`: an eval run multiplies CPU-bound LLM calls, and a YAML edit must not be able to raise that without bound. Together with the timeout below they bound one eval run's wall-clock time (at most 50 × timeout). |
+| `runs`, `min_passes` (per test case, in YAML) | Workflow definition fields | A property of the test, not the deployment: a deterministic structural case needs 1 run, a variable content case several. |
+| `eval_case_run_timeout_seconds` | **Admin setting** (env default 300, bounds 10-3600, Settings screen "Workflow Evaluation", audited as `eval_config.config_update`, resolved by `app.services.eval_config_service`) | Entirely hardware-dependent: a review loop on a CPU-only 8B model takes minutes, on a GPU seconds. Applies from the next case run. |
+| `EVAL_RUN_ABANDON_GRACE` (60 s, `app.services.workflow_eval_service`) | Fixed code constant | Slack between two advance requests before an idle run counts as abandoned: an implementation margin no operator would tune. |
+
+None of the first three engine constants is a `SystemSettings`-backed admin knob — see
 the table for why in each case. Per issue #82's own configuration call-out:
 no new admin-configurable field was introduced — `max_iterations` lives in
 each workflow's YAML, already bounded by `REVIEW_LOOP_MAX_ITERATIONS_CEILING`.
@@ -517,6 +636,17 @@ each workflow's YAML, already bounded by `REVIEW_LOOP_MAX_ITERATIONS_CEILING`.
   `is_test_run`, tags trace metadata, applies both guardrails (leak guard on
   the draft's prompt), shares the chat rate-limit bucket, and keeps test
   threads out of every production thread lookup.
+- `backend/tests/unit/test_workflow_eval_schema.py`,
+  `test_workflow_eval_scoring.py`, `test_workflow_eval_repository.py`,
+  `test_workflow_eval_runs.py`, `test_eval_config.py`: eval runs (issue
+  #84), covering `tests:` validation, pure scoring (including that details
+  never quote the reply), the one-active-run constraint and abandonment, the
+  start/advance/cancel API (timeouts, errors, guardrail rejections, a cancel
+  racing the last case run), and the timeout setting.
+- `backend/tests/unit/test_builtin_workflow_evals.py`: every built-in
+  workflow's own `tests:`, structural checks only, run through the real
+  eval-run path against a script per workflow. A built-in test case added
+  without a script fails `test_every_built_in_suite_has_a_script`.
 
 **Scripted per-node fake harness**: `app.core.llm_client.FakeChatModel`'s
 existing `responses: list[AIMessage]` queue (consumed one-per-call, in

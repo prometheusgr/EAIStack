@@ -69,3 +69,39 @@ describe('workflowsClient.testChat (issue #84)', () => {
     })
   })
 })
+
+describe('workflowsClient eval runs (issue #84)', () => {
+  let mockFetch: MockedFunction<FetchStub>
+  let mockRefresh: MockedFunction<AuthRefresh>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetch = vi.fn() as MockedFunction<FetchStub>
+    mockRefresh = vi.fn() as MockedFunction<AuthRefresh>
+    global.fetch = mockFetch as unknown as typeof fetch
+    mockFetch.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ id: 'run-1', status: 'running' }),
+    })
+  })
+
+  it('starts an eval run of the version it names', async () => {
+    const run = await workflowsClient.startEvalRun('chat', 'v2-id', 'token', mockRefresh)
+
+    const [url, init] = mockFetch.mock.calls[0]
+    expect(url).toBe('/api/workflows/chat/versions/v2-id/eval-runs')
+    expect(init?.method).toBe('POST')
+    expect(run).toEqual({ id: 'run-1', status: 'running' })
+  })
+
+  it('advances and cancels a run by its ID', async () => {
+    await workflowsClient.advanceEvalRun('chat', 'run-1', 'token', mockRefresh)
+    await workflowsClient.cancelEvalRun('chat', 'run-1', 'token', mockRefresh)
+
+    expect(mockFetch.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['/api/workflows/chat/eval-runs/run-1/advance', 'POST'],
+      ['/api/workflows/chat/eval-runs/run-1/cancel', 'POST'],
+    ])
+  })
+})
