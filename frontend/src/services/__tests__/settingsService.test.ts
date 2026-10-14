@@ -79,6 +79,8 @@ describe('SettingsService', () => {
     rag_chunk_overlap_ratio_is_db_override: false,
     rag_max_excerpt_chars: 2000,
     rag_max_excerpt_chars_is_db_override: false,
+    eval_case_run_timeout_seconds: 300,
+    eval_case_run_timeout_seconds_is_db_override: false,
     guardrail_patterns: [],
     available_providers: { llm: [], embedding: [] },
   }

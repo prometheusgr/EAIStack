@@ -89,6 +89,8 @@ const ENV_DEFAULT_SETTINGS: SystemSettingsResponse = {
   rag_chunk_overlap_ratio_is_db_override: false,
   rag_max_excerpt_chars: 2000,
   rag_max_excerpt_chars_is_db_override: false,
+  eval_case_run_timeout_seconds: 300,
+  eval_case_run_timeout_seconds_is_db_override: false,
   guardrail_patterns: [
     {
       id: 'built-in-1',
@@ -930,6 +932,32 @@ describe('Settings retrieval & chunking section', () => {
     })
     return input
   }
+
+  it('renders the workflow evaluation timeout with its fetched value (issue #84)', async () => {
+    renderSettings()
+    await waitForRetrievalSettingsLoaded()
+
+    expect(screen.getByLabelText(/case run timeout/i)).toHaveValue(300)
+    const section = screen.getByRole('region', { name: /workflow evaluation/i })
+    expect(section).toHaveTextContent(/env default/i)
+  })
+
+  it('editing the eval case run timeout and saving sends the right payload', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await waitForRetrievalSettingsLoaded()
+
+    const timeoutInput = screen.getByLabelText(/case run timeout/i)
+    await user.clear(timeoutInput)
+    await user.type(timeoutInput, '900')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(settingsClient.updateSettings).toHaveBeenCalled()
+    })
+    const payload = vi.mocked(settingsClient.updateSettings).mock.calls[0][0]
+    expect(payload).toMatchObject({ eval_case_run_timeout_seconds: 900 })
+  })
 
   it('renders the retrieval & chunking section with fetched values', async () => {
     renderSettings()

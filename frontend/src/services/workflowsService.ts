@@ -1,6 +1,7 @@
 import { workflowsClient } from '@/api/workflowsClient'
 import type { AuthRefresh } from '@/api/authorizedFetch'
 import type {
+  EvalRun,
   SaveWorkflowDraftRequest,
   TestChatReply,
   WorkflowDiffResponse,
@@ -71,5 +72,17 @@ export class WorkflowsService {
       this.requireToken(),
       this.onRefresh
     )
+  }
+
+  async startEvalRun(name: string, versionId: string): Promise<EvalRun> {
+    return workflowsClient.startEvalRun(name, versionId, this.requireToken(), this.onRefresh)
+  }
+
+  async advanceEvalRun(name: string, runId: string): Promise<EvalRun> {
+    return workflowsClient.advanceEvalRun(name, runId, this.requireToken(), this.onRefresh)
+  }
+
+  async cancelEvalRun(name: string, runId: string): Promise<EvalRun> {
+    return workflowsClient.cancelEvalRun(name, runId, this.requireToken(), this.onRefresh)
   }
 }

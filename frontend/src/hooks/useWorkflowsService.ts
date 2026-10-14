@@ -1,6 +1,7 @@
 import { useAuth } from '@/context/AuthContext'
 import { WorkflowsService } from '@/services/workflowsService'
 import type {
+  EvalRun,
   SaveWorkflowDraftRequest,
   TestChatReply,
   WorkflowDiffResponse,
@@ -20,6 +21,11 @@ export interface TestChatArgs {
   versionId: string
   message: string
   threadId?: string
+}
+
+export interface EvalRunArgs {
+  name: string
+  runId: string
 }
 
 export interface MakeActiveArgs {
@@ -73,5 +79,29 @@ export function useWorkflowsService() {
       service().testChat(name, versionId, message, threadId)
   )
 
-  return { list, listVersions, getVersion, saveDraft, create, diff, makeActive, testChat }
+  const startEvalRun = useApiMutation<{ name: string; versionId: string }, EvalRun>(
+    async ({ name, versionId }) => service().startEvalRun(name, versionId)
+  )
+
+  const advanceEvalRun = useApiMutation<EvalRunArgs, EvalRun>(async ({ name, runId }) =>
+    service().advanceEvalRun(name, runId)
+  )
+
+  const cancelEvalRun = useApiMutation<EvalRunArgs, EvalRun>(async ({ name, runId }) =>
+    service().cancelEvalRun(name, runId)
+  )
+
+  return {
+    list,
+    listVersions,
+    getVersion,
+    saveDraft,
+    create,
+    diff,
+    makeActive,
+    testChat,
+    startEvalRun,
+    advanceEvalRun,
+    cancelEvalRun,
+  }
 }
