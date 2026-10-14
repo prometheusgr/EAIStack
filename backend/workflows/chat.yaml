@@ -20,3 +20,11 @@ steps:
       Do not describe the tool call itself.
     tools:
       - search_knowledge_base
+# Test cases (issue #84): run from the Workflows screen's "Run evals". The
+# structural check also runs in CI against a scripted fake model
+# (tests/unit/test_builtin_workflow_evals.py).
+tests:
+  - name: answers_from_the_knowledge_base
+    input: How many vacation days do employees get per year?
+    expect:
+      tool_called: search_knowledge_base
