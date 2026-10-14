@@ -115,6 +115,7 @@ effect on the next retention sweep — no backend restart.
 | `api_keys` (revoked) | **30 days** after `revoked_at`, then hard-deleted. Active keys are never purged. | Yes (`api_key_purge_days`) | `purge_expired_api_keys` |
 | `chat_turn_versions` (which workflow version answered each chat turn, issue #83) | **365 days** after the turn. Holds no message content, and deliberately outlives the conversation: it is **not** purged by conversation retention or logout cleanup, because its purpose is answering "which prompt produced this answer?" afterwards. | Yes (`chat_turn_version_retention_days`) | `purge_expired_chat_turn_versions` |
 | `workflow_versions` / `workflow_active_versions` | Kept forever. Workflow definitions are configuration with an audit purpose, not user data; versions are append-only and hash-chained (see "Workflow Store" below). | No | — (no purge path) |
+| `workflow_eval_runs` / `workflow_eval_case_results` (issue #84) | Kept forever. They hold **no conversation content**: test inputs come from the workflow's YAML, and a check's detail quotes only the test's expectation or a schema location, never the model's reply (asserted by a test). They are the evidence a publish will point to (issue #84 slice C). The test threads an eval runs in are ordinary conversation rows, purged by the conversation window and logout cleanup above. | No | — (no purge path) |
 | Phoenix traces (LLM prompts/responses, tool calls — issue #4) | **None yet — accumulates indefinitely.** Carries the same sensitive prompt/response content as `conversation_threads`, which defaults to 24h; this store has no bound at all today. | **Not yet** ([#32](../../../issues/32)) | **Not yet** ([#32](../../../issues/32)) — lives in Phoenix's own SQLite store, outside the `eaistack` database this sweep purges directly |
 | `system_settings` | **Forever** (configuration, single row). | n/a | Never purged |
 | `audit_logs` | **Forever** — retained on a schedule independent of session cleanup. | **No, by design** | Never purged (see below) |
@@ -869,9 +870,24 @@ power to a file upload. The controls are therefore not "no upload", but:
 - **Audited pointer moves**: publish and rollback move the active-version pointer
   and write the audit entry in one transaction (see `docs/AUDIT_EVENTS.md`).
 - **Built-ins never silently overwrite an admin change** (epic #80 invariant 4).
+- **Eval runs** (issue #84, `require_admin`): an admin runs a version's test
+  cases (`tests:` in its YAML). The admin's page drives the run one case run
+  per request, so each request forwards the admin's own, freshly refreshed
+  access token to tools; the backend never holds a credential beyond one
+  request (an access token outlives only a few minutes, shorter than a suite).
+  Only the admin who started a run can advance it. Eval case runs go through
+  the input and output guardrails like any chat turn, but not the per-user
+  chat rate limit; instead the database allows one executing eval run per
+  deployment (`workflow_eval_runs.active_slot` unique constraint), and fixed,
+  non-DB-editable ceilings bound a suite's size (`EVAL_RUNS_PER_CASE_CEILING`,
+  `EVAL_MAX_CASE_RUNS_PER_SUITE`). A test case's `reply_json_schema` may not
+  use the regex keywords `pattern`/`patternProperties`, keeping configuration
+  free of admin-authored regex (no ReDoS surface), as for custom guardrail
+  patterns.
 - **Traceability**: every chat turn records the version that answered it, and
   its trace is tagged with the workflow name and version ID. Draft test-chat
-  turns are marked `is_test_run` and traced with `workflow_run_kind: "test"`.
+  and eval turns are marked `is_test_run` and traced with
+  `workflow_run_kind: "test"` / `"eval"` (eval spans also carry `eval_run_id`).
 
 Change management is `direct` (publish from the UI) and only `direct` today;
 git-backed modes and two-person approval are issue #87.
