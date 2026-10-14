@@ -21,6 +21,7 @@ from app.services.embedding_service import (
     generate_embedding,
     replace_embeddings,
 )
+from app.services.eval_config_service import EvalConfig, resolve_eval_config
 from app.services.guardrail_config_service import GuardrailConfig, resolve_guardrail_config
 from app.services.nav_config_service import NavConfig, resolve_nav_config
 from app.services.rag_config_service import RagConfig, resolve_rag_config
@@ -87,6 +88,8 @@ __all__ = [
     "resolve_dashboard_status",
     "NavConfig",
     "resolve_nav_config",
+    "EvalConfig",
+    "resolve_eval_config",
     "RetentionNoticeConfig",
     "resolve_retention_notice_config",
     "RagConfig",

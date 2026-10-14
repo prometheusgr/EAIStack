@@ -158,6 +158,11 @@ export interface SystemSettingsResponse {
   rag_chunk_overlap_ratio_is_db_override: boolean
   rag_max_excerpt_chars: number
   rag_max_excerpt_chars_is_db_override: boolean
+  // How long one run of a workflow test case may take in an eval run
+  // (issue #84) before it is recorded as timed out. Applies from the next
+  // case run; bounded 10-3600 by the backend.
+  eval_case_run_timeout_seconds: number
+  eval_case_run_timeout_seconds_is_db_override: boolean
   available_providers: {
     llm: ProviderOption[]
     embedding: ProviderOption[]
@@ -203,4 +208,5 @@ export interface UpdateSettingsRequest {
   rag_chunk_size?: number | null
   rag_chunk_overlap_ratio?: number | null
   rag_max_excerpt_chars?: number | null
+  eval_case_run_timeout_seconds?: number | null
 }

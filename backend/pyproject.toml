@@ -35,6 +35,9 @@ dependencies = [
     "arize-phoenix-otel==0.17.1",
     "openinference-instrumentation-langchain==0.1.73",
     "PyYAML==6.0.3",
+    # Workflow test cases' reply_json_schema check (issue #84). Already
+    # installed via mcp; pinned directly because we now import it ourselves.
+    "jsonschema==4.26.0",
 ]
 
 [project.optional-dependencies]

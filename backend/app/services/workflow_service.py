@@ -92,6 +92,9 @@ class ResolvedWorkflow:
     version_id: str
     version_sequence: int
     agent_definition: AgentDefinition
+    # The parsed definition, for callers that need more than the runnable
+    # agent - an eval run reads the version's test suite from it.
+    definition: WorkflowDef
 
 
 @dataclass(frozen=True)
@@ -408,6 +411,7 @@ def _resolved(version: WorkflowVersion, definition: WorkflowDef) -> ResolvedWork
         version_id=version.id,
         version_sequence=version.sequence,
         agent_definition=build_agent_definition(version.workflow_name, definition),
+        definition=definition,
     )
 
 

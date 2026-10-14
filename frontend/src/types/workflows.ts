@@ -53,3 +53,53 @@ export interface TestChatReply extends ChatResponse {
   testVersionId: string
   testVersionSequence: number
 }
+
+/** One check's verdict on one case run (issue #84). `detail` quotes only
+ * the test case's own expectation, never the model's reply. */
+export interface EvalCheckResult {
+  check: string
+  kind: 'structural' | 'content'
+  passed: boolean
+  detail: string
+}
+
+export type EvalRunOutcome = 'completed' | 'timed_out' | 'rejected_by_input_guardrail' | 'error'
+
+export interface EvalCaseRunResult {
+  run_index: number
+  outcome: EvalRunOutcome
+  passed: boolean
+  checks: EvalCheckResult[]
+  thread_id: string | null
+  duration_ms: number
+}
+
+/** One test case within an eval run: `passes` of `runs_done` so far, out of
+ * `runs`; `passed` stays null until all its runs are recorded. */
+export interface EvalCaseReport {
+  name: string
+  runs: number
+  required_passes: number
+  runs_done: number
+  passes: number
+  passed: boolean | null
+  results: EvalCaseRunResult[]
+}
+
+export type EvalRunStatus = 'running' | 'completed' | 'cancelled' | 'abandoned'
+
+export interface EvalRun {
+  id: string
+  workflow_name: string
+  workflow_version_id: string
+  version_sequence: number
+  status: EvalRunStatus
+  /** Every case met its required passes; null until the run completes. */
+  passed: boolean | null
+  case_runs_total: number
+  case_runs_done: number
+  started_by_user_id: string
+  started_at: string
+  finished_at: string | null
+  cases: EvalCaseReport[]
+}

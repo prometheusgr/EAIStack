@@ -57,3 +57,14 @@ steps:
 
       Draft: {draft}
     max_iterations: 3
+# Test cases (issue #84): run from the Workflows screen's "Run evals". The
+# structural check also runs in CI against a scripted fake model
+# (tests/unit/test_builtin_workflow_evals.py). Three runs, two of which must
+# pass: a real reviewer's verdicts vary from run to run.
+tests:
+  - name: reviewer_approves_within_two_rounds
+    input: Summarize our vacation policy in two sentences.
+    runs: 3
+    min_passes: 2
+    expect:
+      review_rounds_at_most: {step: draft_and_review, rounds: 2}

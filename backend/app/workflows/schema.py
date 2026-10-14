@@ -15,9 +15,11 @@ unreachable step, an unregistered tool name) are enforced by
 _validate_definition, once the whole tree has parsed.
 """
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field, ValidationError
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.workflows.tool_registry import is_registered_tool
 
@@ -32,6 +34,21 @@ from app.workflows.tool_registry import is_registered_tool
 # SystemSettings field, since that would let the thing it constrains
 # disable the constraint).
 REVIEW_LOOP_MAX_ITERATIONS_CEILING = 10
+
+# Eval-run cost ceilings (issue #84), fixed for the same reason as the
+# review-loop ceiling above: an eval run multiplies CPU-bound LLM calls, and
+# a YAML edit must never be able to raise that without bound. Enforced when a
+# version is saved, so an over-budget suite is a validation error rather than
+# a run that discovers its own cost halfway through.
+EVAL_RUNS_PER_CASE_CEILING = 10
+EVAL_MAX_CASE_RUNS_PER_SUITE = 50
+
+# JSON-schema keywords that take a regular expression. Rejected anywhere in
+# a test case's reply_json_schema, matching the guardrails' rule that admin
+# configuration never supplies regex (no ReDoS surface; see issue #16).
+# Deliberately conservative: a property literally named "pattern" is
+# rejected too.
+_REGEX_SCHEMA_KEYWORDS = frozenset({"pattern", "patternProperties"})
 
 
 class WorkflowValidationError(Exception):
@@ -119,6 +136,77 @@ StepDef = Annotated[
 ]
 
 
+class RouteExpectation(BaseModel):
+    """The route step `step` dispatched to `branch`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step: str
+    branch: str
+
+
+class ReviewRoundsExpectation(BaseModel):
+    """The review_loop step `step` finished within `rounds` rounds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step: str
+    rounds: int
+
+
+class EvalExpectations(BaseModel):
+    """The checks one test case makes (scored by app.workflows.eval_scoring).
+
+    Structural checks (route, review_rounds_at_most, tool_called) inspect
+    how the workflow ran and are deterministic under a scripted fake model;
+    content checks (reply_contains, reply_json_schema) inspect the guarded
+    reply and only mean something against a real model.
+
+    extra="forbid": a misspelled check name must fail validation, not
+    become a check that silently never runs.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    route: RouteExpectation | None = None
+    review_rounds_at_most: ReviewRoundsExpectation | None = None
+    tool_called: str | None = None
+    # Literal, case-insensitive substrings - never regex.
+    reply_contains: list[str] = Field(default_factory=list)
+    reply_json_schema: dict[str, Any] | None = None
+
+    def is_empty(self) -> bool:
+        return (
+            self.route is None
+            and self.review_rounds_at_most is None
+            and self.tool_called is None
+            and not self.reply_contains
+            and self.reply_json_schema is None
+        )
+
+
+class EvalCaseDef(BaseModel):
+    """One test case: an input, run `runs` times, passing when at least
+    `min_passes` of those runs pass every check (default: all of them).
+
+    Several runs per case because a real model varies from run to run: a
+    pass rate, not a single pass/fail, is what an eval reports. The
+    threshold is a whole number of runs rather than a fractional rate, so
+    "2 of 3" can't be lost to rounding (2/3 < 0.67).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    input: str
+    runs: int = Field(default=1, ge=1)
+    min_passes: int | None = Field(default=None, ge=1)
+    expect: EvalExpectations
+
+    def required_passes(self) -> int:
+        return self.min_passes if self.min_passes is not None else self.runs
+
+
 class WorkflowDef(BaseModel):
     """A fully validated workflow definition, ready for
     app.workflows.compiler.compile_workflow.
@@ -134,6 +222,9 @@ class WorkflowDef(BaseModel):
     description: str = ""
     entry: str
     steps: dict[str, StepDef]
+    # Issue #84: versioned with the workflow, so the evidence for a publish
+    # is pinned to the exact suite that version carried.
+    tests: list[EvalCaseDef] = Field(default_factory=list)
 
     def guarded_prompt_text(self) -> str:
         """Every prompt this workflow sends to the model, joined.
@@ -262,6 +353,107 @@ def _validate_definition(definition: WorkflowDef, *, source_file: str) -> None:
             field="steps",
             message=f"unreachable step(s) not reachable from entry '{definition.entry}': {sorted(unreachable)}",
         )
+
+    _validate_eval_cases(definition, source_file=source_file)
+
+
+def _validate_eval_cases(definition: WorkflowDef, *, source_file: str) -> None:
+    """A test case may only reference steps, branches and tools that exist,
+    and the whole suite must fit the eval cost ceilings."""
+    seen_names: set[str] = set()
+    for case in definition.tests:
+        prefix = f"tests.{case.name}"
+
+        def reject(field: str, message: str) -> None:
+            raise WorkflowValidationError(file=source_file, field=field, message=message)
+
+        if case.name in seen_names:
+            reject(f"{prefix}.name", f"duplicate test case name '{case.name}'")
+        seen_names.add(case.name)
+
+        if case.runs > EVAL_RUNS_PER_CASE_CEILING:
+            reject(
+                f"{prefix}.runs",
+                f"runs={case.runs} exceeds the fixed ceiling of {EVAL_RUNS_PER_CASE_CEILING}",
+            )
+
+        if case.min_passes is not None and case.min_passes > case.runs:
+            reject(
+                f"{prefix}.min_passes",
+                f"min_passes={case.min_passes} is more than the case's runs ({case.runs})",
+            )
+
+        expect = case.expect
+        if expect.is_empty():
+            reject(f"{prefix}.expect", "a test case must declare at least one check")
+
+        if expect.route is not None:
+            route_step = definition.steps.get(expect.route.step)
+            if not isinstance(route_step, RouteStepDef):
+                reject(f"{prefix}.expect.route", f"'{expect.route.step}' is not a route step")
+            elif expect.route.branch not in route_step.branches:
+                reject(
+                    f"{prefix}.expect.route",
+                    f"'{expect.route.branch}' is not a branch of route step '{expect.route.step}'",
+                )
+
+        if expect.review_rounds_at_most is not None:
+            rounds_check = expect.review_rounds_at_most
+            loop_step = definition.steps.get(rounds_check.step)
+            if not isinstance(loop_step, ReviewLoopStepDef):
+                reject(
+                    f"{prefix}.expect.review_rounds_at_most",
+                    f"'{rounds_check.step}' is not a review_loop step",
+                )
+            elif not 1 <= rounds_check.rounds <= loop_step.max_iterations:
+                reject(
+                    f"{prefix}.expect.review_rounds_at_most",
+                    f"rounds must be between 1 and the step's max_iterations "
+                    f"({loop_step.max_iterations})",
+                )
+
+        if expect.tool_called is not None and not is_registered_tool(expect.tool_called):
+            reject(
+                f"{prefix}.expect.tool_called",
+                f"unknown tool '{expect.tool_called}' is not registered",
+            )
+
+        if expect.reply_json_schema is not None:
+            schema_problem = _json_schema_problem(expect.reply_json_schema)
+            if schema_problem is not None:
+                reject(f"{prefix}.expect.reply_json_schema", schema_problem)
+
+    total_runs = sum(case.runs for case in definition.tests)
+    if total_runs > EVAL_MAX_CASE_RUNS_PER_SUITE:
+        raise WorkflowValidationError(
+            file=source_file,
+            field="tests",
+            message=(
+                f"the suite's runs add up to {total_runs}, above the fixed ceiling of "
+                f"{EVAL_MAX_CASE_RUNS_PER_SUITE} per eval run"
+            ),
+        )
+
+
+def _json_schema_problem(schema: dict[str, Any]) -> str | None:
+    if _uses_regex_keyword(schema):
+        return "regex keywords (pattern, patternProperties) are not allowed"
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError as exc:
+        return f"not a valid JSON schema: {exc.message}"
+    return None
+
+
+def _uses_regex_keyword(node: Any) -> bool:
+    if isinstance(node, dict):
+        return any(
+            key in _REGEX_SCHEMA_KEYWORDS or _uses_regex_keyword(value)
+            for key, value in node.items()
+        )
+    if isinstance(node, list):
+        return any(_uses_regex_keyword(item) for item in node)
+    return False
 
 
 def _reachable_steps(definition: WorkflowDef) -> set[str]:

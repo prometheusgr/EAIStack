@@ -17,6 +17,9 @@ vi.mock('../api/workflowsClient', () => ({
     diff: vi.fn(),
     moveActive: vi.fn(),
     testChat: vi.fn(),
+    startEvalRun: vi.fn(),
+    advanceEvalRun: vi.fn(),
+    cancelEvalRun: vi.fn(),
   },
 }))
 
@@ -230,6 +233,17 @@ describe('Workflows', () => {
     expect(
       await screen.findByRole('heading', { name: 'Draft test run: chat v2' })
     ).toBeInTheDocument()
+    expect(workflowsClient.moveActive).not.toHaveBeenCalled()
+  })
+
+  it('opens an eval run panel for a version without starting or publishing anything (issue #84)', async () => {
+    mockStore([V1, V2])
+
+    await openChat()
+    await userEvent.click(screen.getByRole('button', { name: 'Run evals on v2' }))
+
+    expect(await screen.findByRole('heading', { name: 'Eval run: chat v2' })).toBeInTheDocument()
+    expect(workflowsClient.startEvalRun).not.toHaveBeenCalled()
     expect(workflowsClient.moveActive).not.toHaveBeenCalled()
   })
 

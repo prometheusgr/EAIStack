@@ -270,6 +270,12 @@ class Settings(BaseSettings):
     # before it reaches the LLM (mcp-servers/doc-search/app/search.py).
     rag_max_excerpt_chars: int = Field(default=2000, ge=1)
 
+    # How long one run of a workflow test case may take in an eval run
+    # (issue #84) before it is recorded as timed out. Admin-overridable via
+    # app.services.eval_config_service: the right value depends on the
+    # inference hardware. Same bounds as the admin API's.
+    eval_case_run_timeout_seconds: int = Field(default=300, ge=10, le=3600)
+
     # Directory the workflow engine (issue #81, epic #80) loads built-in
     # *.yaml workflow definitions from at process startup (see
     # app.workflows.loader, called from app.main's lifespan hook). Env-only,

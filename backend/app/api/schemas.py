@@ -531,6 +531,10 @@ class SystemSettingsResponse(BaseModel):
     rag_chunk_overlap_ratio_is_db_override: bool
     rag_max_excerpt_chars: int
     rag_max_excerpt_chars_is_db_override: bool
+    # How long one run of a workflow test case may take in an eval run
+    # (issue #84). Applies to the next eval run started.
+    eval_case_run_timeout_seconds: int
+    eval_case_run_timeout_seconds_is_db_override: bool
     available_providers: dict[str, list[ProviderOption]]
 
 
@@ -595,6 +599,7 @@ class UpdateSettingsRequest(BaseModel):
     rag_chunk_size: Optional[int] = Field(default=None, ge=1)
     rag_chunk_overlap_ratio: Optional[float] = Field(default=None, ge=0, le=0.9)
     rag_max_excerpt_chars: Optional[int] = Field(default=None, ge=1)
+    eval_case_run_timeout_seconds: Optional[int] = Field(default=None, ge=10, le=3600)
 
 
 class WorkflowSummaryResponse(BaseModel):
@@ -690,3 +695,77 @@ class WorkflowDiffResponse(BaseModel):
     """Unified diff between two versions' YAML."""
 
     diff: str
+
+
+class EvalCheckResult(BaseModel):
+    """One check's verdict on one case run. detail quotes only the test's
+    own expectation, never the reply (issue #84)."""
+
+    check: str
+    kind: str
+    passed: bool
+    detail: str
+
+
+class EvalCaseRunResult(BaseModel):
+    """One run of one test case."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    run_index: int
+    outcome: str
+    passed: bool
+    checks: list[EvalCheckResult]
+    thread_id: str | None
+    duration_ms: int
+
+
+class EvalCaseReport(BaseModel):
+    """One test case's pass rate (passes of runs_done, out of runs) and its
+    verdict, null until all its runs are recorded."""
+
+    name: str
+    runs: int
+    required_passes: int
+    runs_done: int
+    passes: int
+    passed: bool | None
+    results: list[EvalCaseRunResult]
+
+
+class EvalRunSummary(BaseModel):
+    """An eval run without its per-case detail, for the run list."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    workflow_name: str
+    workflow_version_id: str
+    status: str
+    passed: bool | None
+    case_runs_total: int
+    case_runs_done: int
+    started_by_user_id: str
+    started_at: datetime
+    finished_at: datetime | None
+
+    @field_serializer("started_at")
+    def _serialize_started_at(self, value: datetime) -> str:
+        return _as_utc_isoformat(value)
+
+    @field_serializer("finished_at")
+    def _serialize_finished_at(self, value: datetime | None) -> str | None:
+        return None if value is None else _as_utc_isoformat(value)
+
+
+class EvalRunDetail(EvalRunSummary):
+    """An eval run with each test case's results."""
+
+    version_sequence: int
+    cases: list[EvalCaseReport]
+
+
+class EvalRunListResponse(BaseModel):
+    """Response body for GET /api/workflows/{name}/eval-runs, newest first."""
+
+    runs: list[EvalRunSummary]
