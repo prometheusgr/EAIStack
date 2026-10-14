@@ -105,19 +105,28 @@ export function ChatWindow() {
 
     const mostRecentThread = listThreads.data.threads[0];
     if (mostRecentThread) {
+      activeThreadIdRef.current = mostRecentThread.id;
       loadThread(mostRecentThread.id);
     }
   }, [listThreads.data, hasLoadedInitialThread]);
 
+  // A thread's history can arrive after the user has already moved on
+  // (picked another conversation, or clicked New chat while the restore on
+  // mount was still loading). Only the thread the user is on now may fill
+  // the screen.
   const loadThread = async (id: string) => {
     const history = await getThreadHistory.mutateAsync(id);
-    if (isMounted()) setThreadId(history.id);
-    if (isMounted()) setThreadWorkflow(history.workflow);
-    if (isMounted()) setMessages(history.messages);
+    const stillOnThisThread = activeThreadIdRef.current === id;
+    if (isMounted() && stillOnThisThread) setThreadId(history.id);
+    if (isMounted() && stillOnThisThread) setThreadWorkflow(history.workflow);
+    if (isMounted() && stillOnThisThread) setMessages(history.messages);
   };
 
   const handleSelectThread = (id: string) => {
-    if (id === threadId) {
+    // Any explicit choice, even New chat before the thread list arrives,
+    // replaces restoring the most recent conversation.
+    setHasLoadedInitialThread(true);
+    if (id === activeThreadIdRef.current) {
       return;
     }
     activeThreadIdRef.current = id;
