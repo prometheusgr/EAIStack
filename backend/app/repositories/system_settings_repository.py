@@ -56,6 +56,7 @@ class SystemSettingsRepository:
         rag_chunk_size: int | None = None,
         rag_chunk_overlap_ratio: float | None = None,
         rag_max_excerpt_chars: int | None = None,
+        eval_case_run_timeout_seconds: int | None = None,
     ) -> SystemSettings:
         """Create or update the singleton settings row.
 
@@ -101,6 +102,7 @@ class SystemSettingsRepository:
         settings_row.rag_chunk_size = rag_chunk_size
         settings_row.rag_chunk_overlap_ratio = rag_chunk_overlap_ratio
         settings_row.rag_max_excerpt_chars = rag_max_excerpt_chars
+        settings_row.eval_case_run_timeout_seconds = eval_case_run_timeout_seconds
         settings_row.updated_by = updated_by
 
         self.db.flush()
